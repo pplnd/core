@@ -11,8 +11,8 @@ test("make: infers precise variant types for Ok and Err", () => {
 	expectTypeOf(okVal.value).toEqualTypeOf<number>();
 
 	const errVal = Result.make.err("failed");
-	expectTypeOf(errVal).toEqualTypeOf<Result.Err<string>>();
-	expectTypeOf(errVal.error).toEqualTypeOf<string>();
+	expectTypeOf(errVal).toEqualTypeOf<Result.Err<"failed">>();
+	expectTypeOf(errVal.error).toEqualTypeOf<"failed">();
 });
 
 test("is guards: narrows Result to Ok and Err variant subtypes", () => {

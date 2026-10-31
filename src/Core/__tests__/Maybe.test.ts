@@ -294,13 +294,35 @@ test("chain: operates on un-narrowed union type without CFA narrowing", () => {
 // ---------------------------------------------------------------------------
 
 test("match: calls some handler for Some", () => {
-	const result = pipe(Maybe.make.some(5), Maybe.match({ some: (n: number) => `got ${n}`, none: () => "nothing" }));
+	let noneCalled = false;
+	const result = pipe(
+		Maybe.make.some(5),
+		Maybe.match({
+			some: (n: number) => `got ${n}`,
+			none: () => {
+				noneCalled = true;
+				return "nothing";
+			},
+		}),
+	);
 	expect(result).toBe("got 5");
+	expect(noneCalled).toBe(false);
 });
 
 test("match: calls none handler for None", () => {
-	const result = pipe(Maybe.make.none(), Maybe.match({ some: (n: number) => `got ${n}`, none: () => "nothing" }));
+	let someCalled = false;
+	const result = pipe(
+		Maybe.make.none(),
+		Maybe.match({
+			some: (n: number) => {
+				someCalled = true;
+				return `got ${n}`;
+			},
+			none: () => "nothing",
+		}),
+	);
 	expect(result).toBe("nothing");
+	expect(someCalled).toBe(false);
 });
 
 test("match: is data-last (returns a function first)", () => {
@@ -736,6 +758,22 @@ test("struct: short-circuits on first None encountered", () => {
 	expect(res).toStrictEqual(Maybe.make.none());
 });
 
+test("struct: does not read fields after the first None", () => {
+	let afterNoneRead = false;
+	const fields = {
+		first: Maybe.make.some(1),
+		missing: Maybe.make.none(),
+		get afterMissing() {
+			afterNoneRead = true;
+			return Maybe.make.some(3);
+		},
+	};
+
+	const res = Maybe.struct(fields);
+	expect(res).toStrictEqual(Maybe.make.none());
+	expect(afterNoneRead).toBe(false);
+});
+
 test("struct: composes in pipeline", () => {
 	const res = pipe(
 		Maybe.make.some({ name: "Alice" }),
@@ -807,7 +845,10 @@ test("struct: safely handles __proto__ property without prototype pollution", ()
 test("assignTo: safely handles __proto__ property without prototype pollution", () => {
 	const res = pipe(Maybe.make.some(42), Maybe.assignTo("__proto__"));
 	expect(Maybe.is.some(res)).toBe(true);
-	const value = Maybe.getOrElse(() => ({} as Record<string, unknown>))(res);
+	if (Maybe.is.none(res)) {
+		throw new Error("Expected assignTo to preserve Some");
+	}
+	const { value } = res;
 	expect(Object.hasOwn(value, "__proto__")).toBe(true);
 	const emptyTarget: Record<string, unknown> = {};
 	expect(emptyTarget["__proto__"]).toBe(Object.prototype);

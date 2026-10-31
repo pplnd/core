@@ -45,7 +45,7 @@ const setProperty = <T extends Record<string, unknown>>(target: T, key: string, 
 };
 
 const makeOk = <A>(value: A): Result.Ok<A> => ({ kind: "Ok", value });
-const makeErr = <E>(error: E): Result.Err<E> => ({ kind: "Err", error });
+const makeErr = <const E>(error: E): Result.Err<E> => ({ kind: "Err", error });
 
 const isOk = <E, A>(result: Result<E, A>): result is Result.Ok<A> => result.kind === "Ok";
 const isErr = <E, A>(result: Result<E, A>): result is Result.Err<E> => result.kind === "Err";
@@ -120,7 +120,7 @@ export const Result = {
 	 * );
 	 * ```
 	 */
-	tryCatch: <E, A>(operation: () => A, options: { onError: (error: unknown) => E; }): Result<E, A> => {
+	tryCatch: <const E, A>(operation: () => A, options: { onError: (error: unknown) => E; }): Result<E, A> => {
 		try {
 			return makeOk(operation());
 		} catch (error) {
@@ -266,10 +266,13 @@ export const Result = {
 		 * ```
 		 */
 		Predicate:
-			(<A, B extends A, E>(predicate: (value: A) => boolean, onFalse: (value: A) => E) => (value: A): Result<E, B> =>
+			(<A, B extends A, const E>(predicate: (value: A) => boolean, onFalse: (value: A) => E) => (value: A): Result<E, B> =>
 				predicate(value) ? makeOk(value as unknown as B) : makeErr(onFalse(value))) as {
-					<A, B extends A, E>(refinement: (value: A) => value is B, onFalse: (value: A) => E): (value: A) => Result<E, B>;
-					<A, E>(predicate: (value: A) => boolean, onFalse: (value: A) => E): (value: A) => Result<E, A>;
+					<A, B extends A, const E>(
+						refinement: (value: A) => value is B,
+						onFalse: (value: A) => E,
+					): (value: A) => Result<E, B>;
+					<A, const E>(predicate: (value: A) => boolean, onFalse: (value: A) => E): (value: A) => Result<E, A>;
 				},
 
 		/**
@@ -285,7 +288,7 @@ export const Result = {
 		 * pipe(42, Result.from.nullable(() => "is null"));   // Ok(42)
 		 * ```
 		 */
-		nullable: <E>(onNull: () => E) => <A>(value: A): Result<E, NonNullable<A>> =>
+		nullable: <const E>(onNull: () => E) => <A>(value: A): Result<E, NonNullable<A>> =>
 			value === null || value === undefined ? makeErr(onNull()) : makeOk(value as NonNullable<A>),
 
 		/**
@@ -300,7 +303,7 @@ export const Result = {
 		 * pipe(Maybe.make.some(42), Result.from.Maybe(() => "is none")); // Ok(42)
 		 * ```
 		 */
-		Maybe: <E>(onNone: () => E) => <A>(maybe: Maybe<A>): Result<E, A> =>
+		Maybe: <const E>(onNone: () => E) => <A>(maybe: Maybe<A>): Result<E, A> =>
 			CoreMaybe.is.none(maybe) ? makeErr(onNone()) : makeOk(maybe.value),
 
 		/**
@@ -515,16 +518,16 @@ export const Result = {
 	 * ```
 	 */
 	ensure:
-		(<A, B extends A, E2>(predicate: (value: A) => boolean, onFail: (value: A) => E2) =>
+		(<A, B extends A, const E2>(predicate: (value: A) => boolean, onFail: (value: A) => E2) =>
 		<E1 = never>(result: Result<E1, A>): Result<E1 | E2, B> =>
 			isErr(result)
 				? result
 				: (predicate(result.value) ? (result as unknown as Result<E1 | E2, B>) : makeErr(onFail(result.value)))) as {
-				<A, B extends A, E2>(
+				<A, B extends A, const E2>(
 					refinement: (value: A) => value is B,
 					onFail: (value: A) => E2,
 				): <E1 = never>(result: Result<E1, A>) => Result<E1 | E2, B>;
-				<A, E2>(
+				<A, const E2>(
 					predicate: (value: A) => boolean,
 					onFail: (value: A) => E2,
 				): <E1 = never>(result: Result<E1, A>) => Result<E1 | E2, A>;

@@ -57,6 +57,17 @@ test("match: produces unified return type from exhaustive handlers", () => {
 	expectTypeOf(outcome).toEqualTypeOf<boolean>();
 });
 
+test("match: unifies array results as a mutable array", () => {
+	const tag = String("staff");
+	const naturalUnion = constTruthyBool() ? Maybe.make.some(tag) : Maybe.make.none();
+
+	const tags = pipe(naturalUnion, Maybe.match({ some: (value) => [value], none: () => [] }));
+	tags.push("admin");
+	const sendToApi = (_items: string[]): void => {};
+	sendToApi(tags);
+	expectTypeOf(tags).toEqualTypeOf<string[]>();
+});
+
 test("getOrElse: widens return type to union with fallback", () => {
 	const naturalUnion: Maybe<string> = constTruthyBool() ? Maybe.make.some("hello") : Maybe.make.none();
 
@@ -115,7 +126,8 @@ test("from converters: converts nullable, Result, and Validation to Maybe", () =
 });
 
 test("to converters & sequence: converts Maybe to primitives/Result/Validation and swaps contexts", () => {
-	const naturalUnion: Maybe<number> = constTruthyBool() ? Maybe.make.some(42) : Maybe.make.none();
+	const value = Number("42");
+	const naturalUnion = constTruthyBool() ? Maybe.make.some(value) : Maybe.make.none();
 
 	const toNullable = Maybe.to.nullable(naturalUnion);
 	expectTypeOf(toNullable).toEqualTypeOf<number | null>();
@@ -123,10 +135,10 @@ test("to converters & sequence: converts Maybe to primitives/Result/Validation a
 	const toUndef = Maybe.to.undefined(naturalUnion);
 	expectTypeOf(toUndef).toEqualTypeOf<number | undefined>();
 
-	const toResult = pipe(naturalUnion, Maybe.to.Result(() => "missing" as const));
+	const toResult = pipe(naturalUnion, Maybe.to.Result(() => "missing"));
 	expectTypeOf(toResult).toEqualTypeOf<Result<"missing", number>>();
 
-	const toValidation = pipe(naturalUnion, Maybe.to.Validation(() => "missing" as const));
+	const toValidation = pipe(naturalUnion, Maybe.to.Validation(() => "missing"));
 	expectTypeOf(toValidation).toEqualTypeOf<Validation<"missing", number>>();
 
 	// sequence.Result

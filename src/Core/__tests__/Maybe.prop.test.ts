@@ -129,6 +129,12 @@ test("tap: always returns identical reference", () => {
 	}));
 });
 
+test("tapNone: always returns identical reference", () => {
+	fc.assert(fc.property(arbMaybe, (m) => {
+		expect(Maybe.tapNone(() => {})(m)).toBe(m);
+	}));
+});
+
 // ---------------------------------------------------------------------------
 // recover
 // ---------------------------------------------------------------------------
@@ -156,8 +162,8 @@ test("filter: always-true predicate is identity on Some", () => {
 });
 
 test("filter: always-false predicate gives None on Some", () => {
-	fc.assert(fc.property(arbSome, (_m) => {
-		expect(Maybe.filter(() => false)(Maybe.make.some(0))).toStrictEqual(Maybe.make.none());
+	fc.assert(fc.property(arbSome, (m) => {
+		expect(Maybe.filter(() => false)(m)).toStrictEqual(Maybe.make.none());
 	}));
 });
 

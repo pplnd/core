@@ -330,7 +330,7 @@ test("recover: passes the error to the fallback", () => {
 
 test("recoverUnless: recovers when predicate returns false", () => {
 	const result = pipe(
-		Result.make.err("recoverable"),
+		Result.make.err<string>("recoverable"),
 		Result.recoverUnless((e) => e === "fatal", () => Result.make.ok(42)),
 	);
 	expect(result).toStrictEqual({ kind: "Ok", value: 42 });
@@ -348,7 +348,7 @@ test("recoverUnless: passes through Ok unchanged", () => {
 
 test("recoverUnless: widens to Result<E, A | B> when fallback returns a different type", () => {
 	const result = pipe(
-		Result.make.err("recoverable"),
+		Result.make.err<string>("recoverable"),
 		Result.recoverUnless((e) => e === "fatal", () => Result.make.ok("recovered")),
 	);
 	expect(result).toStrictEqual({ kind: "Ok", value: "recovered" });

@@ -481,7 +481,7 @@ test("to.Maybe: converts Passed to Some and Failed to None", async () => {
 
 test("recoverUnless: recovers from Failed when not blocked", async () => {
 	const task = pipe(
-		Task.Validation.make.failed("transient"),
+		Task.Validation.make.failed<string>("transient"),
 		Task.Validation.recoverUnless((errs) => errs.includes("fatal"), () => Task.Validation.make.passed(99)),
 	);
 	const res = await task();

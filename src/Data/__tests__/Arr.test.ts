@@ -1198,7 +1198,7 @@ test("NonEmpty: is type-compatible with Validation failure errors", () => {
 	const firstError = Arr.NonEmpty.head(errors);
 	expect(firstError).toBe("error");
 
-	expectTypeOf(errors).toEqualTypeOf<Arr.NonEmpty<string>>();
+	expectTypeOf(errors).toEqualTypeOf<Arr.NonEmpty<"error">>();
 });
 
 test("NonEmpty.singleton: creates single-element non-empty array", () => {

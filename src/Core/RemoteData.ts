@@ -45,7 +45,7 @@ const _loading: RemoteData.Loading = { kind: "Loading" };
 
 const makeNotAsked = (): RemoteData.NotAsked => _notAsked;
 const makeLoading = (): RemoteData.Loading => _loading;
-const makeFailure = <E>(error: E): RemoteData.Failure<E> => ({ kind: "Failure", error });
+const makeFailure = <const E>(error: E): RemoteData.Failure<E> => ({ kind: "Failure", error });
 const makeSuccess = <A>(value: A): RemoteData.Success<A> => ({ kind: "Success", value });
 
 const isNotAsked = <E, A>(remoteData: RemoteData<E, A>): remoteData is RemoteData.NotAsked =>
@@ -409,7 +409,7 @@ export const RemoteData = {
 		 * pipe(Maybe.make.none(), RemoteData.from.Maybe(() => "not found"));     // Failure("not found")
 		 * ```
 		 */
-		Maybe: <E>(onNone: () => E) => <A>(maybe: Maybe<A>): RemoteData<E, A> =>
+		Maybe: <const E>(onNone: () => E) => <A>(maybe: Maybe<A>): RemoteData<E, A> =>
 			CoreMaybe.is.some(maybe) ? makeSuccess(maybe.value) : makeFailure(onNone()),
 	},
 
@@ -427,16 +427,16 @@ export const RemoteData = {
 	 * ```
 	 */
 	filter:
-		(<A, E2>(predicate: (value: A) => boolean, onFalse: (value: A) => E2) =>
+		(<A, const E2>(predicate: (value: A) => boolean, onFalse: (value: A) => E2) =>
 		<E1 = never>(remoteData: RemoteData<E1, A>): RemoteData<E1 | E2, A> =>
 			isSuccess(remoteData)
 				? (predicate(remoteData.value) ? remoteData : makeFailure(onFalse(remoteData.value)))
 				: remoteData) as {
-				<A, B extends A, E2>(
+				<A, B extends A, const E2>(
 					predicate: (value: A) => value is B,
 					onFalse: (value: A) => E2,
 				): <E1 = never>(remoteData: RemoteData<E1, A>) => RemoteData<E1 | E2, B>;
-				<A, E2>(
+				<A, const E2>(
 					predicate: (value: A) => boolean,
 					onFalse: (value: A) => E2,
 				): <E1 = never>(remoteData: RemoteData<E1, A>) => RemoteData<E1 | E2, A>;

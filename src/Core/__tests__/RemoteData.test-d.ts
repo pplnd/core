@@ -13,8 +13,8 @@ test("make: infers precise variant types for all lifecycle states", () => {
 	expectTypeOf(loading).toEqualTypeOf<RemoteData.Loading>();
 
 	const failure = RemoteData.make.failure("network error");
-	expectTypeOf(failure).toEqualTypeOf<RemoteData.Failure<string>>();
-	expectTypeOf(failure.error).toEqualTypeOf<string>();
+	expectTypeOf(failure).toEqualTypeOf<RemoteData.Failure<"network error">>();
+	expectTypeOf(failure.error).toEqualTypeOf<"network error">();
 
 	const success = RemoteData.make.success(42);
 	expectTypeOf(success).toEqualTypeOf<RemoteData.Success<number>>();
@@ -64,7 +64,7 @@ test("chain: unifies error channels across computations", () => {
 		naturalUnion,
 		RemoteData.chain((n) => (n > 0 ? RemoteData.make.success(n.toString()) : RemoteData.make.failure(false))),
 	);
-	expectTypeOf(chained).toEqualTypeOf<RemoteData<string | boolean, string>>();
+	expectTypeOf(chained).toEqualTypeOf<RemoteData<string | false, string>>();
 });
 
 test("apply: applies wrapped function and combines error channels", () => {
@@ -130,7 +130,7 @@ test("recover: infallible recovery does not collapse error channel to unknown", 
 	expectTypeOf(recoveredInfallible).toEqualTypeOf<RemoteData<never, number | string>>();
 
 	const recoveredFallible = pipe(naturalUnion, RemoteData.recover((_err) => RemoteData.make.failure("custom_error")));
-	expectTypeOf(recoveredFallible).toEqualTypeOf<RemoteData<string, number>>();
+	expectTypeOf(recoveredFallible).toEqualTypeOf<RemoteData<"custom_error", number>>();
 });
 
 test("filter: refines success value and unifies error channels", () => {
@@ -141,10 +141,10 @@ test("filter: refines success value and unifies error channels", () => {
 	const isString = (val: unknown): val is string => typeof val === "string";
 
 	const refined = pipe(naturalUnion, RemoteData.filter(isString, () => 400));
-	expectTypeOf(refined).toEqualTypeOf<RemoteData<string | number, string>>();
+	expectTypeOf(refined).toEqualTypeOf<RemoteData<string | 400, string>>();
 
 	const filteredBool = pipe(naturalUnion, RemoteData.filter((val) => Boolean(val), () => false));
-	expectTypeOf(filteredBool).toEqualTypeOf<RemoteData<string | boolean, unknown>>();
+	expectTypeOf(filteredBool).toEqualTypeOf<RemoteData<string | false, unknown>>();
 });
 
 test("converters: to.Maybe, to.Result, from.Result, from.Maybe", () => {

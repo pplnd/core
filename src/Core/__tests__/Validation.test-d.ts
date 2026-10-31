@@ -12,8 +12,8 @@ test("make: infers precise variant types for Passed and Failed", () => {
 	expectTypeOf(passedVal.value).toEqualTypeOf<number>();
 
 	const failedVal = Validation.make.failed("failed");
-	expectTypeOf(failedVal).toEqualTypeOf<Validation.Failed<string>>();
-	expectTypeOf(failedVal.errors).toEqualTypeOf<NonEmptyArr<string>>();
+	expectTypeOf(failedVal).toEqualTypeOf<Validation.Failed<"failed">>();
+	expectTypeOf(failedVal.errors).toEqualTypeOf<NonEmptyArr<"failed">>();
 
 	const failedAllVal = Validation.make.failedAll(["err1", "err2"]);
 	expectTypeOf(failedAllVal).toEqualTypeOf<Validation.Failed<string>>();

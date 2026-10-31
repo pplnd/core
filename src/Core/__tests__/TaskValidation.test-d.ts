@@ -9,7 +9,7 @@ test("make: infers precise variant types for Passed and Failed task validations"
 	expectTypeOf(passedTask).toEqualTypeOf<Task.Validation<never, number>>();
 
 	const failedTask = Task.Validation.make.failed("fail");
-	expectTypeOf(failedTask).toEqualTypeOf<Task.Validation<string, never>>();
+	expectTypeOf(failedTask).toEqualTypeOf<Task.Validation<"fail", never>>();
 
 	const res = await passedTask();
 	expectTypeOf(res).toEqualTypeOf<Validation<never, number>>();

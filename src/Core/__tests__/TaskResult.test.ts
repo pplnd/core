@@ -893,7 +893,7 @@ test("tryCatch: lifts async operations into Task.Result", async () => {
 
 test("recoverUnless: recovers from Err when not blocked", async () => {
 	const task = pipe(
-		Task.Result.make.err("transient"),
+		Task.Result.make.err<string>("transient"),
 		Task.Result.recoverUnless((e) => e === "fatal", () => Task.Result.make.ok(99)),
 	);
 	const res = await task();

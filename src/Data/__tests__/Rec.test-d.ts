@@ -101,13 +101,13 @@ test("traverse & sequence: maps or transposes effects over records", () => {
 		r,
 		Rec.traverse.Result((s) => constTruthyBool() ? Result.make.ok(Number(s)) : Result.make.err("parse_err")),
 	);
-	expectTypeOf(travResult).toEqualTypeOf<Result<string, Readonly<Record<string, number>>>>();
+	expectTypeOf(travResult).toEqualTypeOf<Result<"parse_err", Readonly<Record<string, number>>>>();
 
 	const seqMaybe = Rec.sequence.Maybe({ a: Maybe.make.some(1) });
 	expectTypeOf(seqMaybe).toEqualTypeOf<Maybe<Readonly<Record<string, number>>>>();
 
 	const seqResult = Rec.sequence.Result({ a: constTruthyBool() ? Result.make.ok(1) : Result.make.err("err") });
-	expectTypeOf(seqResult).toEqualTypeOf<Result<string, Readonly<Record<string, number>>>>();
+	expectTypeOf(seqResult).toEqualTypeOf<Result<"err", Readonly<Record<string, number>>>>();
 });
 
 test("from.entries & to.Dict: converts between record and other structures", () => {

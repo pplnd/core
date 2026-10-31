@@ -11,7 +11,7 @@ test("make: infers precise variant types for Ok and Err tasks", () => {
 	expectTypeOf(okTask).toEqualTypeOf<Task.Result<never, number>>();
 
 	const errTask = Task.Result.make.err("failed");
-	expectTypeOf(errTask).toEqualTypeOf<Task.Result<string, never>>();
+	expectTypeOf(errTask).toEqualTypeOf<Task.Result<"failed", never>>();
 });
 
 test("map / mapError: preserves natural union and propagates channel types", () => {

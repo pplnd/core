@@ -7,7 +7,7 @@ import { type Validation, Validation as CoreValidation } from "./Validation.ts";
 
 const makePassed = <A>(value: A): Task.Validation<never, A> => Task.make(CoreValidation.make.passed(value));
 
-const makeFailed = <E>(error: E): Task.Validation<E, never> => Task.make(CoreValidation.make.failed(error));
+const makeFailed = <const E>(error: E): Task.Validation<E, never> => Task.make(CoreValidation.make.failed(error));
 
 const makeFailedAll = <E>(errors: NonEmptyArr<E>): Task.Validation<E, never> =>
 	Task.make(CoreValidation.make.failedAll(errors));
@@ -79,7 +79,7 @@ export const TaskValidation = {
 		 * Task.Validation.from.nullable(() => "missing")(null); // resolves to Failed(["missing"])
 		 * ```
 		 */
-		nullable: <E>(onNull: () => E) => <A>(value: A): Task.Validation<E, NonNullable<A>> =>
+		nullable: <const E>(onNull: () => E) => <A>(value: A): Task.Validation<E, NonNullable<A>> =>
 			Task.make(
 				value === null || value === undefined
 					? CoreValidation.make.failed(onNull())
@@ -96,7 +96,7 @@ export const TaskValidation = {
 		 * Task.Validation.from.Maybe(() => "empty")(Maybe.make.none());   // resolves to Failed(["empty"])
 		 * ```
 		 */
-		Maybe: <E>(onNone: () => E) => <A>(maybe: Maybe<A>): Task.Validation<E, A> =>
+		Maybe: <const E>(onNone: () => E) => <A>(maybe: Maybe<A>): Task.Validation<E, A> =>
 			Task.make(CoreMaybe.is.none(maybe) ? CoreValidation.make.failed(onNone()) : CoreValidation.make.passed(maybe.value)),
 
 		/**
@@ -154,7 +154,7 @@ export const TaskValidation = {
 	 * ```
 	 */
 	tryCatch:
-		<E, A>(
+		<const E, A>(
 			fn: (signal?: AbortSignal) => Thenable<A>,
 			options: { onError: (error: unknown) => E; },
 		): Task.Validation<E, A> =>

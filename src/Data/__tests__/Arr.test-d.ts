@@ -77,7 +77,7 @@ test("traverse & sequence: maps effects across array elements", () => {
 		items,
 		Arr.traverse.Result((n) => constTruthyBool() ? Result.make.ok(n.toString()) : Result.make.err("err")),
 	);
-	expectTypeOf(travResult).toEqualTypeOf<Result<string, readonly string[]>>();
+	expectTypeOf(travResult).toEqualTypeOf<Result<"err", readonly string[]>>();
 
 	const travValidation = pipe(
 		items,
@@ -85,7 +85,7 @@ test("traverse & sequence: maps effects across array elements", () => {
 			constTruthyBool() ? Validation.make.passed(n.toString()) : Validation.make.failed("err")
 		),
 	);
-	expectTypeOf(travValidation).toEqualTypeOf<Validation<string, readonly string[]>>();
+	expectTypeOf(travValidation).toEqualTypeOf<Validation<"err", readonly string[]>>();
 
 	const travTask = pipe(items, Arr.traverse.Task((n) => Task.make(n.toString())));
 	expectTypeOf(travTask).toEqualTypeOf<Task<readonly string[]>>();

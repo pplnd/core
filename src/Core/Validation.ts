@@ -52,7 +52,7 @@ export namespace Validation {
 // Private Helpers & Variant Constructors
 // =============================================================================
 const makePassed = <A>(value: A): Validation.Passed<A> => ({ kind: "Passed", value });
-const makeFailed = <E>(error: E): Validation.Failed<E> => ({ kind: "Failed", errors: [error] });
+const makeFailed = <const E>(error: E): Validation.Failed<E> => ({ kind: "Failed", errors: [error] });
 const makeFailedAll = <E>(errors: NonEmptyArr<E>): Validation.Failed<E> => ({ kind: "Failed", errors });
 
 const isPassed = <E, A>(validation: Validation<E, A>): validation is Validation.Passed<A> =>
@@ -195,7 +195,7 @@ export const Validation = {
 	 * );
 	 * ```
 	 */
-	tryCatch: <E, A>(fn: () => A, options: { onError: (error: unknown) => E; }): Validation<E, A> => {
+	tryCatch: <const E, A>(fn: () => A, options: { onError: (error: unknown) => E; }): Validation<E, A> => {
 		try {
 			return makePassed(fn());
 		} catch (error) {
@@ -221,13 +221,14 @@ export const Validation = {
 		 * ```
 		 */
 		Predicate:
-			(<A, B extends A, E>(predicate: (value: A) => boolean, onFalse: (value: A) => E) => (value: A): Validation<E, B> =>
+			(<A, B extends A, const E>(predicate: (value: A) => boolean, onFalse: (value: A) => E) =>
+			(value: A): Validation<E, B> =>
 				predicate(value) ? makePassed(value as unknown as B) : makeFailed(onFalse(value))) as {
-					<A, B extends A, E>(
+					<A, B extends A, const E>(
 						refinement: (value: A) => value is B,
 						onFalse: (value: A) => E,
 					): (value: A) => Validation<E, B>;
-					<A, E>(predicate: (value: A) => boolean, onFalse: (value: A) => E): (value: A) => Validation<E, A>;
+					<A, const E>(predicate: (value: A) => boolean, onFalse: (value: A) => E): (value: A) => Validation<E, A>;
 				},
 
 		/**
@@ -241,7 +242,7 @@ export const Validation = {
 		 * pipe(42, Validation.from.nullable(() => "is null"));   // Passed(42)
 		 * ```
 		 */
-		nullable: <E>(onNull: () => E) => <A>(value: A): Validation<E, NonNullable<A>> =>
+		nullable: <const E>(onNull: () => E) => <A>(value: A): Validation<E, NonNullable<A>> =>
 			value === null || value === undefined ? makeFailed(onNull()) : makePassed(value as NonNullable<A>),
 
 		/**
@@ -255,7 +256,7 @@ export const Validation = {
 		 * pipe(Maybe.make.some(42), Validation.from.Maybe(() => "is none")); // Passed(42)
 		 * ```
 		 */
-		Maybe: <E>(onNone: () => E) => <A>(maybe: Maybe<A>): Validation<E, A> =>
+		Maybe: <const E>(onNone: () => E) => <A>(maybe: Maybe<A>): Validation<E, A> =>
 			CoreMaybe.is.none(maybe) ? makeFailed(onNone()) : makePassed(maybe.value),
 
 		/**

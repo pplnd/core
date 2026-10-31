@@ -7,7 +7,7 @@ import { type Result, Result as CoreResult } from "./Result.ts";
 import { Task } from "./Task.ts";
 
 const makeOk = <A>(value: A): Task.Result<never, A> => Task.make(CoreResult.make.ok(value));
-const makeErr = <E>(error: E): Task.Result<E, never> => Task.make(CoreResult.make.err(error));
+const makeErr = <const E>(error: E): Task.Result<E, never> => Task.make(CoreResult.make.err(error));
 
 const setProperty = <T extends Record<string, unknown>>(target: T, key: string, value: unknown): void => {
 	if (key === "__proto__") {
@@ -66,7 +66,7 @@ export const TaskResult = {
 		 * Task.Result.from.nullable(() => "missing")(null); // resolves to Err("missing")
 		 * ```
 		 */
-		nullable: <E>(onNull: () => E) => <A>(value: A | null | undefined): Task.Result<E, A> =>
+		nullable: <const E>(onNull: () => E) => <A>(value: A | null | undefined): Task.Result<E, A> =>
 			Task.make(value === null || value === undefined ? CoreResult.make.err(onNull()) : CoreResult.make.ok(value)),
 
 		/**
@@ -79,7 +79,7 @@ export const TaskResult = {
 		 * Task.Result.from.Maybe(() => "empty")(Maybe.make.none());   // resolves to Err("empty")
 		 * ```
 		 */
-		Maybe: <E>(onNone: () => E) => <A>(maybe: Maybe<A>): Task.Result<E, A> =>
+		Maybe: <const E>(onNone: () => E) => <A>(maybe: Maybe<A>): Task.Result<E, A> =>
 			Task.make(CoreMaybe.is.none(maybe) ? CoreResult.make.err(onNone()) : CoreResult.make.ok(maybe.value)),
 
 		/**
@@ -121,7 +121,10 @@ export const TaskResult = {
 	 * ```
 	 */
 	tryCatch:
-		<E, A>(fn: (signal?: AbortSignal) => Thenable<A>, options: { onError: (error: unknown) => E; }): Task.Result<E, A> =>
+		<const E, A>(
+			fn: (signal?: AbortSignal) => Thenable<A>,
+			options: { onError: (error: unknown) => E; },
+		): Task.Result<E, A> =>
 		(signal) =>
 			Deferred.from.Promise(
 				// oxlint-disable-next-line require-await
@@ -602,15 +605,15 @@ export const TaskResult = {
 	 * ```
 	 */
 	ensure:
-		(<A, E2>(predicate: (value: A) => boolean, onFail: (value: A) => E2) =>
+		(<A, const E2>(predicate: (value: A) => boolean, onFail: (value: A) => E2) =>
 		<E1 = never>(task: Task.Result<E1, A>): Task.Result<E1 | E2, A> =>
 		(signal) =>
 			Deferred.from.Promise(Deferred.to.Promise(task(signal)).then(CoreResult.ensure<A, E2>(predicate, onFail)))) as {
-				<A, B extends A, E2>(
+				<A, B extends A, const E2>(
 					refinement: (value: A) => value is B,
 					onFail: (value: A) => E2,
 				): <E1 = never>(task: Task.Result<E1, A>) => Task.Result<E1 | E2, B>;
-				<A, E2>(
+				<A, const E2>(
 					predicate: (value: A) => boolean,
 					onFail: (value: A) => E2,
 				): <E1 = never>(task: Task.Result<E1, A>) => Task.Result<E1 | E2, A>;

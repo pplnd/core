@@ -156,7 +156,7 @@ export const Maybe = {
 		 * ); // Err("Value was missing")
 		 * ```
 		 */
-		Result: <E>(onNone: () => E) => <A>(maybe: Maybe<A>): Result<E, A> =>
+		Result: <const E>(onNone: () => E) => <A>(maybe: Maybe<A>): Result<E, A> =>
 			isSome(maybe) ? CoreResult.make.ok(maybe.value) : CoreResult.make.err(onNone()),
 
 		/**
@@ -172,7 +172,7 @@ export const Maybe = {
 		 * pipe(Maybe.make.none(), Maybe.to.Validation(() => "missing"));   // Failed(["missing"])
 		 * ```
 		 */
-		Validation: <E>(onNone: () => E) => <A>(maybe: Maybe<A>): Validation<E, A> =>
+		Validation: <const E>(onNone: () => E) => <A>(maybe: Maybe<A>): Validation<E, A> =>
 			isSome(maybe) ? CoreValidation.make.passed(maybe.value) : CoreValidation.make.failed(onNone()),
 	},
 

@@ -460,7 +460,7 @@ test("recover: preserves Valid typed as Validation<E, A | B>", () => {
 
 test("recoverUnless: recovers when predicate returns false for all errors", () => {
 	const result = pipe(
-		Validation.make.failed("recoverable"),
+		Validation.make.failed<string>("recoverable"),
 		Validation.recoverUnless((e) => e === "fatal", () => Validation.make.passed(42)),
 	);
 	expect(result).toStrictEqual({ kind: "Passed", value: 42 });
@@ -510,7 +510,7 @@ test("recoverUnless: does not recover when any error in accumulation matches", (
 
 test("recoverUnless: widens to Validation<E, A | B> when fallback returns different type", () => {
 	const result = pipe(
-		Validation.make.failed("recoverable"),
+		Validation.make.failed<string>("recoverable"),
 		Validation.recoverUnless((e) => e === "fatal", () => Validation.make.passed("recovered")),
 	);
 	expect(result).toStrictEqual({ kind: "Passed", value: "recovered" });
