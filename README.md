@@ -31,8 +31,8 @@ Functions accept their data last, so multi-step operations read top-to-bottom in
 
 <!-- BUNDLE_OVERVIEW:START -->
 
-It has zero dependencies, ships ESM and CommonJS builds, and tree-shakes down to ~27 B–5.97 kB
-gzipped for individual modules and 22.90 kB for the entire package.
+It has zero dependencies, ships ESM and CommonJS builds, and tree-shakes down to ~27 B–5.96 kB
+gzipped for individual modules and 23.92 kB for the entire package.
 
 <!-- BUNDLE_OVERVIEW:END -->
 
@@ -573,6 +573,8 @@ unnecessary `Maybe` wrapper.
 | Declarative DAG task scheduling & cycle detection                  | `Graph`               |
 | Infallible async synchronization latch for tasks                   | `Deferred`            |
 | Circuit breaker pattern for protecting failing upstream services   | `CircuitBreaker`      |
+| Multi-step workflows across services with automatic LIFO rollback  | `Transaction`         |
+| High-throughput request batching, deduplication, and caching       | `Batcher`             |
 | Pure state transitions, tokenizers, and parsers                    | `State`               |
 | Dependency injection and contextual configuration without drilling | `Reader`              |
 
@@ -643,7 +645,8 @@ When imported individually, only the targeted module is bundled into your applic
 | `Resource`     | **2.32 kB**        |
 | `Graph`        | **5.44 kB**        |
 | `Task`         | **4.04 kB**        |
-| `Op`           | **5.97 kB**        |
+| `Transaction`  | **5.24 kB**        |
+| `Op`           | **5.96 kB**        |
 | `Lens`         | **233 B**          |
 | `Arr`          | **5.94 kB**        |
 | `Rec`          | **2.54 kB**        |

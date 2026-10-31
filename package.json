@@ -92,7 +92,7 @@
 			"name": "Index (Monolithic import *)",
 			"import": "*",
 			"path": "dist/index.mjs",
-			"limit": "23 KB",
+			"limit": "25 KB",
 			"gzip": true,
 			"ignore": [
 				"util",
@@ -160,6 +160,13 @@
 			"import": "{ Task }",
 			"path": "dist/index.mjs",
 			"limit": "5 KB",
+			"gzip": true
+		},
+		{
+			"name": "Transaction",
+			"import": "{ Transaction }",
+			"path": "dist/index.mjs",
+			"limit": "6 KB",
 			"gzip": true
 		},
 		{

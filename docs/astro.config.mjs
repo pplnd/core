@@ -97,6 +97,7 @@ export default defineConfig({
 						{ slug: "guides/event-bus" },
 						{ slug: "guides/resource" },
 						{ slug: "guides/graph" },
+						{ slug: "guides/transaction" },
 					],
 				},
 				{

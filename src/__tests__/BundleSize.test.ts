@@ -68,6 +68,7 @@ const GUIDE_MAP: Record<string, { module: string; }> = {
 	"state.md": { module: "State" },
 	"str.md": { module: "Str" },
 	"task.mdx": { module: "Task" },
+	"transaction.md": { module: "Transaction" },
 	"these.md": { module: "These" },
 	"uniq.mdx": { module: "Uniq" },
 	"validation.md": { module: "Validation" },

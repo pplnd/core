@@ -1,6 +1,16 @@
 @layer starlight, nova, custom-styles;
 
 @layer custom-styles {
+  .site-title>img {
+    margin-top: 4px;
+    height: 22px;
+    transition: filter ease 200ms;
+
+    &:hover {
+      filter: blur(1px);
+    }
+  }
+
   main ul>li {
     list-style-type: square;
     list-style-position: inside;
