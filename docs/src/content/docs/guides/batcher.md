@@ -5,7 +5,7 @@ description: Microtask request coalescing, intra-batch key deduplication, and tr
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.87 kB minified + gzipped
+> 2.84 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

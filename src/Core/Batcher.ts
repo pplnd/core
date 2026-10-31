@@ -199,6 +199,9 @@ const toNullableOutcome = <E = never, V = never, K = never>(outcome: Batcher.Out
 
 const defaultSerialize = <K>(key: K): unknown => key;
 
+const getAbortReason = <E>(signal: AbortSignal): E =>
+	(signal.reason !== undefined ? signal.reason : new Error("Aborted")) as E;
+
 const makeBatcher = <K, E, V>(options: Batcher.Options<K, E, V>): Batcher<K, E, V> => {
 	type KeyHash = unknown;
 	type CallerEntry = { readonly resolve: (outcome: Batcher.Outcome<E, V, K>) => void; readonly signal?: AbortSignal; };
@@ -232,12 +235,7 @@ const makeBatcher = <K, E, V>(options: Batcher.Options<K, E, V>): Batcher<K, E, 
 		// Count active un-aborted callers
 		let activeCallersCount = 0;
 		for (let i = 0; i < chunkLen; i++) {
-			const { callers } = chunk[i];
-			for (let j = 0; j < callers.length; j++) {
-				if (!callers[j].signal?.aborted) {
-					activeCallersCount++;
-				}
-			}
+			activeCallersCount += chunk[i].callers.length;
 		}
 
 		if (activeCallersCount === 0) {
@@ -252,9 +250,7 @@ const makeBatcher = <K, E, V>(options: Batcher.Options<K, E, V>): Batcher<K, E, 
 					for (let i = 0; i < chunkLen; i++) {
 						const { callers } = chunk[i];
 						for (let j = 0; j < callers.length; j++) {
-							if (!callers[j].signal?.aborted) {
-								callers[j].resolve(errOutcome);
-							}
+							callers[j].resolve(errOutcome);
 						}
 					}
 				} else {
@@ -264,9 +260,7 @@ const makeBatcher = <K, E, V>(options: Batcher.Options<K, E, V>): Batcher<K, E, 
 						const outcome: Batcher.Outcome<E, V, K> = resultMap.has(key) ? makeOk(resultMap.get(key)!) : makeMissing(key);
 
 						for (let j = 0; j < callers.length; j++) {
-							if (!callers[j].signal?.aborted) {
-								callers[j].resolve(outcome);
-							}
+							callers[j].resolve(outcome);
 						}
 					}
 				}
@@ -351,7 +345,7 @@ const makeBatcher = <K, E, V>(options: Batcher.Options<K, E, V>): Batcher<K, E, 
 		Deferred.from.Promise(
 			new Promise<Batcher.Outcome<E, V, K>>((resolve) => {
 				if (signal?.aborted) {
-					resolve(makeErr((signal.reason ?? new Error("Aborted")) as E));
+					resolve(makeErr(getAbortReason<E>(signal)));
 					return;
 				}
 
@@ -368,14 +362,11 @@ const makeBatcher = <K, E, V>(options: Batcher.Options<K, E, V>): Batcher<K, E, 
 				if (signal !== undefined) {
 					signal.addEventListener("abort", () => {
 						const { callers } = slot!;
-						const idx = callers.indexOf(entry);
-						if (idx !== -1) {
-							callers.splice(idx, 1);
-						}
+						callers.splice(callers.indexOf(entry), 1);
 						if (callers.length === 0) {
 							queue.delete(hash);
 						}
-						resolve(makeErr((signal.reason ?? new Error("Aborted")) as E));
+						resolve(makeErr(getAbortReason<E>(signal)));
 					}, { once: true });
 				}
 

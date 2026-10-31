@@ -31,8 +31,8 @@ Functions accept their data last, so multi-step operations read top-to-bottom in
 
 <!-- BUNDLE_OVERVIEW:START -->
 
-It has zero dependencies, ships ESM and CommonJS builds, and tree-shakes down to ~27 B–5.96 kB
-gzipped for individual modules and 22.93 kB for the entire package.
+It has zero dependencies, ships ESM and CommonJS builds, and tree-shakes down to ~27 B–5.97 kB
+gzipped for individual modules and 22.90 kB for the entire package.
 
 <!-- BUNDLE_OVERVIEW:END -->
 
@@ -639,11 +639,11 @@ When imported individually, only the targeted module is bundled into your applic
 | `RemoteData`   | **1.87 kB**        |
 | `Machine`      | **1.88 kB**        |
 | `EventBus`     | **1.17 kB**        |
-| `Batcher`      | **2.87 kB**        |
+| `Batcher`      | **2.84 kB**        |
 | `Resource`     | **2.32 kB**        |
 | `Graph`        | **5.44 kB**        |
 | `Task`         | **4.04 kB**        |
-| `Op`           | **5.96 kB**        |
+| `Op`           | **5.97 kB**        |
 | `Lens`         | **233 B**          |
 | `Arr`          | **5.94 kB**        |
 | `Rec`          | **2.54 kB**        |
