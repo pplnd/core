@@ -61,7 +61,7 @@
 		"size:check": "vitest run src/__tests__/BundleSize.test.ts",
 		"typecheck": "tsc --noEmit",
 		"typecheck:dev": "tsc --noEmit --watch",
-		"typecheck:min": "node node_modules/typescript-5.5/bin/tsc --noEmit --skipLibCheck",
+		"typecheck:min": "node node_modules/typescript-5.5/bin/tsc -p tsconfig.lib.json --noEmit --skipLibCheck",
 		"stage:publish": "pnpm build && npm stage publish --access public",
 		"lint": "oxlint src/",
 		"format": "dprint fmt && dprint fmt --config dprint.md.json \"docs/**/*.md\" \"docs/**/*.mdx\" \"README.md\" \"CODE_OF_CONDUCT.md\" \"CONTRIBUTING.md\" \"SECURITY.md\" \".github/**/*.md\"",
