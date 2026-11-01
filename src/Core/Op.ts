@@ -28,6 +28,7 @@ import type { RetryPolicy } from "../Types/RetryPolicy.ts";
 import { Deferred } from "./Deferred.ts";
 import { Maybe as CoreMaybe } from "./Maybe.ts";
 import { Result as CoreResult } from "./Result.ts";
+import { Unexpected } from "./Unexpected.ts";
 
 declare const _opBrand: unique symbol;
 
@@ -122,8 +123,6 @@ export type Op<Args extends readonly unknown[] = readonly unknown[], E = unknown
 };
 
 export namespace Op {
-	/** An exception thrown by an operation's error, retry, timeout, or key callback. */
-	export type Unexpected = { readonly kind: "OpUnexpected"; readonly cause: unknown; };
 	export type ToArgs<T> = NormalizeArgs<T>;
 	export type Outcome<E, A> = Ok<A> | Err<E> | Nil;
 	export type Ok<A> = WithKind<"OpOk"> & WithValue<A>;
@@ -353,52 +352,64 @@ export namespace Op {
 // ---------------------------------------------------------------------------
 
 // `Retrying<E>` is only added to the state union when retry options are present.
-type MaybeRetry<E, O> = O extends { retry: RetryOptionsInternal<E>; } ? Op.Retrying<E> : never;
+type MaybeRetry<E, O> = O extends { retry?: infer R; }
+	? (NonNullable<R> extends RetryOptionsInternal<E> ? Op.Retrying<E> : never)
+	: never;
 
-type TimeoutErrorOf<O> = O extends { timeout: { onTimeout: () => infer ET; }; } ? ET : never;
-type CombinedError<E, O> = E | TimeoutErrorOf<O> | Op.Unexpected;
+type TimeoutErrorOf<O> = O extends { timeout?: infer T; }
+	? (NonNullable<T> extends { onTimeout: () => infer ET; } ? ET : never)
+	: never;
+type CombinedError<E, O> = E | TimeoutErrorOf<O> | Unexpected;
 
 // Extracts the key type from the `keyed` strategy's `key` function, defaulting to the first argument type.
 type KeyType<Args extends readonly unknown[], O> = O extends { key: (...args: Args) => infer K; } ? K
 	: Args extends readonly [infer First, ...unknown[]] ? First
 	: unknown;
 
-// Conditional return type — dispatches on strategy (and variant flags) to preserve
-// precise state-union typing without needing per-strategy overloads.
-// Tuple form `[O] extends [...]` prevents distribution over unions.
-type InterpretResult<Args extends readonly unknown[], E, A, O> = [O] extends
-	[{ strategy: "throttled"; trailing: true; }]
-	? Op.Manager<Args, CombinedError<E, O>, A, Op.ThrottledTrailingState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
-	: [O] extends [{ strategy: "throttled"; }]
-		? Op.Manager<Args, CombinedError<E, O>, A, Op.ThrottledState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
-	: [O] extends [{ strategy: "debounced"; }]
+type DispatchStrategy<Args extends readonly unknown[], E, A, O> = O extends { strategy: "throttled"; }
+	? boolean extends (O extends { trailing?: infer Tr; } ? Tr : false)
+		? Op.Manager<
+			Args,
+			CombinedError<E, O>,
+			A,
+			Op.ThrottledState<CombinedError<E, O>, A> | Op.ThrottledTrailingState<CombinedError<E, O>, A> | MaybeRetry<E, O>
+		>
+	: O extends { trailing: true; }
+		? Op.Manager<Args, CombinedError<E, O>, A, Op.ThrottledTrailingState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
+	: Op.Manager<Args, CombinedError<E, O>, A, Op.ThrottledState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
+	: O extends { strategy: "debounced"; }
 		? Op.Manager<Args, CombinedError<E, O>, A, Op.DebouncedState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
-	: [O] extends [{ strategy: "concurrent"; overflow: "queue"; }]
+	: O extends { strategy: "concurrent"; overflow: "queue"; }
 		? Op.Manager<Args, CombinedError<E, O>, A, Op.ConcurrentQueueState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
-	: [O] extends [{ strategy: "concurrent"; }]
+	: O extends { strategy: "concurrent"; }
 		? Op.Manager<Args, CombinedError<E, O>, A, Op.ConcurrentDropState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
-	: [O] extends [{ strategy: "keyed"; perKey: "restartable"; }]
+	: O extends { strategy: "keyed"; perKey: "restartable"; }
 		? Op.KeyedManager<Args, KeyType<Args, O>, CombinedError<E, O>, Op.KeyedRestartablePerKey<CombinedError<E, O>, A>>
-	: [O] extends [{ strategy: "keyed"; }]
+	: O extends { strategy: "keyed"; }
 		? Op.KeyedManager<Args, KeyType<Args, O>, CombinedError<E, O>, Op.KeyedExclusivePerKey<CombinedError<E, O>, A>>
-	: [O] extends [{ strategy: "once"; }]
+	: O extends { strategy: "once"; }
 		? Op.Manager<Args, CombinedError<E, O>, A, Op.OnceState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
-	: [O] extends [{ strategy: "restartable"; }]
+	: O extends { strategy: "restartable"; }
 		? Op.Manager<Args, CombinedError<E, O>, A, Op.RestartableState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
-	: [O] extends [{ strategy: "exclusive"; }]
+	: O extends { strategy: "exclusive"; }
 		? Op.Manager<Args, CombinedError<E, O>, A, Op.ExclusiveState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
-	: [O] extends [{ strategy: "queue"; overflow: "replace-last"; dedupe: (a: Args, b: Args) => boolean; }]
+	: O extends { strategy: "queue"; overflow: "replace-last"; dedupe: (a: Args, b: Args) => boolean; }
 		? Op.Manager<Args, CombinedError<E, O>, A, Op.QueueDropAndReplaceState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
-	: [O] extends [{ strategy: "queue"; overflow: "replace-last"; }]
+	: O extends { strategy: "queue"; overflow: "replace-last"; }
 		? Op.Manager<Args, CombinedError<E, O>, A, Op.QueueReplaceState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
-	: [O] extends [{ strategy: "queue"; maxSize: number; }]
+	: O extends { strategy: "queue"; maxSize: number; }
 		? Op.Manager<Args, CombinedError<E, O>, A, Op.QueueDropState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
-	: [O] extends [{ strategy: "queue"; dedupe: (a: Args, b: Args) => boolean; }]
+	: O extends { strategy: "queue"; dedupe: (a: Args, b: Args) => boolean; }
 		? Op.Manager<Args, CombinedError<E, O>, A, Op.QueueDropState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
-	: [O] extends [{ strategy: "queue"; }]
+	: O extends { strategy: "queue"; }
 		? Op.Manager<Args, CombinedError<E, O>, A, Op.QueueState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
-	: [O] extends [{ strategy: "buffered"; }]
+	: O extends { strategy: "buffered"; }
 		? Op.Manager<Args, CombinedError<E, O>, A, Op.BufferedState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
+	: never;
+
+// Conditional return type — dispatches on strategy (and variant flags) to preserve
+// precise state-union typing, distributing over unions of option shapes.
+type InterpretResult<Args extends readonly unknown[], E, A, O> = O extends unknown ? DispatchStrategy<Args, E, A, O>
 	: never;
 
 // Helpers for implementation

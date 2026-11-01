@@ -4,6 +4,7 @@ import { Duration } from "../../Types/Duration.ts";
 import { RetryPolicy } from "../../Types/RetryPolicy.ts";
 import { Graph } from "../Graph.ts";
 import { Task } from "../Task.ts";
+import type { Unexpected } from "../Unexpected.ts";
 
 test("node: infers standalone root node types", () => {
 	const userNode = Graph.node({
@@ -24,7 +25,7 @@ test("node: infers standalone root node types", () => {
 test("run: infallible nodes still expose cancellation and unexpected failures", () => {
 	const node = Graph.node({ id: "count", run: () => Task.Result.make.ok(1) });
 	const task = Graph.run(Graph.make(node));
-	expectTypeOf(task).toEqualTypeOf<Task.Result<Graph.Aborted | Graph.Unexpected | Task.TimeoutUnexpected, number>>();
+	expectTypeOf(task).toEqualTypeOf<Task.Result<Graph.Aborted | Unexpected, number>>();
 });
 
 test("node: infers contextual dependency outputs and accumulates error unions", () => {
@@ -83,13 +84,11 @@ test("make & run: compiles and preserves error and output channels", () => {
 	expectTypeOf(graph).toEqualTypeOf<Graph<"e_perm" | "e_user", string[]>>();
 
 	const task = Graph.run(graph);
-	expectTypeOf(task).toEqualTypeOf<
-		Task.Result<"e_perm" | "e_user" | Graph.Aborted | Graph.Unexpected | Task.TimeoutUnexpected, string[]>
-	>();
+	expectTypeOf(task).toEqualTypeOf<Task.Result<"e_perm" | "e_user" | Graph.Aborted | Unexpected, string[]>>();
 
 	const taskWithConcurrency = Graph.run(graph, { concurrency: 2 });
 	expectTypeOf(taskWithConcurrency).toEqualTypeOf<
-		Task.Result<"e_perm" | "e_user" | Graph.Aborted | Graph.Unexpected | Task.TimeoutUnexpected, string[]>
+		Task.Result<"e_perm" | "e_user" | Graph.Aborted | Unexpected, string[]>
 	>();
 
 	const taskWithTelemetry = Graph.run(graph, {
@@ -103,7 +102,7 @@ test("make & run: compiles and preserves error and output channels", () => {
 		},
 	});
 	expectTypeOf(taskWithTelemetry).toEqualTypeOf<
-		Task.Result<"e_perm" | "e_user" | Graph.Aborted | Graph.Unexpected | Task.TimeoutUnexpected, string[]>
+		Task.Result<"e_perm" | "e_user" | Graph.Aborted | Unexpected, string[]>
 	>();
 
 	const retryingNode = Graph.node({

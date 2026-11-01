@@ -5,6 +5,7 @@ import type { Deferred } from "../Deferred.ts";
 import type { Maybe } from "../Maybe.ts";
 import type { Result } from "../Result.ts";
 import { Task } from "../Task.ts";
+import type { Unexpected } from "../Unexpected.ts";
 import type { Validation } from "../Validation.ts";
 
 test("make & from.sync: infers lazy infallible task return types", () => {
@@ -62,10 +63,10 @@ test("all, sequential & race: preserve element types and execute multiple tasks"
 	const taskB = Task.make("hello");
 
 	const allTask = Task.all([taskA, taskB]);
-	expectTypeOf(allTask).toEqualTypeOf<Task.Result<Task.Aborted, [number, string]>>();
+	expectTypeOf(allTask).toEqualTypeOf<Task<[number, string]>>();
 
 	const seqTask = Task.sequential([taskA, taskB]);
-	expectTypeOf(seqTask).toEqualTypeOf<Task.Result<Task.Aborted, [number, string]>>();
+	expectTypeOf(seqTask).toEqualTypeOf<Task<[number, string]>>();
 
 	const raceTask = Task.race([taskA, Task.make(2)]);
 	expectTypeOf(raceTask).toEqualTypeOf<Task<number>>();
@@ -77,7 +78,7 @@ test("all, sequential & race: preserve element types and execute multiple tasks"
 test("timeout: converts task into fallible result channel with typed error", () => {
 	const taskNum = Task.make(42);
 	const timed = pipe(taskNum, Task.timeout({ duration: Duration.seconds(1), onTimeout: () => "timed_out" as const }));
-	expectTypeOf(timed).toEqualTypeOf<Task<Result<"timed_out" | Task.TimeoutUnexpected, number>>>();
+	expectTypeOf(timed).toEqualTypeOf<Task<Result<"timed_out" | Unexpected, number>>>();
 });
 
 test("assign & assignTo: accumulates pipeline object record correctly", () => {

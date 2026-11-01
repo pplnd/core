@@ -5,6 +5,7 @@ import { Deferred } from "./Deferred.ts";
 import { type Maybe, Maybe as CoreMaybe } from "./Maybe.ts";
 import { type Result, Result as CoreResult } from "./Result.ts";
 import { Task } from "./Task.ts";
+import { Unexpected } from "./Unexpected.ts";
 
 const makeOk = <A>(value: A): Task.Result<never, A> => Task.make(CoreResult.make.ok(value));
 const makeErr = <const E>(error: E): Task.Result<E, never> => Task.make(CoreResult.make.err(error));
@@ -91,6 +92,17 @@ export const TaskResult = {
 		 * ```
 		 */
 		Result: <E, A>(result: Result<E, A>): Task.Result<E, A> => Task.make(result),
+
+		/**
+		 * Lifts an infallible Task into a Task.Result with error type `never`.
+		 *
+		 * @example
+		 * ```ts
+		 * Task.Result.from.Task(Task.make(42)); // resolves to Ok(42)
+		 * ```
+		 */
+		Task: <A>(task: Task<A>): Task.Result<never, A> => (signal?: AbortSignal) =>
+			Deferred.from.Promise(Deferred.to.Promise(task(signal)).then((val) => CoreResult.make.ok(val))),
 	},
 
 	// --- to ---
@@ -522,7 +534,7 @@ export const TaskResult = {
 	 */
 	timeout:
 		<E2>(options: { duration: Duration; onTimeout: () => E2; }) =>
-		<E1 = never, A = unknown>(task: Task.Result<E1, A>): Task.Result<E1 | E2 | Task.TimeoutUnexpected, A> =>
+		<E1 = never, A = unknown>(task: Task.Result<E1, A>): Task.Result<E1 | E2 | Unexpected, A> =>
 		(outerSignal) =>
 			Deferred.from.Promise((() => {
 				const controller = new AbortController();
@@ -550,19 +562,171 @@ export const TaskResult = {
 						cleanUp();
 						return res;
 					}),
-					new Promise<Result<E1 | E2 | Task.TimeoutUnexpected, A>>((resolve) => {
+					new Promise<Result<E1 | E2 | Unexpected, A>>((resolve) => {
 						timerId = setTimeout(() => {
 							cleanUp();
 							try {
 								resolve(CoreResult.make.err(options.onTimeout()));
 							} catch (cause) {
-								resolve(CoreResult.make.err({ kind: "TaskTimeoutUnexpected", cause }));
+								resolve(CoreResult.make.err(Unexpected.make.execution({ source: "Task", phase: "execution", cause })));
 							}
 							controller.abort();
 						}, Duration.to.milliseconds(options.duration));
 					}),
 				]);
 			})()),
+
+	/**
+	 * Runs multiple fallible tasks in parallel and collects their successful values into a tuple.
+	 *
+	 * - An optional `concurrency` option limits the number of tasks executing at any given time.
+	 * - Short-circuits on the first `Err`: cancels all currently active tasks and avoids starting queued tasks.
+	 * - If caller's `signal` is already aborted, returns `Task.Aborted` immediately without starting work.
+	 * - If caller's `signal` aborts during execution, cancels active work and settles immediately with `Task.Aborted`.
+	 *
+	 * @see {@link Task.Result.sequential} to run an array of fallible tasks one at a time in order.
+	 * @see {@link Task.Result.allSettled} to collect all outcomes without short-circuiting on failure.
+	 *
+	 * @example
+	 * ```ts
+	 * const result = await Task.Result.all([loadUser, loadPreferences])();
+	 * if (Result.is.ok(result)) {
+	 *   const [user, preferences] = result.value;
+	 * }
+	 * ```
+	 */
+	all:
+		<T extends readonly Task.Result<unknown, unknown>[]>(
+			tasks: readonly [...T],
+			options?: { concurrency?: number; },
+		): Task.Result<
+			(T[number] extends Task.Result<infer E, unknown> ? E : never) | Task.Aborted | Unexpected,
+			{ [K in keyof T]: T[K] extends Task.Result<unknown, infer A> ? A : never; }
+		> =>
+		(callerSignal) =>
+			Deferred.from.Promise(
+				new Promise<
+					Result<
+						(T[number] extends Task.Result<infer E, unknown> ? E : never) | Task.Aborted | Unexpected,
+						{
+							[K in keyof T]: T[K] extends Task.Result<unknown, infer A> ? A : never;
+						}
+					>
+				>((resolve) => {
+					type AllE = (T[number] extends Task.Result<infer E, unknown> ? E : never) | Task.Aborted | Unexpected;
+					type Results = { [K in keyof T]: T[K] extends Task.Result<unknown, infer A> ? A : never; };
+
+					if (callerSignal?.aborted) {
+						resolve(CoreResult.make.err({ kind: "TaskAborted", reason: callerSignal.reason }));
+						return;
+					}
+
+					const len = tasks.length;
+					if (len === 0) {
+						resolve(CoreResult.make.ok([] as unknown as Results));
+						return;
+					}
+
+					const internalController = new AbortController();
+					const activeSignal = internalController.signal;
+
+					let isSettled = false;
+					let firstDomainError: Result<AllE, Results> | undefined;
+
+					// oxlint-disable-next-line prefer-const
+					let onCallerAbort: () => void;
+
+					const settle = (result: Result<AllE, Results>): void => {
+						if (isSettled) {
+							return;
+						}
+						isSettled = true;
+						if (callerSignal) {
+							callerSignal.removeEventListener("abort", onCallerAbort);
+						}
+						if (CoreResult.is.err(result)) {
+							internalController.abort();
+						}
+						resolve(result);
+					};
+
+					onCallerAbort = () => {
+						if (firstDomainError !== undefined) {
+							settle(firstDomainError);
+						} else {
+							settle(CoreResult.make.err({ kind: "TaskAborted", reason: callerSignal!.reason }));
+						}
+					};
+
+					if (callerSignal) {
+						callerSignal.addEventListener("abort", onCallerAbort, { once: true });
+					}
+
+					const results = new Array(len);
+					let nextIndex = 0;
+					let completedCount = 0;
+
+					const concurrency = options?.concurrency;
+					const maxConcurrency = concurrency !== undefined && Number.isInteger(concurrency) && concurrency > 0
+						? Math.min(concurrency, len)
+						: len;
+
+					const worker = async (): Promise<void> => {
+						// oxlint-disable-next-line no-unmodified-loop-condition
+						while (nextIndex < len && !isSettled) {
+							const idx = nextIndex++;
+							let taskResult: Result<unknown, unknown>;
+							try {
+								taskResult = await Deferred.to.Promise(tasks[idx](activeSignal));
+							} catch (cause) {
+								taskResult = CoreResult.make.err(Unexpected.make.execution({ source: "Task", phase: "execution", cause }));
+							}
+
+							if (isSettled) {
+								return;
+							}
+
+							if (CoreResult.is.err(taskResult)) {
+								firstDomainError = taskResult as unknown as Result<AllE, Results>;
+								settle(firstDomainError);
+								return;
+							}
+
+							results[idx] = taskResult.value;
+							completedCount++;
+							if (completedCount === len) {
+								settle(CoreResult.make.ok(results as unknown as Results));
+								return;
+							}
+						}
+					};
+
+					const workers = new Array<Promise<void>>(maxConcurrency);
+					for (let i = 0; i < maxConcurrency; i++) {
+						workers[i] = worker();
+					}
+				}),
+			),
+
+	/**
+	 * Runs an array or tuple of fallible tasks one at a time in order, collecting all successful values.
+	 * Short-circuits on the first `Err` or cancellation.
+	 *
+	 * @see {@link Task.Result.all} to run an array or tuple of fallible tasks in parallel.
+	 *
+	 * @example
+	 * ```ts
+	 * const results = await Task.Result.sequential([step1, step2, step3])();
+	 * ```
+	 */
+	sequential:
+		<T extends readonly Task.Result<unknown, unknown>[]>(
+			tasks: readonly [...T],
+		): Task.Result<
+			(T[number] extends Task.Result<infer E, unknown> ? E : never) | Task.Aborted | Unexpected,
+			{ [K in keyof T]: T[K] extends Task.Result<unknown, infer A> ? A : never; }
+		> =>
+		(signal) => TaskResult.all(tasks, { concurrency: 1 })(signal),
 
 	/**
 	 * Runs a list of fallible tasks in parallel and collects all outcomes (`Ok` and `Err`)

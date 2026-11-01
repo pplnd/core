@@ -5,6 +5,7 @@ import { Duration } from "../../Types/Duration.ts";
 import { Batcher } from "../Batcher.ts";
 import { Deferred } from "../Deferred.ts";
 import { Result } from "../Result.ts";
+import { Unexpected } from "../Unexpected.ts";
 
 test("make: resolves single key lookups successfully as BatcherOk", async () => {
 	const batcher = Batcher.make({
@@ -725,7 +726,7 @@ test("load: a throwing fetch factory settles its callers and lets later chunks r
 	const other = batcher.load("also-bad");
 	const later = batcher.load("good");
 	await batcher.flush();
-	const failed = Batcher.Outcome.make.err({ kind: "BatcherUnexpected", cause: failure });
+	const failed = Batcher.Outcome.make.err(Unexpected.make.execution({ source: "Batcher", cause: failure }));
 	await expect(Promise.all([first, duplicate, other, later])).resolves.toStrictEqual([
 		failed,
 		failed,
@@ -745,6 +746,6 @@ test("load: a fetch task that throws before returning settles the caller and flu
 	const outcome = batcher.load("item");
 	await batcher.flush();
 	await expect(Deferred.to.Promise(outcome)).resolves.toStrictEqual(
-		Batcher.Outcome.make.err({ kind: "BatcherUnexpected", cause: failure }),
+		Batcher.Outcome.make.err(Unexpected.make.execution({ source: "Batcher", cause: failure })),
 	);
 });

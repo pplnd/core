@@ -4,6 +4,7 @@ import { Duration } from "../../Types/Duration.ts";
 import { RetryPolicy } from "../../Types/RetryPolicy.ts";
 import { Task } from "../Task.ts";
 import { Transaction } from "../Transaction.ts";
+import type { Unexpected } from "../Unexpected.ts";
 
 type OrderInput = { readonly sku: string; readonly qty: number; };
 type Reservation = { readonly resId: string; };
@@ -86,10 +87,7 @@ test("run: returns Task.Result resolving to Result with exact Acc and Failure ty
 
 	type RunnerOutcome = typeof runner extends Task.Result<infer E, infer Acc> ? { E: E; Acc: Acc; } : never;
 	expectTypeOf<RunnerOutcome["E"]>().toEqualTypeOf<
-		Transaction.Failure<
-			"run_err" | Transaction.Aborted | Transaction.Unexpected | Task.TimeoutUnexpected,
-			"undo_err" | Transaction.Unexpected
-		>
+		Transaction.Failure<"run_err" | Transaction.Aborted | Unexpected, "undo_err" | Unexpected>
 	>();
 	expectTypeOf<RunnerOutcome["Acc"]["stepA"]>().toEqualTypeOf<number>();
 	expectTypeOf<RunnerOutcome["Acc"]["stepB"]>().toEqualTypeOf<never>();
@@ -102,9 +100,7 @@ test("run: void transaction allows invocation without input argument", () => {
 	expectTypeOf(runner).toBeFunction();
 
 	type VoidOutcome = typeof runner extends Task.Result<infer E, infer Acc> ? { E: E; Acc: Acc; } : never;
-	expectTypeOf<VoidOutcome["E"]>().toEqualTypeOf<
-		Transaction.Failure<Transaction.Aborted | Transaction.Unexpected | Task.TimeoutUnexpected, Transaction.Unexpected>
-	>();
+	expectTypeOf<VoidOutcome["E"]>().toEqualTypeOf<Transaction.Failure<Transaction.Aborted | Unexpected, Unexpected>>();
 	expectTypeOf<VoidOutcome["Acc"]["init"]>().toEqualTypeOf<string>();
 });
 

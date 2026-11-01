@@ -4,6 +4,7 @@ import { pipe } from "../../Composition/pipe.ts";
 import { Resource } from "../Resource.ts";
 import type { Result } from "../Result.ts";
 import { Task } from "../Task.ts";
+import { Unexpected } from "../Unexpected.ts";
 
 test("from.Task: a throwing acquisition settles without running release or work", async () => {
 	const failure = new Error("acquisition crashed");
@@ -25,7 +26,10 @@ test("from.Task: a throwing acquisition settles without running release or work"
 		}),
 	)();
 
-	expect(result).toStrictEqual({ kind: "Err", error: { kind: "ResourceUnexpected", phase: "acquire", cause: failure } });
+	expect(result).toStrictEqual({
+		kind: "Err",
+		error: Unexpected.make.execution({ source: "Resource", phase: "acquire", cause: failure }),
+	});
 	expect(events).toStrictEqual([]);
 });
 
@@ -50,7 +54,10 @@ test("chain: a throwing setup callback releases earlier resources and settles wi
 		}),
 	)();
 
-	expect(result).toStrictEqual({ kind: "Err", error: { kind: "ResourceUnexpected", phase: "acquire", cause: failure } });
+	expect(result).toStrictEqual({
+		kind: "Err",
+		error: Unexpected.make.execution({ source: "Resource", phase: "acquire", cause: failure }),
+	});
 	expect(events).toStrictEqual(["released connection"]);
 });
 
@@ -74,7 +81,7 @@ test("all: a throwing nested acquisition releases every acquired resource in rev
 		const result = await task();
 		expect(result).toStrictEqual({
 			kind: "Err",
-			error: { kind: "ResourceUnexpected", phase: "acquire", cause: failure },
+			error: Unexpected.make.execution({ source: "Resource", phase: "acquire", cause: failure }),
 		});
 		expect(released).toStrictEqual(["second", "first"]);
 	}
@@ -95,7 +102,10 @@ test("use: a throwing work callback releases the resource and settles with an un
 	)();
 
 	expect(released).toBe(true);
-	expect(result).toStrictEqual({ kind: "Err", error: { kind: "ResourceUnexpected", phase: "use", cause: failure } });
+	expect(result).toStrictEqual({
+		kind: "Err",
+		error: Unexpected.make.execution({ source: "Resource", phase: "use", cause: failure }),
+	});
 });
 
 test("use: cleanup failures do not skip earlier finalizers and retain the work result", async () => {
@@ -117,13 +127,11 @@ test("use: cleanup failures do not skip earlier finalizers and retain the work r
 	expect(released).toStrictEqual(["second", "first"]);
 	expect(result).toStrictEqual({
 		kind: "Err",
-		error: {
-			kind: "ResourceUnexpected",
-			phase: "release",
+		error: Unexpected.make.release({
 			cause: secondError,
-			additionalErrors: [firstError],
 			previous: { kind: "Err", error: "work failed" },
-		},
+			additionalErrors: [firstError],
+		}),
 	});
 });
 
@@ -137,13 +145,7 @@ test("use: a cleanup failure retains a successful work result", async () => {
 
 	expect(result).toStrictEqual({
 		kind: "Err",
-		error: {
-			kind: "ResourceUnexpected",
-			phase: "release",
-			cause: failure,
-			additionalErrors: [],
-			previous: { kind: "Ok", value: "report" },
-		},
+		error: Unexpected.make.release({ cause: failure, previous: { kind: "Ok", value: "report" }, additionalErrors: [] }),
 	});
 });
 
@@ -257,7 +259,10 @@ test("use: infers union error type E1 | E2 without type annotations", async () =
 	const result = await resultTask();
 	expect(result).toStrictEqual({ kind: "Ok", value: "val: 42" });
 	expectTypeOf(result).toEqualTypeOf<
-		Result<"acquire-err" | "use-err" | Resource.Unexpected<"acquire-err" | "use-err", string>, string>
+		Result<
+			"acquire-err" | "use-err" | Unexpected<Result<"acquire-err" | "use-err" | Unexpected.Execution, string>>,
+			string
+		>
 	>();
 });
 

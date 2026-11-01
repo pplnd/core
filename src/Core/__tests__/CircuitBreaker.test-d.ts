@@ -5,6 +5,7 @@ import { Duration } from "../../Types/Duration.ts";
 import { CircuitBreaker } from "../CircuitBreaker.ts";
 import { Result } from "../Result.ts";
 import { Task } from "../Task.ts";
+import type { Unexpected } from "../Unexpected.ts";
 
 test("make: infers CircuitBreaker instance and respects generic error parameter", () => {
 	type CustomError = { readonly code: number; readonly reason: string; };
@@ -43,7 +44,7 @@ test("state: returns discriminated union and supports narrowing", () => {
 		expectTypeOf(state.failures).toEqualTypeOf<number>();
 	} else if (CircuitBreaker.is.open(state)) {
 		expectTypeOf(state).toEqualTypeOf<CircuitBreaker.OpenState<CustomError>>();
-		expectTypeOf(state.lastError).toEqualTypeOf<CustomError | CircuitBreaker.Unexpected>();
+		expectTypeOf(state.lastError).toEqualTypeOf<CustomError | Unexpected>();
 		expectTypeOf(state.retryAfterMs).toEqualTypeOf<number>();
 		expectTypeOf(state.openedAt).toEqualTypeOf<number>();
 	} else if (CircuitBreaker.is.halfOpen(state)) {
@@ -54,7 +55,7 @@ test("state: returns discriminated union and supports narrowing", () => {
 
 	// Direct discriminated union check via kind
 	if (state.kind === "Open") {
-		expectTypeOf(state.lastError).toEqualTypeOf<CustomError | CircuitBreaker.Unexpected>();
+		expectTypeOf(state.lastError).toEqualTypeOf<CustomError | Unexpected>();
 	}
 });
 
@@ -72,10 +73,7 @@ test("protect: preserves narrowed task error type while appending CircuitOpenErr
 	const protectedTask = breaker.protect(task);
 
 	expectTypeOf(protectedTask).toEqualTypeOf<
-		Task.Result<
-			SpecificHttpError | CircuitBreaker.Unexpected | CircuitBreaker.OpenError<GeneralHttpError>,
-			{ readonly data: string; }
-		>
+		Task.Result<SpecificHttpError | Unexpected | CircuitBreaker.OpenError<GeneralHttpError>, { readonly data: string; }>
 	>();
 });
 
@@ -109,7 +107,7 @@ test("is: type guards correctly narrow types", () => {
 
 	if (CircuitBreaker.is.openError<string>(errCandidate)) {
 		expectTypeOf(errCandidate).toEqualTypeOf<CircuitBreaker.OpenError<string>>();
-		expectTypeOf(errCandidate.lastError).toEqualTypeOf<string | CircuitBreaker.Unexpected>();
+		expectTypeOf(errCandidate.lastError).toEqualTypeOf<string | Unexpected>();
 		expectTypeOf(errCandidate.retryAfterMs).toEqualTypeOf<number>();
 	}
 });
@@ -123,7 +121,7 @@ test("protect: default breaker without type argument accepts arbitrary tasks and
 	const protectedTask = defaultBreaker.protect(task);
 
 	expectTypeOf(protectedTask).toEqualTypeOf<
-		Task.Result<{ readonly tag: "Fail"; } | CircuitBreaker.Unexpected | CircuitBreaker.OpenError<unknown>, string>
+		Task.Result<{ readonly tag: "Fail"; } | Unexpected | CircuitBreaker.OpenError<unknown>, string>
 	>();
 });
 
@@ -136,7 +134,5 @@ test("pipe: preserves type inference with pipe(task, breaker.protect)", () => {
 
 	const piped = pipe(task, breaker.protect);
 
-	expectTypeOf(piped).toEqualTypeOf<
-		Task.Result<ApiError | CircuitBreaker.Unexpected | CircuitBreaker.OpenError<ApiError>, number>
-	>();
+	expectTypeOf(piped).toEqualTypeOf<Task.Result<ApiError | Unexpected | CircuitBreaker.OpenError<ApiError>, number>>();
 });

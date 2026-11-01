@@ -3,6 +3,7 @@ import { Duration } from "../Types/Duration.ts";
 import { Deferred } from "./Deferred.ts";
 import { Result } from "./Result.ts";
 import type { Task } from "./Task.ts";
+import type { Unexpected } from "./Unexpected.ts";
 
 /**
  * A stateful fault-isolation barrier that protects downstream services from retry storms.
@@ -58,7 +59,7 @@ export type CircuitBreaker<E = unknown> = {
 	 */
 	readonly protect: <EIn extends E = E, A = unknown>(
 		task: Task.Result<EIn, A>,
-	) => Task.Result<EIn | CircuitBreaker.Unexpected | CircuitBreaker.OpenError<E>, A>;
+	) => Task.Result<EIn | Unexpected | CircuitBreaker.OpenError<E>, A>;
 
 	/**
 	 * Manually forces the circuit breaker back to its initial `Closed` state with zero recorded failures.
@@ -78,9 +79,6 @@ export type CircuitBreaker<E = unknown> = {
 };
 
 export namespace CircuitBreaker {
-	/** An exception thrown when invoking a protected task. */
-	export type Unexpected = { readonly kind: "CircuitBreakerUnexpected"; readonly cause: unknown; };
-
 	/**
 	 * An error returned when a protected task is fast-failed because the circuit breaker is open or probing.
 	 */
@@ -217,7 +215,7 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 	let consecutiveFailures = 0;
 	let failureTimestamps: number[] = [];
 	let openedAt = 0;
-	let lastError: E | CircuitBreaker.Unexpected | undefined = undefined;
+	let lastError: E | Unexpected | undefined = undefined;
 	let probeInFlight = false;
 	let consecutiveSuccesses = 0;
 
@@ -260,7 +258,7 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 				kind: "Open",
 				openedAt,
 				retryAfterMs: Math.max(0, resetTimeoutMs - elapsed),
-				lastError: lastError as E | CircuitBreaker.Unexpected,
+				lastError: lastError as E | Unexpected,
 			};
 		}
 
@@ -279,7 +277,7 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 		}
 	};
 
-	const recordClosedFailure = (err: E | CircuitBreaker.Unexpected): void => {
+	const recordClosedFailure = (err: E | Unexpected): void => {
 		const now = Date.now();
 		if (windowMs !== undefined) {
 			failureTimestamps.push(now);
@@ -307,14 +305,14 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 	const executeClosed = <EIn extends E, A>(
 		task: Task.Result<EIn, A>,
 		signal?: AbortSignal,
-	): Deferred<Result<EIn | CircuitBreaker.Unexpected | CircuitBreaker.OpenError<E>, A>> =>
+	): Deferred<Result<EIn | Unexpected | CircuitBreaker.OpenError<E>, A>> =>
 		Deferred.from.Promise(
-			new Promise<Result<EIn | CircuitBreaker.Unexpected | CircuitBreaker.OpenError<E>, A>>((resolve) => {
+			new Promise<Result<EIn | Unexpected | CircuitBreaker.OpenError<E>, A>>((resolve) => {
 				let deferred: Deferred<Result<EIn, A>>;
 				try {
 					deferred = task(signal);
 				} catch (thrown) {
-					const error: CircuitBreaker.Unexpected = { kind: "CircuitBreakerUnexpected", cause: thrown };
+					const error: Unexpected = { kind: "Unexpected", source: "CircuitBreaker", phase: "execution", cause: thrown };
 					if (!signal?.aborted) { recordClosedFailure(error); }
 					resolve(Result.make.err(error));
 					return;
@@ -352,9 +350,9 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 	const executeProbe = <EIn extends E, A>(
 		task: Task.Result<EIn, A>,
 		signal?: AbortSignal,
-	): Deferred<Result<EIn | CircuitBreaker.Unexpected | CircuitBreaker.OpenError<E>, A>> =>
+	): Deferred<Result<EIn | Unexpected | CircuitBreaker.OpenError<E>, A>> =>
 		Deferred.from.Promise(
-			new Promise<Result<EIn | CircuitBreaker.Unexpected | CircuitBreaker.OpenError<E>, A>>((resolve) => {
+			new Promise<Result<EIn | Unexpected | CircuitBreaker.OpenError<E>, A>>((resolve) => {
 				let deferred: Deferred<Result<EIn, A>>;
 				try {
 					deferred = task(signal);
@@ -362,7 +360,7 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 					probeInFlight = false;
 					currentKind = "Open";
 					openedAt = Date.now();
-					const error: CircuitBreaker.Unexpected = { kind: "CircuitBreakerUnexpected", cause: thrown };
+					const error: Unexpected = { kind: "Unexpected", source: "CircuitBreaker", phase: "execution", cause: thrown };
 					lastError = error;
 					consecutiveSuccesses = 0;
 					notifySubscribers();
@@ -452,7 +450,7 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 	const protect =
 		<EIn extends E = E, A = unknown>(
 			task: Task.Result<EIn, A>,
-		): Task.Result<EIn | CircuitBreaker.Unexpected | CircuitBreaker.OpenError<E>, A> =>
+		): Task.Result<EIn | Unexpected | CircuitBreaker.OpenError<E>, A> =>
 		(signal?: AbortSignal) => {
 			const now = Date.now();
 
@@ -466,7 +464,7 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 					const retryAfterMs = Math.max(0, resetTimeoutMs - elapsed);
 					const openErr: CircuitBreaker.OpenError<E> = {
 						kind: "CircuitOpenError",
-						lastError: lastError as E | CircuitBreaker.Unexpected,
+						lastError: lastError as E | Unexpected,
 						retryAfterMs,
 					};
 					return Deferred.from.Promise(Promise.resolve(Result.make.err(openErr)));
@@ -480,7 +478,7 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 			if (probeInFlight) {
 				const openErr: CircuitBreaker.OpenError<E> = {
 					kind: "CircuitOpenError",
-					lastError: lastError as E | CircuitBreaker.Unexpected,
+					lastError: lastError as E | Unexpected,
 					retryAfterMs: 0,
 				};
 				return Deferred.from.Promise(Promise.resolve(Result.make.err(openErr)));

@@ -5,6 +5,7 @@ import { CircuitBreaker } from "../CircuitBreaker.ts";
 import { Deferred } from "../Deferred.ts";
 import { Result } from "../Result.ts";
 import { Task } from "../Task.ts";
+import { Unexpected } from "../Unexpected.ts";
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -615,13 +616,14 @@ test("protect: handles synchronously throwing task in Closed state by resolving 
 	};
 
 	const res = await breaker.protect(throwingTask)();
-	expect(res).toStrictEqual(Result.make.err({ kind: "CircuitBreakerUnexpected", cause: new Error("sync_throw") }));
+	const syncThrowErr = Unexpected.make.execution({ source: "CircuitBreaker", cause: new Error("sync_throw") });
+	expect(res).toStrictEqual(Result.make.err(syncThrowErr));
 	const state = breaker.state();
 	assert(CircuitBreaker.is.open(state));
-	expect(state.lastError).toStrictEqual({ kind: "CircuitBreakerUnexpected", cause: new Error("sync_throw") });
+	expect(state.lastError).toStrictEqual(syncThrowErr);
 	const rejected = await breaker.protect(throwingTask)();
 	assert(Result.is.err(rejected) && CircuitBreaker.is.openError(rejected.error));
-	expect(rejected.error.lastError).toStrictEqual({ kind: "CircuitBreakerUnexpected", cause: new Error("sync_throw") });
+	expect(rejected.error.lastError).toStrictEqual(syncThrowErr);
 });
 
 test("protect: handles synchronously throwing task in HalfOpen state by resolving to Err", async () => {
@@ -636,7 +638,7 @@ test("protect: handles synchronously throwing task in HalfOpen state by resolvin
 
 	const res = await breaker.protect(throwingTask)();
 	expect(res).toStrictEqual(
-		Result.make.err({ kind: "CircuitBreakerUnexpected", cause: new Error("sync_throw_half_open") }),
+		Result.make.err(Unexpected.make.execution({ source: "CircuitBreaker", cause: new Error("sync_throw_half_open") })),
 	);
 	expect(CircuitBreaker.is.open(breaker.state())).toBe(true);
 });
@@ -650,7 +652,7 @@ test("protect: a pre-aborted throwing task does not count as a breaker failure",
 		throw cause;
 	};
 	const result = await breaker.protect(task)(controller.signal);
-	expect(result).toStrictEqual(Result.make.err({ kind: "CircuitBreakerUnexpected", cause }));
+	expect(result).toStrictEqual(Result.make.err(Unexpected.make.execution({ source: "CircuitBreaker", cause })));
 	expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 0 });
 });
 

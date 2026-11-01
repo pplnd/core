@@ -2,6 +2,7 @@ import { WithKind } from "../internal/InternalTypes";
 import { Deferred } from "./Deferred.ts";
 import { Result } from "./Result.ts";
 import { type Task } from "./Task.ts";
+import { Unexpected } from "./Unexpected.ts";
 
 /**
  * A Resource encapsulates an async acquisition step paired with a guaranteed cleanup step.
@@ -37,25 +38,6 @@ export type Resource<E, A> = WithKind<"Resource"> & {
 };
 
 const _allocate = Symbol("Resource.allocate");
-
-type ResourceExecutionError = {
-	readonly kind: "ResourceUnexpected";
-	readonly phase: "acquire" | "use";
-	readonly cause: unknown;
-};
-
-export namespace Resource {
-	/** An unexpected exception from acquisition, work, or cleanup.
-	 * Cleanup failures retain the preceding result and any additional cleanup exceptions.
-	 */
-	export type Unexpected<E = unknown, A = unknown> = ResourceExecutionError | {
-		readonly kind: "ResourceUnexpected";
-		readonly phase: "release";
-		readonly cause: unknown;
-		readonly additionalErrors: readonly unknown[];
-		readonly previous: Result<E | ResourceExecutionError, A>;
-	};
-}
 
 type Finalizer = (signal?: AbortSignal) => Deferred<unknown>;
 
@@ -127,12 +109,14 @@ const makeTask = <A, E = never>(acquire: Task<A>, release: (value: A) => Task<un
 
 const use =
 	<A, E2, B>(consume: (value: A) => Task.Result<E2, B>) =>
-	<E1 = never>(resource: Resource<E1, A>): Task.Result<E1 | E2 | Resource.Unexpected<E1 | E2, B>, B> =>
+	<E1 = never>(
+		resource: Resource<E1, A>,
+	): Task.Result<E1 | E2 | Unexpected<Result<E1 | E2 | Unexpected.Execution, B>>, B> =>
 	(signal) =>
 		Deferred.from.Promise((async () => {
 			const scope = createScope();
 			let phase: "acquire" | "use" = "acquire";
-			let outcome: Result<E1 | E2 | ResourceExecutionError, B>;
+			let outcome: Result<E1 | E2 | Unexpected.Execution, B>;
 			try {
 				const acquired = await toInternal(resource)[_allocate](scope, signal);
 				if (Result.is.err(acquired)) {
@@ -142,17 +126,13 @@ const use =
 					outcome = await Deferred.to.Promise(consume(acquired.value)(signal));
 				}
 			} catch (cause) {
-				outcome = Result.make.err({ kind: "ResourceUnexpected", phase, cause });
+				outcome = Result.make.err(Unexpected.make.execution({ source: "Resource", phase, cause }));
 			}
 			const cleanupErrors = await scope.close(signal);
 			if (cleanupErrors.length > 0) {
-				return Result.make.err({
-					kind: "ResourceUnexpected" as const,
-					phase: "release" as const,
-					cause: cleanupErrors[0],
-					additionalErrors: cleanupErrors.slice(1),
-					previous: outcome,
-				});
+				return Result.make.err(
+					Unexpected.make.release({ cause: cleanupErrors[0], previous: outcome, additionalErrors: cleanupErrors.slice(1) }),
+				);
 			}
 			return outcome;
 		})());
@@ -256,7 +236,7 @@ export const Resource = {
 	 * Acquires the resource, runs `consume` with it, then releases it.
 	 *
 	 * Release runs even when acquisition or work throws. Unexpected exceptions are returned
-	 * as `Resource.Unexpected`, identifying the phase and retaining the original cause.
+	 * as `Unexpected`, identifying the phase and retaining the original cause.
 	 * Cleanup runs in reverse order even if a release throws. If cleanup fails, the error
 	 * includes the preceding outcome and any additional cleanup exceptions.
 	 * If acquisition returns an error, work and the failed resource's release are skipped.
@@ -275,8 +255,8 @@ export const Resource = {
 	/**
 	 * Transforms the value of an acquired resource while retaining guaranteed cleanup of the original asset.
 	 *
-	 * If `transform` throws, `Resource.use` releases the acquired resource and returns a
-	 * `Resource.Unexpected` error.
+	 * If `transform` throws, `Resource.use` releases the acquired resource and returns an
+	 * `Unexpected` error.
 	 *
 	 * @see {@link Resource.chain} for sequencing dependent resource acquisitions.
 	 * @example

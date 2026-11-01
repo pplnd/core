@@ -78,7 +78,9 @@ export default defineConfig({
 				{
 					label: "Errors & absence",
 					collapsed: false,
-					items: [{ slug: "guides/maybe" }, { slug: "guides/result" }, { slug: "guides/validation" }],
+					items: [{ slug: "guides/maybe" }, { slug: "guides/result" }, { slug: "guides/validation" }, {
+						slug: "guides/unexpected",
+					}],
 				},
 				{
 					label: "Data containers",

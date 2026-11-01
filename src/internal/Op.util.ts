@@ -6,6 +6,7 @@
 import { Deferred } from "../Core/Deferred.ts";
 import type { Op } from "../Core/Op.ts";
 import { Result } from "../Core/Result.ts";
+import { Unexpected } from "../Core/Unexpected.ts";
 import { Duration } from "../Types/Duration.ts";
 import type { RetryPolicy } from "../Types/RetryPolicy.ts";
 
@@ -27,7 +28,7 @@ export type InternalUnexpected = { readonly [unexpectedMarker]: true; readonly c
 export const internalUnexpected = (cause: unknown): InternalUnexpected => ({ [unexpectedMarker]: true, cause });
 const isInternalUnexpected = (value: unknown): value is InternalUnexpected =>
 	typeof value === "object" && value !== null && unexpectedMarker in value;
-const publicUnexpected = (cause: unknown): Op.Unexpected => ({ kind: "OpUnexpected", cause });
+const publicUnexpected = (cause: unknown): Unexpected => Unexpected.make.execution({ source: "Op", cause });
 
 const getMs = (duration: Duration): number => Duration.to.milliseconds(duration);
 
@@ -92,7 +93,9 @@ export const runWithRetry = <Args extends readonly unknown[], E, A>(
 	policy: RetryPolicy<E>,
 	onRetrying: (state: Op.Retrying<E>) => void,
 ): Promise<Result<E, A> | null> => {
-	const { attempts, when: shouldRetry, onRetry } = policy;
+	const rawAttempts = policy.attempts;
+	const attempts = Number.isInteger(rawAttempts) && rawAttempts > 0 ? rawAttempts : 1;
+	const { when: shouldRetry, onRetry } = policy;
 	const getDelay = (n: number): Duration | undefined => {
 		try {
 			return policy.getDelay(n);
@@ -106,7 +109,7 @@ export const runWithRetry = <Args extends readonly unknown[], E, A>(
 		if (result === null || signal.aborted) { return null; }
 		if (result.kind === "Ok") { return result; }
 		if (isInternalUnexpected(result.error)) { return result; }
-		if (left <= 1) { return result; }
+		if (!Number.isFinite(left) || left <= 1) { return result; }
 		if (shouldRetry !== undefined) {
 			try {
 				if (!shouldRetry(result.error)) { return result; }
@@ -173,14 +176,28 @@ export const execute = <Args extends readonly unknown[], E, A>(
 
 	if (timeoutOptions === undefined) { return Deferred.from.Promise(runPromise); }
 
-	let timerId: ReturnType<typeof setTimeout>;
+	let timerId: ReturnType<typeof setTimeout> | undefined;
+	const onAbort = () => {
+		if (timerId !== undefined) {
+			clearTimeout(timerId);
+			timerId = undefined;
+		}
+	};
+	signal.addEventListener("abort", onAbort, { once: true });
+
 	return Deferred.from.Promise(Promise.race([
 		runPromise.then((outcome) => {
-			clearTimeout(timerId);
+			signal.removeEventListener("abort", onAbort);
+			if (timerId !== undefined) {
+				clearTimeout(timerId);
+				timerId = undefined;
+			}
 			return outcome;
 		}),
 		new Promise<Op.Outcome<E, A>>((resolve) => {
 			timerId = setTimeout(() => {
+				signal.removeEventListener("abort", onAbort);
+				timerId = undefined;
 				controller.abort();
 				try {
 					resolve(err(timeoutOptions.onTimeout()));
@@ -213,7 +230,11 @@ export const makeRestartable = <Args extends readonly unknown[], E, A>(
 	const emit = (state: Op.State<E, A>): void => {
 		currentState = state;
 		for (const cb of subscribers) {
-			cb(state);
+			try {
+				cb(state);
+			} catch {
+				// Defensive subscriber shielding: subscriber exceptions must not strand callers
+			}
 		}
 	};
 
@@ -231,10 +252,10 @@ export const makeRestartable = <Args extends readonly unknown[], E, A>(
 				prev?.(_replacedNil); // resolve previous after updating state
 
 				const startExecution = (): void => {
-					if (currentController !== controller) { return; // superseded
-					 }
+					if (currentController !== controller || controller.signal.aborted) { return; }
 					lastStartTime = Date.now();
 					emit(_pending);
+					if (currentController !== controller || controller.signal.aborted) { return; }
 
 					// Passing emit directly is safe: superseding or aborting calls controller.abort(),
 					// causing runWithRetry to exit early before onRetrying is ever invoked.
@@ -246,8 +267,8 @@ export const makeRestartable = <Args extends readonly unknown[], E, A>(
 						const r = currentResolve;
 						currentResolve = undefined;
 						currentController = undefined;
-						emit(outcome);
 						r?.(outcome);
+						emit(outcome);
 					});
 				};
 
@@ -274,8 +295,8 @@ export const makeRestartable = <Args extends readonly unknown[], E, A>(
 		currentController = undefined;
 		const r = currentResolve;
 		currentResolve = undefined;
-		if (hadWork) { emit(_abortedNil); }
 		r?.(_abortedNil);
+		if (hadWork) { emit(_abortedNil); }
 	};
 
 	return withManagerMeta(
@@ -287,7 +308,13 @@ export const makeRestartable = <Args extends readonly unknown[], E, A>(
 			abort,
 			subscribe: (cb) => {
 				subscribers.add(cb);
-				if (currentState.kind !== "Idle") {cb(currentState);}
+				if (currentState.kind !== "Idle") {
+					try {
+						cb(currentState);
+					} catch {
+						// Defensive callback shielding
+					}
+				}
 				return () => subscribers.delete(cb);
 			},
 			reset: () => {
@@ -297,8 +324,8 @@ export const makeRestartable = <Args extends readonly unknown[], E, A>(
 				currentController = undefined;
 				const r = currentResolve;
 				currentResolve = undefined;
-				emit(_idle);
 				r?.(_abortedNil);
+				emit(_idle);
 			},
 			poll: ({ interval }: { interval: Duration; }) => (...args: Args) => {
 				void run(...args);
@@ -327,7 +354,11 @@ export const makeExclusive = <Args extends readonly unknown[], E, A>(
 	const emit = (state: Op.State<E, A>): void => {
 		currentState = state;
 		for (const cb of subscribers) {
-			cb(state);
+			try {
+				cb(state);
+			} catch {
+				// Defensive subscriber shielding
+			}
 		}
 	};
 
@@ -342,6 +373,7 @@ export const makeExclusive = <Args extends readonly unknown[], E, A>(
 				currentController = new AbortController();
 				const controller = currentController;
 				emit(_pending);
+				if (currentController !== controller || controller.signal.aborted) { return; }
 
 				// Passing emit directly is safe: exclusive drops overlapping runs, and abort()
 				// calls controller.abort(), causing runWithRetry to exit before onRetrying fires.
@@ -352,8 +384,8 @@ export const makeExclusive = <Args extends readonly unknown[], E, A>(
 					const r = currentResolve;
 					currentResolve = undefined;
 					currentController = undefined;
-					emit(outcome);
 					r?.(outcome);
+					emit(outcome);
 					if (cooldown !== undefined) {
 						const rawCooldown = getMs(cooldown);
 						if (rawCooldown > 0) {
@@ -377,8 +409,8 @@ export const makeExclusive = <Args extends readonly unknown[], E, A>(
 		currentController = undefined;
 		const r = currentResolve;
 		currentResolve = undefined;
-		if (hadWork) { emit(_abortedNil); }
 		r?.(_abortedNil);
+		if (hadWork) { emit(_abortedNil); }
 	};
 
 	return withManagerMeta(
@@ -390,7 +422,13 @@ export const makeExclusive = <Args extends readonly unknown[], E, A>(
 			abort,
 			subscribe: (cb) => {
 				subscribers.add(cb);
-				if (currentState.kind !== "Idle") {cb(currentState);}
+				if (currentState.kind !== "Idle") {
+					try {
+						cb(currentState);
+					} catch {
+						// Defensive callback shielding
+					}
+				}
 				return () => subscribers.delete(cb);
 			},
 			reset: () => {
@@ -402,8 +440,8 @@ export const makeExclusive = <Args extends readonly unknown[], E, A>(
 				currentController = undefined;
 				const r = currentResolve;
 				currentResolve = undefined;
-				emit(_idle);
 				r?.(_abortedNil);
+				emit(_idle);
 			},
 			poll: ({ interval }: { interval: Duration; }) => (...args: Args) => {
 				void run(...args);
@@ -426,7 +464,7 @@ export const makeQueue = <Args extends readonly unknown[], E, A>(
 	timeoutOptions?: Op.TimeoutOptions<any>,
 	id?: string,
 ): Op.Manager<Args, E, A, Op.State<E, A>> => {
-	const maxConcurrency = concurrency ?? 1;
+	const maxConcurrency = concurrency !== undefined && Number.isInteger(concurrency) && concurrency > 0 ? concurrency : 1;
 	let currentState: Op.State<E, A> = _idle;
 	let generation = 0;
 	let inFlight = 0;
@@ -438,7 +476,11 @@ export const makeQueue = <Args extends readonly unknown[], E, A>(
 	const emit = (state: Op.State<E, A>): void => {
 		currentState = state;
 		for (const cb of subscribers) {
-			cb(state);
+			try {
+				cb(state);
+			} catch {
+				// Defensive subscriber shielding: subscriber exceptions must not strand callers
+			}
 		}
 	};
 
@@ -448,6 +490,9 @@ export const makeQueue = <Args extends readonly unknown[], E, A>(
 		inflightControllers.add(controller);
 		inflightResolvers.push(resolve);
 		emit(_pending);
+		if (controller.signal.aborted || generation !== myGeneration) {
+			return;
+		}
 
 		// Passing emit directly is safe: abort() aborts all inflightControllers,
 		// causing runWithRetry to exit early before onRetrying fires.
@@ -464,10 +509,11 @@ export const makeQueue = <Args extends readonly unknown[], E, A>(
 			}
 
 			inFlight--;
-			emit(outcome);
 			resolve(outcome);
+			emit(outcome);
 
-			if (queue.length > 0) {
+			// oxlint-disable-next-line no-unmodified-loop-condition
+			while (inFlight < maxConcurrency && queue.length > 0) {
 				const next = queue.shift()!;
 				startOne(next.input, next.resolve, generation);
 			}
@@ -516,10 +562,14 @@ export const makeQueue = <Args extends readonly unknown[], E, A>(
 		if (overflow === "replace-last") {
 			return Deferred.from.Promise(
 				new Promise<Op.Outcome<E, A>>((resolve) => {
-					const tail = queue.pop()!;
-					tail.resolve(_evictedNil);
-					queue.push({ input: args, resolve });
-					emit({ kind: "Queued", position: queue.length - 1 });
+					if (queue.length > 0) {
+						const tail = queue.pop()!;
+						tail.resolve(_evictedNil);
+						queue.push({ input: args, resolve });
+						emit({ kind: "Queued", position: queue.length - 1 });
+					} else {
+						resolve(_droppedNil);
+					}
 				}),
 			);
 		}
@@ -556,7 +606,13 @@ export const makeQueue = <Args extends readonly unknown[], E, A>(
 			abort,
 			subscribe: (cb) => {
 				subscribers.add(cb);
-				if (currentState.kind !== "Idle") {cb(currentState);}
+				if (currentState.kind !== "Idle") {
+					try {
+						cb(currentState);
+					} catch {
+						// Defensive callback shielding
+					}
+				}
 				return () => subscribers.delete(cb);
 			},
 			reset: () => {
@@ -594,7 +650,7 @@ export const makeBuffered = <Args extends readonly unknown[], E, A>(
 	timeoutOptions?: Op.TimeoutOptions<any>,
 	id?: string,
 ): Op.Manager<Args, E, A, Op.State<E, A>> => {
-	const bufferSize = size ?? 1;
+	const bufferSize = size !== undefined && Number.isInteger(size) && size > 0 ? size : 1;
 	let currentState: Op.State<E, A> = _idle;
 	let currentController: AbortController | undefined;
 	let currentResolve: ((o: Op.Outcome<E, A>) => void) | undefined;
@@ -604,7 +660,11 @@ export const makeBuffered = <Args extends readonly unknown[], E, A>(
 	const emit = (state: Op.State<E, A>): void => {
 		currentState = state;
 		for (const cb of subscribers) {
-			cb(state);
+			try {
+				cb(state);
+			} catch {
+				// Defensive subscriber shielding: subscriber exceptions must not strand callers
+			}
 		}
 	};
 
@@ -613,6 +673,7 @@ export const makeBuffered = <Args extends readonly unknown[], E, A>(
 		currentController = new AbortController();
 		const controller = currentController;
 		emit(_pending);
+		if (currentController !== controller || controller.signal.aborted) { return; }
 
 		// Passing emit directly is safe: buffered calls run strictly sequentially, and abort()
 		// calls controller.abort(), causing runWithRetry to exit early before onRetrying fires.
@@ -623,9 +684,9 @@ export const makeBuffered = <Args extends readonly unknown[], E, A>(
 			const r = currentResolve;
 			currentResolve = undefined;
 			currentController = undefined;
-			emit(outcome);
 			r?.(outcome);
-			if (buffer.length > 0) {
+			emit(outcome);
+			if (currentController === undefined && buffer.length > 0) {
 				const next = buffer.shift()!;
 				startRun(next.input, next.resolve);
 			}
@@ -635,18 +696,20 @@ export const makeBuffered = <Args extends readonly unknown[], E, A>(
 	const run = (...args: Args): Deferred<Op.Outcome<E, A>> =>
 		Deferred.from.Promise(
 			new Promise<Op.Outcome<E, A>>((resolve) => {
-				if (currentController === undefined) {
+				if (currentController === undefined && buffer.length === 0) {
 					startRun(args, resolve);
 				} else if (buffer.length < bufferSize) {
 					// Buffer has capacity — enqueue.
 					buffer.push({ input: args, resolve });
 					emit({ kind: "Queued", position: buffer.length - 1 });
-				} else {
+				} else if (buffer.length > 0) {
 					// Buffer full — evict oldest (head) and enqueue new item.
 					const evicted = buffer.shift()!;
 					evicted.resolve(_evictedNil);
 					buffer.push({ input: args, resolve });
 					emit({ kind: "Queued", position: buffer.length - 1 });
+				} else {
+					resolve(_droppedNil);
 				}
 			}),
 		);
@@ -657,12 +720,12 @@ export const makeBuffered = <Args extends readonly unknown[], E, A>(
 		currentController = undefined;
 		const cr = currentResolve;
 		currentResolve = undefined;
-		if (hadWork) { emit(_abortedNil); }
 		cr?.(_abortedNil);
 		for (const item of buffer) {
 			item.resolve(_abortedNil);
 		}
 		buffer.length = 0;
+		if (hadWork) { emit(_abortedNil); }
 	};
 
 	return withManagerMeta(
@@ -674,7 +737,13 @@ export const makeBuffered = <Args extends readonly unknown[], E, A>(
 			abort,
 			subscribe: (cb) => {
 				subscribers.add(cb);
-				if (currentState.kind !== "Idle") {cb(currentState);}
+				if (currentState.kind !== "Idle") {
+					try {
+						cb(currentState);
+					} catch {
+						// Defensive callback shielding
+					}
+				}
 				return () => subscribers.delete(cb);
 			},
 			reset: () => {
@@ -710,6 +779,7 @@ export const makeDebounced = <Args extends readonly unknown[], E, A>(
 	id?: string,
 ): Op.Manager<Args, E, A, Op.State<E, A>> => {
 	let currentState: Op.State<E, A> = _idle;
+	let executionEpoch = 0;
 	// Trailing execution state
 	let latestTrailingController: AbortController | undefined;
 	const trailingResolvers = new Map<AbortController, (o: Op.Outcome<E, A>) => void>();
@@ -726,27 +796,39 @@ export const makeDebounced = <Args extends readonly unknown[], E, A>(
 	const emit = (state: Op.State<E, A>): void => {
 		currentState = state;
 		for (const cb of subscribers) {
-			cb(state);
+			try {
+				cb(state);
+			} catch {
+				// Defensive subscriber shielding: subscriber exceptions must not strand callers
+			}
 		}
 	};
 
 	const fireLeading = (args: Args, resolve: (o: Op.Outcome<E, A>) => void): void => {
+		const myEpoch = ++executionEpoch;
 		leadingController = new AbortController();
 		const controller = leadingController;
 		leadingResolve = resolve;
 		emit(_pending);
+		if (leadingController !== controller || controller.signal.aborted) { return; }
 
-		// Passing emit directly is safe: leading calls fire only on fresh bursts, and abort()
-		// calls controller.abort(), causing runWithRetry to exit early before onRetrying fires.
-		const onRetrying = retryOptions ? emit : undefined;
+		const onRetrying = retryOptions
+			? (r: Op.Retrying<E>) => {
+				if (executionEpoch === myEpoch && leadingController === controller) {
+					emit(r);
+				}
+			}
+			: undefined;
 
 		execute(op, args, controller, retryOptions, timeoutOptions, onRetrying).then((outcome) => {
 			if (leadingController !== controller) { return; }
 			const r = leadingResolve;
 			leadingResolve = undefined;
 			leadingController = undefined;
-			emit(outcome);
 			r?.(outcome);
+			if (executionEpoch === myEpoch) {
+				emit(outcome);
+			}
 		});
 	};
 
@@ -759,16 +841,18 @@ export const makeDebounced = <Args extends readonly unknown[], E, A>(
 		 }
 		const toRun = pendingInput as Args;
 		pendingInput = undefined;
+		const myEpoch = ++executionEpoch;
 		const controller = new AbortController();
 		latestTrailingController = controller;
 		trailingResolvers.set(controller, capturedResolve);
 		emit(_pending);
+		if (latestTrailingController !== controller || controller.signal.aborted) { return; }
 
 		// Guard required: fireTrailing runs when the debounce timer expires without aborting
 		// an in-flight execution, so retries from the predecessor must not overwrite current state.
 		const onRetrying = retryOptions
 			? (r: Op.Retrying<E>) => {
-				if (latestTrailingController === controller) { emit(r); }
+				if (latestTrailingController === controller && executionEpoch === myEpoch) { emit(r); }
 			}
 			: undefined;
 
@@ -776,7 +860,7 @@ export const makeDebounced = <Args extends readonly unknown[], E, A>(
 			const r = trailingResolvers.get(controller);
 			trailingResolvers.delete(controller);
 			r?.(outcome);
-			if (latestTrailingController === controller) {
+			if (latestTrailingController === controller && executionEpoch === myEpoch) {
 				latestTrailingController = undefined;
 				emit(outcome);
 			}
@@ -841,9 +925,9 @@ export const makeDebounced = <Args extends readonly unknown[], E, A>(
 		}
 		trailingResolvers.clear();
 		latestTrailingController = undefined;
-		if (hadWork) { emit(_abortedNil); }
 		pr?.(_abortedNil);
 		lr?.(_abortedNil);
+		if (hadWork) { emit(_abortedNil); }
 	};
 
 	return withManagerMeta(
@@ -855,7 +939,13 @@ export const makeDebounced = <Args extends readonly unknown[], E, A>(
 			abort,
 			subscribe: (cb) => {
 				subscribers.add(cb);
-				if (currentState.kind !== "Idle") {cb(currentState);}
+				if (currentState.kind !== "Idle") {
+					try {
+						cb(currentState);
+					} catch {
+						// Defensive callback shielding
+					}
+				}
 				return () => subscribers.delete(cb);
 			},
 			reset: () => {
@@ -877,9 +967,9 @@ export const makeDebounced = <Args extends readonly unknown[], E, A>(
 				}
 				trailingResolvers.clear();
 				latestTrailingController = undefined;
-				emit(_idle);
 				pr?.(_abortedNil);
 				lr?.(_abortedNil);
+				emit(_idle);
 			},
 			poll: ({ interval }: { interval: Duration; }) => (...args: Args) => {
 				void run(...args);
@@ -901,6 +991,7 @@ export const makeThrottled = <Args extends readonly unknown[], E, A>(
 	id?: string,
 ): Op.Manager<Args, E, A, Op.State<E, A>> => {
 	let currentState: Op.State<E, A> = _idle;
+	let executionEpoch = 0;
 	let latestController: AbortController | undefined;
 	const inFlightResolvers = new Map<AbortController, (o: Op.Outcome<E, A>) => void>();
 	let cooldownTimer: ReturnType<typeof setTimeout> | undefined;
@@ -911,21 +1002,27 @@ export const makeThrottled = <Args extends readonly unknown[], E, A>(
 	const emit = (state: Op.State<E, A>): void => {
 		currentState = state;
 		for (const cb of subscribers) {
-			cb(state);
+			try {
+				cb(state);
+			} catch {
+				// Defensive subscriber shielding: subscriber exceptions must not strand callers
+			}
 		}
 	};
 
 	const fireOp = (args: Args, resolve: (o: Op.Outcome<E, A>) => void): void => {
+		const myEpoch = ++executionEpoch;
 		const controller = new AbortController();
 		latestController = controller;
 		inFlightResolvers.set(controller, resolve);
 		emit(_pending);
+		if (latestController !== controller || controller.signal.aborted) { return; }
 
 		// Guard required: fireOp for trailing execution starts when cooldown expires without aborting
 		// an in-flight execution, so retries from the predecessor must not overwrite current state.
 		const onRetrying = retryOptions
 			? (r: Op.Retrying<E>) => {
-				if (latestController === controller) { emit(r); }
+				if (latestController === controller && executionEpoch === myEpoch) { emit(r); }
 			}
 			: undefined;
 
@@ -933,7 +1030,7 @@ export const makeThrottled = <Args extends readonly unknown[], E, A>(
 			const r = inFlightResolvers.get(controller);
 			inFlightResolvers.delete(controller);
 			r?.(outcome);
-			if (latestController === controller) {
+			if (latestController === controller && executionEpoch === myEpoch) {
 				latestController = undefined;
 				emit(outcome);
 			}
@@ -991,8 +1088,8 @@ export const makeThrottled = <Args extends readonly unknown[], E, A>(
 		const pr = pendingResolve;
 		pendingResolve = undefined;
 		pendingInput = undefined;
-		if (hadWork) { emit(_abortedNil); }
 		pr?.(_abortedNil);
+		if (hadWork) { emit(_abortedNil); }
 	};
 
 	return withManagerMeta(
@@ -1004,7 +1101,13 @@ export const makeThrottled = <Args extends readonly unknown[], E, A>(
 			abort,
 			subscribe: (cb) => {
 				subscribers.add(cb);
-				if (currentState.kind !== "Idle") {cb(currentState);}
+				if (currentState.kind !== "Idle") {
+					try {
+						cb(currentState);
+					} catch {
+						// Defensive callback shielding
+					}
+				}
 				return () => subscribers.delete(cb);
 			},
 			reset: () => {
@@ -1021,8 +1124,8 @@ export const makeThrottled = <Args extends readonly unknown[], E, A>(
 				pendingInput = undefined;
 				const pr = pendingResolve;
 				pendingResolve = undefined;
-				emit(_idle);
 				pr?.(_abortedNil);
+				emit(_idle);
 			},
 			poll: ({ interval }: { interval: Duration; }) => (...args: Args) => {
 				void run(...args);
@@ -1054,7 +1157,11 @@ export const makeConcurrent = <Args extends readonly unknown[], E, A>(
 	const emit = (state: Op.State<E, A>): void => {
 		currentState = state;
 		for (const cb of subscribers) {
-			cb(state);
+			try {
+				cb(state);
+			} catch {
+				// Defensive subscriber shielding: subscriber exceptions must not strand callers
+			}
 		}
 	};
 
@@ -1064,6 +1171,9 @@ export const makeConcurrent = <Args extends readonly unknown[], E, A>(
 		controllers.add(controller);
 		inflightResolvers.push(resolve);
 		emit(_pending);
+		if (controller.signal.aborted || generation !== myGeneration) {
+			return;
+		}
 
 		// Passing emit directly is safe: abort() aborts all controllers,
 		// causing runWithRetry to exit early before onRetrying fires.
@@ -1080,10 +1190,11 @@ export const makeConcurrent = <Args extends readonly unknown[], E, A>(
 			}
 
 			inflight--;
-			emit(outcome);
 			resolve(outcome);
+			emit(outcome);
 
-			if (overflowQueue.length > 0) {
+			// oxlint-disable-next-line no-unmodified-loop-condition
+			while (inflight < n && overflowQueue.length > 0) {
 				const next = overflowQueue.shift()!;
 				startOne(next.input, next.resolve, generation);
 			}
@@ -1141,7 +1252,13 @@ export const makeConcurrent = <Args extends readonly unknown[], E, A>(
 			abort,
 			subscribe: (cb) => {
 				subscribers.add(cb);
-				if (currentState.kind !== "Idle") {cb(currentState);}
+				if (currentState.kind !== "Idle") {
+					try {
+						cb(currentState);
+					} catch {
+						// Defensive callback shielding
+					}
+				}
 				return () => subscribers.delete(cb);
 			},
 			reset: () => {
@@ -1187,7 +1304,11 @@ export const makeKeyed = <Args extends readonly unknown[], K, E, A>(
 	const emitSnapshot = (): void => {
 		const snapshot = new Map(stateMap) as ReadonlyMap<K, PerKeyS>;
 		for (const cb of subscribers) {
-			cb(snapshot);
+			try {
+				cb(snapshot);
+			} catch {
+				// Defensive subscriber shielding: subscriber exceptions must not strand callers
+			}
 		}
 	};
 
@@ -1218,6 +1339,10 @@ export const makeKeyed = <Args extends readonly unknown[], K, E, A>(
 				stateMap.set(k, _pending as PerKeyS);
 				emitSnapshot();
 
+				if (controller.signal.aborted || slots.get(k)?.controller !== controller) {
+					return;
+				}
+
 				execute(op, args, controller, undefined, timeoutOptions).then((outcome) => {
 					const slot = slots.get(k);
 					if (!slot || slot.controller !== controller) {
@@ -1226,32 +1351,37 @@ export const makeKeyed = <Args extends readonly unknown[], K, E, A>(
 					}
 					slots.delete(k);
 					stateMap.set(k, outcome as PerKeyS);
-					emitSnapshot();
 					resolve(outcome);
+					emitSnapshot();
 				});
 			}),
 		);
 	};
 
-	const abort = (key?: K): void => {
-		if (key !== undefined) {
+	const abort = (...abortArgs: [key?: K]): void => {
+		if (abortArgs.length > 0) {
+			const key = abortArgs[0] as K;
 			const slot = slots.get(key);
 			if (slot) {
 				slot.controller.abort();
 				const r = slot.resolve;
 				slots.delete(key);
 				stateMap.set(key, _abortedNil as PerKeyS);
-				emitSnapshot();
 				r(_abortedNil);
+				emitSnapshot();
 			}
 		} else {
 			const hadWork = slots.size > 0;
+			const resolvers = [];
 			for (const [k, slot] of slots) {
 				slot.controller.abort();
 				stateMap.set(k, _abortedNil as PerKeyS);
-				slot.resolve(_abortedNil);
+				resolvers.push(slot.resolve);
 			}
 			slots.clear();
+			for (const r of resolvers) {
+				r(_abortedNil);
+			}
 			if (hadWork) { emitSnapshot(); }
 		}
 	};
@@ -1265,7 +1395,13 @@ export const makeKeyed = <Args extends readonly unknown[], K, E, A>(
 			abort,
 			subscribe: (cb) => {
 				subscribers.add(cb);
-				if (stateMap.size > 0) {cb(new Map(stateMap) as ReadonlyMap<K, PerKeyS>);}
+				if (stateMap.size > 0) {
+					try {
+						cb(new Map(stateMap) as ReadonlyMap<K, PerKeyS>);
+					} catch {
+						// Defensive callback shielding
+					}
+				}
 				return () => subscribers.delete(cb);
 			},
 			reset: () => {
@@ -1302,7 +1438,11 @@ export const makeOnce = <Args extends readonly unknown[], E, A>(
 	const emit = (state: Op.State<E, A>): void => {
 		currentState = state;
 		for (const cb of subscribers) {
-			cb(state);
+			try {
+				cb(state);
+			} catch {
+				// Defensive subscriber shielding: subscriber exceptions must not strand callers
+			}
 		}
 	};
 
@@ -1317,6 +1457,7 @@ export const makeOnce = <Args extends readonly unknown[], E, A>(
 				currentController = new AbortController();
 				const controller = currentController;
 				emit(_pending);
+				if (currentController !== controller || controller.signal.aborted) { return; }
 
 				// Passing emit directly is safe: once drops subsequent runs, and abort()
 				// calls controller.abort(), causing runWithRetry to exit early before onRetrying fires.
@@ -1327,8 +1468,8 @@ export const makeOnce = <Args extends readonly unknown[], E, A>(
 					const r = currentResolve;
 					currentResolve = undefined;
 					currentController = undefined;
-					emit(outcome);
 					r?.(outcome);
+					emit(outcome);
 				});
 			}),
 		);
@@ -1340,8 +1481,8 @@ export const makeOnce = <Args extends readonly unknown[], E, A>(
 		currentController = undefined;
 		const r = currentResolve;
 		currentResolve = undefined;
-		if (hadWork) { emit(_abortedNil); }
 		r?.(_abortedNil);
+		if (hadWork) { emit(_abortedNil); }
 	};
 
 	return withManagerMeta(
@@ -1353,7 +1494,13 @@ export const makeOnce = <Args extends readonly unknown[], E, A>(
 			abort,
 			subscribe: (cb) => {
 				subscribers.add(cb);
-				if (currentState.kind !== "Idle") {cb(currentState);}
+				if (currentState.kind !== "Idle") {
+					try {
+						cb(currentState);
+					} catch {
+						// Defensive callback shielding
+					}
+				}
 				return () => subscribers.delete(cb);
 			},
 			reset: () => {

@@ -4,6 +4,7 @@ import { Deferred } from "./Deferred.ts";
 import { Maybe } from "./Maybe.ts";
 import { Result } from "./Result.ts";
 import type { Task } from "./Task.ts";
+import type { Unexpected } from "./Unexpected.ts";
 
 /**
  * A microtask-coalescing request demultiplexer that batches concurrent single-key lookups
@@ -39,10 +40,7 @@ export type Batcher<K, E, V> = {
 	 * @param signal - Optional AbortSignal to cancel this individual caller's lookup.
 	 * @see {@link Batcher.loadMany} to coalesce multiple keys in a single call.
 	 */
-	readonly load: (
-		key: K,
-		signal?: AbortSignal,
-	) => Deferred<Batcher.Outcome<E | Batcher.Aborted | Batcher.Unexpected, V, K>>;
+	readonly load: (key: K, signal?: AbortSignal) => Deferred<Batcher.Outcome<E | Batcher.Aborted | Unexpected, V, K>>;
 
 	/**
 	 * Immediately coalesces multiple keys into the batch window and returns their resolved
@@ -58,7 +56,7 @@ export type Batcher<K, E, V> = {
 	readonly loadMany: (
 		keys: readonly K[],
 		signal?: AbortSignal,
-	) => Deferred<readonly Batcher.Outcome<E | Batcher.Aborted | Batcher.Unexpected, V, K>[]>;
+	) => Deferred<readonly Batcher.Outcome<E | Batcher.Aborted | Unexpected, V, K>[]>;
 
 	/**
 	 * Immediately flushes and settles all currently queued batches without waiting
@@ -75,9 +73,6 @@ export type Batcher<K, E, V> = {
 export namespace Batcher {
 	/** A caller cancelled its lookup. */
 	export type Aborted = { readonly kind: "BatcherAborted"; readonly reason: unknown; };
-
-	/** The batch fetch threw before returning a result. */
-	export type Unexpected = { readonly kind: "BatcherUnexpected"; readonly cause: unknown; };
 
 	/**
 	 * Represents a successful batch resolution containing the found value.
@@ -216,7 +211,7 @@ const getAbortReason = (signal: AbortSignal): Batcher.Aborted => ({ kind: "Batch
 
 const makeBatcher = <K, E, V>(options: Batcher.Options<K, E, V>): Batcher<K, E, V> => {
 	type KeyHash = unknown;
-	type Failure = E | Batcher.Aborted | Batcher.Unexpected;
+	type Failure = E | Batcher.Aborted | Unexpected;
 	type CallerEntry = { readonly resolve: (outcome: Batcher.Outcome<Failure, V, K>) => void; };
 	type PendingKeySlot = { readonly key: K; readonly callers: CallerEntry[]; };
 
@@ -257,7 +252,7 @@ const makeBatcher = <K, E, V>(options: Batcher.Options<K, E, V>): Batcher<K, E, 
 
 		return new Promise<void>((resolveDispatch) => {
 			const rejectChunk = (cause: unknown): void => {
-				const outcome = makeErr<Batcher.Unexpected, V, K>({ kind: "BatcherUnexpected", cause });
+				const outcome = makeErr<Unexpected, V, K>({ kind: "Unexpected", source: "Batcher", phase: "execution", cause });
 				for (let i = 0; i < chunkLen; i++) {
 					const { callers } = chunk[i];
 					for (let j = 0; j < callers.length; j++) {

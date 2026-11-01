@@ -6,6 +6,7 @@ import { Deferred } from "../Deferred.ts";
 import { Maybe } from "../Maybe.ts";
 import { Result } from "../Result.ts";
 import { Task } from "../Task.ts";
+import { Unexpected } from "../Unexpected.ts";
 
 // ---------------------------------------------------------------------------
 // make
@@ -1080,7 +1081,7 @@ test("timeout: handles throwing onTimeout gracefully", async () => {
 			},
 		}),
 	)();
-	expect(res).toStrictEqual(Result.make.err({ kind: "TaskTimeoutUnexpected", cause }));
+	expect(res).toStrictEqual(Result.make.err(Unexpected.make.execution({ source: "Task", cause })));
 });
 
 test("timeout: returns the deadline error when abort completes the inner task", async () => {
@@ -1221,4 +1222,173 @@ test("struct: safely handles __proto__ property without prototype pollution", as
 	const value = Result.getOrElse((): Record<string, unknown> => ({}))(res);
 	expect(Object.hasOwn(value, "__proto__")).toBe(true);
 	expect("polluted" in {}).toBe(false);
+});
+
+// ---------------------------------------------------------------------------
+// from.Task
+// ---------------------------------------------------------------------------
+
+test("from.Task: lifts infallible Task into Task.Result", async () => {
+	const plain = Task.make(42);
+	const lifted = Task.Result.from.Task(plain);
+	const result = await lifted();
+	expect(result).toStrictEqual(Result.make.ok(42));
+});
+
+// ---------------------------------------------------------------------------
+// all
+// ---------------------------------------------------------------------------
+
+test("all: runs tasks in parallel and returns Ok tuple", async () => {
+	const t1 = Task.Result.make.ok(1);
+	const t2 = Task.Result.make.ok("two");
+	const result = await Task.Result.all([t1, t2])();
+	expect(result).toStrictEqual(Result.make.ok([1, "two"]));
+});
+
+test("all: returns Ok([]) for empty input", async () => {
+	const result = await Task.Result.all([])();
+	expect(result).toStrictEqual(Result.make.ok([]));
+});
+
+test("all: pre-aborted signal returns Task.Aborted without starting work", async () => {
+	const controller = new AbortController();
+	controller.abort("stopped");
+	let starts = 0;
+	const t = Task.Result.from.Task(Task.from.sync(() => ++starts));
+	const result = await Task.Result.all([t, t])(controller.signal);
+	expect(result).toStrictEqual(Result.make.err({ kind: "TaskAborted", reason: "stopped" }));
+	expect(starts).toBe(0);
+});
+
+test("all: short-circuits on first error and cancels remaining tasks", async () => {
+	const controller = new AbortController();
+	let cancelled = false;
+	const fastErr = Task.Result.make.err("boom");
+	const slow = (signal?: AbortSignal) => {
+		signal?.addEventListener("abort", () => {
+			cancelled = true;
+		});
+		return Deferred.from.Promise(new Promise<Result<never, number>>(() => {}));
+	};
+
+	const result = await Task.Result.all([fastErr, slow])(controller.signal);
+	expect(result).toStrictEqual(Result.make.err("boom"));
+	expect(cancelled).toBe(true);
+});
+
+test("all: limits concurrency and preserves order", async () => {
+	let active = 0;
+	let maxActive = 0;
+	const makeTask = (value: number) =>
+		Task.tryCatch(() =>
+			new Promise<Result<never, number>>((resolve) => {
+				active++;
+				if (active > maxActive) {
+					maxActive = active;
+				}
+				setTimeout(() => {
+					active--;
+					resolve(Result.make.ok(value));
+				}, 20);
+			}), { onError: () => Result.make.ok(0) });
+
+	const tasks = [makeTask(1), makeTask(2), makeTask(3), makeTask(4)];
+	const result = await Task.Result.all(tasks, { concurrency: 2 })();
+	expect(result).toStrictEqual(Result.make.ok([1, 2, 3, 4]));
+	expect(maxActive).toBe(2);
+});
+
+test("all: settles with Task.Aborted when caller signal aborts during execution", async () => {
+	const controller = new AbortController();
+	let cancelled = false;
+	const slow = (signal?: AbortSignal) => {
+		signal?.addEventListener("abort", () => {
+			cancelled = true;
+		});
+		return Deferred.from.Promise(new Promise<Result<never, number>>(() => {}));
+	};
+
+	const promise = Task.Result.all([slow])(controller.signal);
+	controller.abort("caller-cancelled");
+	const result = await promise;
+	expect(result).toStrictEqual(Result.make.err({ kind: "TaskAborted", reason: "caller-cancelled" }));
+	expect(cancelled).toBe(true);
+});
+
+// ---------------------------------------------------------------------------
+// sequential
+// ---------------------------------------------------------------------------
+
+test("sequential: runs tasks in order and returns Ok tuple", async () => {
+	const order: number[] = [];
+	const makeTask = (n: number) =>
+		Task.Result.from.Task(Task.from.sync(() => {
+			order.push(n);
+			return n;
+		}));
+
+	const result = await Task.Result.sequential([makeTask(1), makeTask(2), makeTask(3)])();
+	expect(order).toStrictEqual([1, 2, 3]);
+	expect(result).toStrictEqual(Result.make.ok([1, 2, 3]));
+});
+
+test("sequential: stops on first error and skips remaining tasks", async () => {
+	let ranNext = false;
+	const fail = Task.Result.make.err("fail");
+	const next = Task.Result.from.Task(Task.from.sync(() => {
+		ranNext = true;
+		return 42;
+	}));
+
+	const result = await Task.Result.sequential([fail, next])();
+	expect(result).toStrictEqual(Result.make.err("fail"));
+	expect(ranNext).toBe(false);
+});
+
+test("sequential: pre-aborted signal returns Task.Aborted without starting work", async () => {
+	const controller = new AbortController();
+	controller.abort("aborted");
+	let starts = 0;
+	const task = Task.Result.from.Task(Task.from.sync(() => ++starts));
+	const result = await Task.Result.sequential([task, task])(controller.signal);
+	expect(result).toStrictEqual(Result.make.err({ kind: "TaskAborted", reason: "aborted" }));
+	expect(starts).toBe(0);
+});
+
+test("all: does not trigger abort listeners when all tasks succeed", async () => {
+	let abortFired = false;
+	const taskA = (signal?: AbortSignal) => {
+		signal?.addEventListener("abort", () => {
+			abortFired = true;
+		});
+		return Deferred.from.Promise(Promise.resolve(Result.make.ok(1)));
+	};
+	const taskB = Task.Result.make.ok(2);
+
+	const result = await Task.Result.all([taskA, taskB])();
+	expect(result).toStrictEqual(Result.make.ok([1, 2]));
+	expect(abortFired).toBe(false);
+});
+
+test("all: synchronously throwing task settles as Unexpected.Execution", async () => {
+	const cause = new Error("sync throw in task");
+	const throwingTask: Task.Result<string, number> = () => {
+		throw cause;
+	};
+	const normalTask = Task.Result.make.ok("hello");
+
+	const result = await Task.Result.all([throwingTask, normalTask])();
+	expect(result).toStrictEqual(Result.make.err(Unexpected.make.execution({ source: "Task", cause })));
+});
+
+test("sequential: synchronously throwing task settles as Unexpected.Execution", async () => {
+	const cause = new Error("sync throw in seq task");
+	const throwingTask: Task.Result<string, number> = () => {
+		throw cause;
+	};
+	const normalTask = Task.Result.make.ok("hello");
+
+	const result = await Task.Result.sequential([throwingTask, normalTask])();
+	expect(result).toStrictEqual(Result.make.err(Unexpected.make.execution({ source: "Task", cause })));
 });

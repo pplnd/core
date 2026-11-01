@@ -4,6 +4,7 @@ import type { RetryPolicy } from "../Types/RetryPolicy.ts";
 import { Deferred } from "./Deferred.ts";
 import { Result } from "./Result.ts";
 import { Task } from "./Task.ts";
+import { Unexpected } from "./Unexpected.ts";
 
 // =============================================================================
 // Phantom Brand Symbols
@@ -30,9 +31,6 @@ export type Graph<E = unknown, Out = unknown> = WithKind<"Graph"> & {
 export namespace Graph {
 	/** The caller cancelled a graph run. */
 	export type Aborted = { readonly kind: "GraphAborted"; readonly reason: unknown; };
-
-	/** A node or graph execution callback threw unexpectedly. */
-	export type Unexpected = { readonly kind: "GraphUnexpected"; readonly cause: unknown; };
 
 	/**
 	 * Represents a distinct, typed node in a Directed Acyclic Graph (DAG).
@@ -382,19 +380,18 @@ const makeGraph = <Id extends string, E, Out>(target: Graph.Node<Id, E, Out>): G
  * ```
  */
 const runGraph =
-	<E, Out>(
-		graph: Graph<E, Out>,
-		options?: Graph.RunOptions,
-	): Task.Result<E | Graph.Aborted | Graph.Unexpected | Task.TimeoutUnexpected, Out> =>
+	<E, Out>(graph: Graph<E, Out>, options?: Graph.RunOptions): Task.Result<E | Graph.Aborted | Unexpected, Out> =>
 	(callerSignal) =>
 		Deferred.from.Promise(
-			new Promise<Result<E | Graph.Aborted | Graph.Unexpected | Task.TimeoutUnexpected, Out>>((resolve) => {
+			new Promise<Result<E | Graph.Aborted | Unexpected, Out>>((resolve) => {
 				if (!graph || (graph as { readonly kind?: unknown; }).kind !== "Graph") {
 					resolve(
-						Result.make.err({
-							kind: "GraphUnexpected",
-							cause: new TypeError("[Graph.run] Expected a valid Graph instance."),
-						}),
+						Result.make.err(
+							Unexpected.make.execution({
+								source: "Graph",
+								cause: new TypeError("[Graph.run] Expected a valid Graph instance."),
+							}),
+						),
 					);
 					return;
 				}
@@ -415,7 +412,7 @@ const runGraph =
 				// oxlint-disable-next-line prefer-const
 				let onCallerAbort: () => void;
 
-				const settle = (result: Result<E | Graph.Aborted | Graph.Unexpected | Task.TimeoutUnexpected, Out>): void => {
+				const settle = (result: Result<E | Graph.Aborted | Unexpected, Out>): void => {
 					if (isSettled) {
 						return;
 					}
@@ -520,11 +517,11 @@ const runGraph =
 
 							drain();
 						} else {
-							settle(Result.make.err(nodeOutcome.error as E | Task.TimeoutUnexpected));
+							settle(Result.make.err(nodeOutcome.error as E | Unexpected));
 						}
 					} catch (thrown) {
 						inFlight--;
-						settle(Result.make.err({ kind: "GraphUnexpected", cause: thrown }));
+						settle(Result.make.err(Unexpected.make.execution({ source: "Graph", cause: thrown })));
 					}
 				};
 

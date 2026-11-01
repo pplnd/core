@@ -5,6 +5,7 @@ import { RetryPolicy } from "../../Types/RetryPolicy.ts";
 import { Graph } from "../Graph.ts";
 import { Result } from "../Result.ts";
 import { Task } from "../Task.ts";
+import { Unexpected } from "../Unexpected.ts";
 
 // -----------------------------------------------------------------------------
 // Graph.node validation
@@ -206,7 +207,9 @@ test("run: catches thrown exception in node run and settles as Result.err", asyn
 	const outcome = await Graph.run(graph)();
 
 	expect(Result.is.err(outcome)).toBe(true);
-	expect(outcome).toStrictEqual(Result.make.err({ kind: "GraphUnexpected", cause: new Error("unexpected crash") }));
+	expect(outcome).toStrictEqual(
+		Result.make.err(Unexpected.make.execution({ source: "Graph", cause: new Error("unexpected crash") })),
+	);
 });
 
 // -----------------------------------------------------------------------------
@@ -455,7 +458,7 @@ test("run: returns a typed error when the timeout callback throws", async () => 
 	});
 
 	const outcome = await Graph.run(Graph.make(node))();
-	expect(outcome).toStrictEqual(Result.make.err({ kind: "TaskTimeoutUnexpected", cause }));
+	expect(outcome).toStrictEqual(Result.make.err(Unexpected.make.execution({ source: "Task", cause })));
 });
 
 test("run: wraps exceptions thrown while invoking the node task", async () => {
@@ -468,7 +471,7 @@ test("run: wraps exceptions thrown while invoking the node task", async () => {
 	});
 
 	const outcome = await Graph.run(Graph.make(node))();
-	expect(outcome).toStrictEqual(Result.make.err({ kind: "GraphUnexpected", cause }));
+	expect(outcome).toStrictEqual(Result.make.err(Unexpected.make.execution({ source: "Graph", cause })));
 });
 
 // -----------------------------------------------------------------------------

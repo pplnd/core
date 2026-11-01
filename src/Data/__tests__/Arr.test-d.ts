@@ -88,7 +88,7 @@ test("traverse & sequence: maps effects across array elements", () => {
 	expectTypeOf(travValidation).toEqualTypeOf<Validation<"err", readonly string[]>>();
 
 	const travTask = pipe(items, Arr.traverse.Task((n) => Task.make(n.toString())));
-	expectTypeOf(travTask).toEqualTypeOf<Task.Result<Task.Aborted, readonly string[]>>();
+	expectTypeOf(travTask).toEqualTypeOf<Task<readonly string[]>>();
 });
 
 test("NonEmpty: preserves guaranteed non-empty tuple constraints", () => {

@@ -9,6 +9,7 @@ import { Result as CoreResult } from "./Result.ts";
 import { TaskMaybe } from "./TaskMaybe.ts";
 import { TaskResult } from "./TaskResult.ts";
 import { TaskValidation } from "./TaskValidation.ts";
+import { Unexpected } from "./Unexpected.ts";
 import { Validation as CoreValidation } from "./Validation.ts";
 
 // =============================================================================
@@ -65,8 +66,6 @@ type _TaskValidation<E, A> = Task<CoreValidation<E, A>>;
 export namespace Task {
 	/** Queued tasks were not started because the signal was aborted. */
 	export type Aborted = { readonly kind: "TaskAborted"; readonly reason: unknown; };
-	/** The timeout error callback threw instead of returning an error. */
-	export type TimeoutUnexpected = { readonly kind: "TaskTimeoutUnexpected"; readonly cause: unknown; };
 	export type LabeledTask<L extends string, A> = Task<A> & { readonly label: L; };
 	export type Maybe<A> = _TaskMaybe<A>;
 	export type Result<E, A> = _TaskResult<E, A>;
@@ -265,14 +264,14 @@ export const Task = {
 	/**
 	 * Runs multiple Tasks in parallel and collects their results.
 	 * An optional `concurrency` option limits the number of tasks executing at any given time.
-	 * Returns `Err(TaskAborted)` if cancellation prevents queued tasks from starting.
+	 * An optional `signal` passed at the call site is forwarded to every task, including queued tasks.
 	 *
 	 * @see {@link Task.sequential} to run an array of Tasks one after another in order.
 	 *
 	 * @example
 	 * ```ts
 	 * Task.all([loadConfig, detectLocale, loadTheme])();
-	 * // Deferred<Result<Task.Aborted, [Config, string, Theme]>>
+	 * // Deferred<[Config, string, Theme]>
 	 *
 	 * Task.all([loadConfig, detectLocale, loadTheme], { concurrency: 2 })();
 	 * ```
@@ -280,37 +279,36 @@ export const Task = {
 	all: <T extends readonly Task<unknown>[]>(
 		tasks: readonly [...T],
 		options?: { concurrency?: number; },
-	): Task.Result<Task.Aborted, { [K in keyof T]: T[K] extends Task<infer A> ? A : never; }> =>
+	): Task<{ [K in keyof T]: T[K] extends Task<infer A> ? A : never; }> =>
 		fromPromise((signal) => {
 			type Results = { [K in keyof T]: T[K] extends Task<infer A> ? A : never; };
 			const concurrency = options?.concurrency;
 			const len = tasks.length;
+			if (concurrency === undefined || !Number.isInteger(concurrency) || concurrency <= 0 || len <= concurrency) {
+				const promises = new Array<Promise<unknown>>(len);
+				for (let i = 0; i < len; i++) {
+					promises[i] = toPromise(tasks[i], signal);
+				}
+				return Promise.all(promises) as Promise<Results>;
+			}
+
 			const results = new Array(len);
 			let nextIndex = 0;
 
 			const worker = async () => {
 				while (nextIndex < len) {
-					if (signal?.aborted) {
-						break;
-					}
 					const currentIndex = nextIndex++;
 					results[currentIndex] = await toPromise(tasks[currentIndex], signal);
 				}
 			};
 
-			const workerCount = concurrency === undefined || !Number.isInteger(concurrency) || concurrency <= 0
-				? len
-				: Math.min(concurrency, len);
+			const workerCount = Math.min(concurrency, len);
 			const workers = new Array<Promise<void>>(workerCount);
 			for (let i = 0; i < workerCount; i++) {
 				workers[i] = worker();
 			}
 
-			return Promise.all(workers).then(() =>
-				nextIndex < len
-					? CoreResult.make.err({ kind: "TaskAborted", reason: signal?.reason })
-					: CoreResult.make.ok(results as unknown as Results)
-			);
+			return Promise.all(workers).then(() => results as unknown as Results);
 		}),
 
 	/**
@@ -465,7 +463,7 @@ export const Task = {
 	/**
 	 * Runs an array or tuple of Tasks one at a time in order, collecting all results.
 	 * Each Task starts only after the previous one resolves.
-	 * Returns `Err(TaskAborted)` if cancellation prevents queued tasks from starting.
+	 * An optional `signal` passed at the call site is forwarded to every task, including queued tasks.
 	 *
 	 * @see {@link Task.all} to run an array or tuple of tasks in parallel.
 	 *
@@ -474,23 +472,20 @@ export const Task = {
 	 * const makeTask = (n: number) => Task.make(n);
 	 *
 	 * await Task.sequential([makeTask(1), makeTask(2), makeTask(3)])();
-	 * // Ok([1, 2, 3])
+	 * // [1, 2, 3]
 	 * ```
 	 */
 	sequential: <T extends readonly Task<unknown>[]>(
 		tasks: readonly [...T],
-	): Task.Result<Task.Aborted, { [K in keyof T]: T[K] extends Task<infer A> ? A : never; }> =>
+	): Task<{ [K in keyof T]: T[K] extends Task<infer A> ? A : never; }> =>
 		fromPromise(async (signal) => {
 			type Results = { [K in keyof T]: T[K] extends Task<infer A> ? A : never; };
 			const len = tasks.length;
-			const results: unknown[] = [];
+			const results: unknown[] = new Array(len);
 			for (let i = 0; i < len; i++) {
-				if (signal?.aborted) {
-					return CoreResult.make.err({ kind: "TaskAborted", reason: signal.reason });
-				}
-				results.push(await toPromise(tasks[i], signal));
+				results[i] = await toPromise(tasks[i], signal);
 			}
-			return CoreResult.make.ok(results as unknown as Results);
+			return results as unknown as Results;
 		}),
 
 	/**
@@ -510,7 +505,7 @@ export const Task = {
 	 */
 	timeout:
 		<E>(options: { duration: Duration; onTimeout: () => E; }) =>
-		<A>(task: Task<A>): Task<CoreResult<E | Task.TimeoutUnexpected, A>> =>
+		<A>(task: Task<A>): Task<CoreResult<E | Unexpected, A>> =>
 			fromPromise((outerSignal) => {
 				const { duration, onTimeout } = options;
 				const controller = new AbortController();
@@ -538,13 +533,13 @@ export const Task = {
 						cleanUp();
 						return CoreResult.make.ok(a);
 					}),
-					new Promise<CoreResult<E | Task.TimeoutUnexpected, A>>((res) => {
+					new Promise<CoreResult<E | Unexpected, A>>((res) => {
 						timerId = setTimeout(() => {
 							cleanUp();
 							try {
 								res(CoreResult.make.err(onTimeout()));
 							} catch (cause) {
-								res(CoreResult.make.err({ kind: "TaskTimeoutUnexpected", cause }));
+								res(CoreResult.make.err(Unexpected.make.execution({ source: "Task", phase: "execution", cause })));
 							}
 							controller.abort();
 						}, getMs(duration));

@@ -7,6 +7,7 @@ import { Deferred } from "../Deferred.ts";
 import { Maybe } from "../Maybe.ts";
 import { Result } from "../Result.ts";
 import { Task } from "../Task.ts";
+import type { Unexpected } from "../Unexpected.ts";
 
 test("load: preserves fetch errors alongside cancellation and unexpected errors", () => {
 	type FetchError = { readonly kind: "FetchError"; };
@@ -15,7 +16,7 @@ test("load: preserves fetch errors alongside cancellation and unexpected errors"
 			Task.Result.make.err({ kind: "FetchError" }),
 	});
 	expectTypeOf(batcher.load("key")).toEqualTypeOf<
-		Deferred<Batcher.Outcome<FetchError | Batcher.Aborted | Batcher.Unexpected, number, string>>
+		Deferred<Batcher.Outcome<FetchError | Batcher.Aborted | Unexpected, number, string>>
 	>();
 });
 
@@ -35,11 +36,11 @@ test("make: infers Batcher instance types correctly", () => {
 	expectTypeOf(batcher).toEqualTypeOf<Batcher<Key, never, User>>();
 
 	const loadDeferred = batcher.load("u_1");
-	expectTypeOf(loadDeferred).toEqualTypeOf<Deferred<Batcher.Outcome<Batcher.Aborted | Batcher.Unexpected, User, Key>>>();
+	expectTypeOf(loadDeferred).toEqualTypeOf<Deferred<Batcher.Outcome<Batcher.Aborted | Unexpected, User, Key>>>();
 
 	const loadManyDeferred = batcher.loadMany(["u_1", "u_2"]);
 	expectTypeOf(loadManyDeferred).toEqualTypeOf<
-		Deferred<readonly Batcher.Outcome<Batcher.Aborted | Batcher.Unexpected, User, Key>[]>
+		Deferred<readonly Batcher.Outcome<Batcher.Aborted | Unexpected, User, Key>[]>
 	>();
 
 	const flushDeferred = batcher.flush();

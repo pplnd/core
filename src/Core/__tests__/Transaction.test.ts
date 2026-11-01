@@ -6,6 +6,7 @@ import { Deferred } from "../Deferred.ts";
 import { Result } from "../Result.ts";
 import { Task } from "../Task.ts";
 import { Transaction } from "../Transaction.ts";
+import { Unexpected } from "../Unexpected.ts";
 
 // =============================================================================
 // Validation & Construction
@@ -80,7 +81,7 @@ test("run: returns Err if transaction instance is invalid", async () => {
 		Result.make.err({
 			kind: "TransactionFailure",
 			stepId: "initial",
-			error: { kind: "TransactionUnexpected", cause: expect.any(TypeError) },
+			error: Unexpected.make.execution({ source: "Transaction", cause: expect.any(TypeError) }),
 			undoErrors: [],
 		}),
 	);
@@ -310,10 +311,10 @@ test("rollback: continues draining remaining undos when an intermediate undo fai
 			kind: "TransactionFailure",
 			stepId: "step4",
 			error: "forward_failure",
-			undoErrors: [{ stepId: "step3", error: { kind: "TransactionUnexpected", cause: expect.any(Error) } }, {
-				stepId: "step2",
-				error: "step2_undo_err",
-			}],
+			undoErrors: [{
+				stepId: "step3",
+				error: Unexpected.make.execution({ source: "Transaction", cause: expect.any(Error), stepId: "step3" }),
+			}, { stepId: "step2", error: "step2_undo_err" }],
 		}),
 	);
 
@@ -627,7 +628,7 @@ test("run: forward step throwing uncaught error safely fails and rolls back", as
 		Result.make.err({
 			kind: "TransactionFailure",
 			stepId: "s2",
-			error: { kind: "TransactionUnexpected", cause: expect.any(Error) },
+			error: Unexpected.make.execution({ source: "Transaction", cause: expect.any(Error), stepId: "s2" }),
 			undoErrors: [],
 		}),
 	);
@@ -659,7 +660,7 @@ test("run: does not pass thrown step errors to a domain retry predicate", async 
 		Result.make.err({
 			kind: "TransactionFailure",
 			stepId: "publish",
-			error: { kind: "TransactionUnexpected", cause },
+			error: Unexpected.make.execution({ source: "Transaction", cause, stepId: "publish" }),
 			undoErrors: [],
 		}),
 	);
@@ -686,7 +687,7 @@ test("timeout: returns the typed cause when the timeout handler throws", async (
 		Result.make.err({
 			kind: "TransactionFailure",
 			stepId: "publish",
-			error: { kind: "TaskTimeoutUnexpected", cause },
+			error: Unexpected.make.execution({ source: "Task", cause }),
 			undoErrors: [],
 		}),
 	);
@@ -768,7 +769,10 @@ test("rollback: captures synchronous throw in undo function", async () => {
 			kind: "TransactionFailure",
 			stepId: "s2",
 			error: "fail",
-			undoErrors: [{ stepId: "s1", error: { kind: "TransactionUnexpected", cause: expect.any(Error) } }],
+			undoErrors: [{
+				stepId: "s1",
+				error: Unexpected.make.execution({ source: "Transaction", cause: expect.any(Error), stepId: "s1" }),
+			}],
 		}),
 	);
 });
@@ -801,7 +805,10 @@ test("rollback: captures thrown error during undo Task execution and tolerates o
 			kind: "TransactionFailure",
 			stepId: "s2",
 			error: "fail",
-			undoErrors: [{ stepId: "s1", error: { kind: "TransactionUnexpected", cause: expect.any(Error) } }],
+			undoErrors: [{
+				stepId: "s1",
+				error: Unexpected.make.execution({ source: "Transaction", cause: expect.any(Error), stepId: "s1" }),
+			}],
 		}),
 	);
 });
@@ -827,7 +834,10 @@ test("rollback: captures thrown error during undo Task execution without onUndo 
 			kind: "TransactionFailure",
 			stepId: "s2",
 			error: "fail",
-			undoErrors: [{ stepId: "s1", error: { kind: "TransactionUnexpected", cause: expect.any(Error) } }],
+			undoErrors: [{
+				stepId: "s1",
+				error: Unexpected.make.execution({ source: "Transaction", cause: expect.any(Error), stepId: "s1" }),
+			}],
 		}),
 	);
 });
@@ -850,7 +860,7 @@ test("run: captures thrown error during step Task execution", async () => {
 		Result.make.err({
 			kind: "TransactionFailure",
 			stepId: "s1",
-			error: { kind: "TransactionUnexpected", cause: expect.any(Error) },
+			error: Unexpected.make.execution({ source: "Transaction", cause: expect.any(Error), stepId: "s1" }),
 			undoErrors: [],
 		}),
 	);

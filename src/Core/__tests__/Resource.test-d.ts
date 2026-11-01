@@ -2,7 +2,9 @@ import { constTruthyBool } from "#test-utils";
 import { expectTypeOf, test } from "vitest";
 import { pipe } from "../../Composition/pipe.ts";
 import { Resource } from "../Resource.ts";
+import type { Result } from "../Result.ts";
 import { Task } from "../Task.ts";
+import type { Unexpected } from "../Unexpected.ts";
 
 test("make & from.Task: constructs resource objects with acquire and release", () => {
 	const fallibleAcquire = constTruthyBool() ? Task.Result.make.ok(42) : Task.Result.make.err("acquire_err");
@@ -31,7 +33,7 @@ test("use: passes acquired value to consume and unifies error channels", async (
 		Resource.use((n) => constTruthyBool() ? Task.Result.make.ok(n.toString()) : Task.Result.make.err(500)),
 	);
 	expectTypeOf(program).toEqualTypeOf<
-		Task.Result<"acquire_err" | 500 | Resource.Unexpected<"acquire_err" | 500, string>, string>
+		Task.Result<"acquire_err" | 500 | Unexpected<Result<"acquire_err" | 500 | Unexpected.Execution, string>>, string>
 	>();
 	const outcome = await program();
 	if (

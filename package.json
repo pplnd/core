@@ -149,6 +149,13 @@
 			"gzip": true
 		},
 		{
+			"name": "Unexpected",
+			"import": "{ Unexpected }",
+			"path": "dist/index.mjs",
+			"limit": "400 B",
+			"gzip": true
+		},
+		{
 			"name": "RemoteData",
 			"import": "{ RemoteData }",
 			"path": "dist/index.mjs",
@@ -201,7 +208,7 @@
 			"name": "Graph",
 			"import": "{ Graph }",
 			"path": "dist/index.mjs",
-			"limit": "6 KB",
+			"limit": "7 KB",
 			"gzip": true
 		},
 		{
@@ -215,14 +222,14 @@
 			"name": "CircuitBreaker",
 			"import": "{ CircuitBreaker }",
 			"path": "dist/index.mjs",
-			"limit": "3 KB",
+			"limit": "4 KB",
 			"gzip": true
 		},
 		{
 			"name": "Batcher",
 			"import": "{ Batcher }",
 			"path": "dist/index.mjs",
-			"limit": "3 KB",
+			"limit": "4 KB",
 			"gzip": true
 		},
 		{

@@ -62,7 +62,7 @@ export const RetryPolicy = {
 			readonly onRetry?: (metadata: RetryPolicy.Metadata<E>) => void;
 		},
 	): RetryPolicy<E> => ({
-		attempts: Math.max(1, options.attempts),
+		attempts: Number.isInteger(options.attempts) && options.attempts > 0 ? options.attempts : 1,
 		getDelay: () => options.delay,
 		...(options.when !== undefined ? { when: options.when } : {}),
 		...(options.onRetry !== undefined ? { onRetry: options.onRetry } : {}),
@@ -100,7 +100,7 @@ export const RetryPolicy = {
 			readonly onRetry?: (metadata: RetryPolicy.Metadata<E>) => void;
 		},
 	): RetryPolicy<E> => {
-		const attempts = Math.max(1, options.attempts);
+		const attempts = Number.isInteger(options.attempts) && options.attempts > 0 ? options.attempts : 1;
 		const initialMs = Duration.to.milliseconds(options.initial);
 		const factor = options.factor ?? 2;
 		const jitter = options.jitter ?? false;
