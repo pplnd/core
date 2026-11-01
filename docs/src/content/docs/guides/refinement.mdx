@@ -1,208 +1,92 @@
 ---
-title: Refinement — Type Predicates
-description: Represent type-narrowing predicates as composable, first-class values, combining checks in pipelines without losing type information.
+title: Refinement — Composing Type Guards
+description: Combine type guards and convert their results into Maybe or Result values.
 ---
 {/* BUNDLE_SIZE:START */}
 
-> 1.64 kB minified + gzipped
+> 1.63 kB minified + gzipped
 
 {/* BUNDLE_SIZE:END */}
 
-import { Aside } from '@astrojs/starlight/components'
+## Core Behavior
 
-TypeScript features outstanding support for control flow analysis. When you write a runtime assertion like `typeof x === "string"` or `x !== null`, the compiler understands the condition and narrows the type of `x` inside that specific block.
+`Refinement<A, B>` is a type guard: a function that checks an `A` and tells TypeScript when it is a
+narrower `B`.
 
-However, these inline checks are highly localized. They do not compose.
+- `compose` runs a second guard only after the first guard passes, using the first guard's narrowed
+  type as the second guard's input.
+- `and` requires both guards to pass; `or` accepts either. Both short-circuit.
+- `to.Maybe` and `to.Result` convert a check into a function that returns a narrowed value or a
+  failure.
 
-If you write a type guard `isNonEmpty(s)` in one module and `isValidEmail(s)` in another, there is no native, clean way to combine them into a third type guard `isNonEmptyAndValidEmail` without writing a completely new, manual wrapper function and declaring a new type guard signature by hand. As validation rules grow, codebases accumulate a scattered array of redundant, ad-hoc guards:
+## Example: Heartbeat Messages
 
-```ts
-// Works, but ad-hoc and completely un-composable:
-function validateInput(raw: string) {
-  if (raw.length > 0 && raw.includes("@")) {
-    // The compiler knows the checks passed, but the combination is not named or reusable
-    sendVerificationEmail(raw);
-  }
-}
+A service receives decoded messages as `unknown`. Before reading the service name, it checks that
+the value is an object and that it has the fields of a heartbeat message.
+
+`compose` runs the object check first. If that check fails, it skips the field check:
+
+```mermaid
+flowchart TD
+  Input["Unknown message"] --> Object{"Object guard passes?"}
+  Object -->|No| Fail["false; skip field guard"]
+  Object -->|Yes| Fields{"Heartbeat guard passes?"}
+  Fields -->|No| Fail
+  Fields -->|Yes| Pass["true; value narrows to heartbeat"]
 ```
 
-`Refinement<A, B extends A>` solves this. It packages runtime type-narrowing into a first-class, reusable data structure:
+### Checking a Message
 
 ```ts
-type Refinement<A, B extends A> = (a: A) => a is B;
-```
+import { Refinement, Result, pipe } from "@pplnd/core";
 
-At the runtime level, a `Refinement` is simply a standard function returning a boolean. At compile time, it is a type predicate. Because the refinement is a first-class value, we can compose, intersect, and combine checks directly without manual wrapper functions.
+type Heartbeat = { kind: "heartbeat"; service: string };
 
----
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
+const isHeartbeatRecord = (value: Record<string, unknown>): value is Heartbeat =>
+  value.kind === "heartbeat" && typeof value.service === "string";
 
-## Creating Refinements
+const isHeartbeat = pipe(isRecord, Refinement.compose(isHeartbeatRecord));
 
-To lift a standard boolean check into a typed `Refinement`, we use `Refinement.from.Predicate`:
-
-```ts
-import { Brand, Refinement } from "@pplnd/core";
-
-type PositiveNumber = Brand<"PositiveNumber", number>;
-type EvenNumber     = Brand<"EvenNumber", number>;
-
-const isPositive: Refinement<number, PositiveNumber> =
-  Refinement.from.Predicate((n) => n > 0);
-
-const isEven: Refinement<number, EvenNumber> =
-  Refinement.from.Predicate((n) => n % 2 === 0);
-
-isPositive(42);  // true  — 42 is narrowed to PositiveNumber
-isPositive(-1);  // false
-```
-
-<Aside type="caution">
-`Refinement.from.Predicate` is a compile-time assertion. You are guaranteeing to the TypeScript compiler that the supplied boolean check correctly narrows the type. The compiler cannot verify that your logic matches the target brand. Use it at boundaries to bootstrap your core rules, and build more complex rules by composing existing, verified refinements.
-</Aside>
-
----
-
-## Composing and Intersecting
-
-Because refinements are first-class values, we can combine them using logical operations without writing manual function wrappers.
-
-### Chaining in sequence with `compose`
-
-When you have a pipeline of narrowing steps where the output of check A becomes the input of check B (e.g. `string` → `NonEmpty` → `Trimmed`), you can chain them using `compose`:
-
-```ts
-import { pipe } from "@pplnd/core";
-
-type NonEmptyString = Brand<"NonEmpty", string>;
-type TrimmedString  = Brand<"Trimmed", NonEmptyString>;
-
-const isNonEmpty: Refinement<string, NonEmptyString> =
-  Refinement.from.Predicate((s) => s.length > 0);
-
-const isTrimmed: Refinement<NonEmptyString, TrimmedString> =
-  Refinement.from.Predicate((s) => s === s.trim());
-
-// string → NonEmptyString → TrimmedString collapses to a single string → TrimmedString check
-const isNonEmptyTrimmed: Refinement<string, TrimmedString> = pipe(
-  isNonEmpty,
-  Refinement.compose(isTrimmed),
-);
-
-isNonEmptyTrimmed("hello");   // true
-isNonEmptyTrimmed("  hello"); // false (fails isTrimmed)
-isNonEmptyTrimmed("");        // false (fails isNonEmpty)
-```
-
-### Intersecting with `and`
-
-When two independent checks apply to the same base type and you require both to hold true simultaneously, `and` produces a combined `B & C` refinement:
-
-```ts
-type PositiveEven = PositiveNumber & EvenNumber;
-
-const isPositiveEven: Refinement<number, PositiveEven> = pipe(
-  isPositive,
-  Refinement.and(isEven),
-);
-
-isPositiveEven(4);  // true
-isPositiveEven(3);  // false (positive but odd)
-isPositiveEven(-2); // false (even but negative)
-```
-
-### Union branching with `or`
-
-`or` combines two refinements, producing a union type `B | C` that passes if at least one of the two checks succeeds:
-
-```ts
-interface User { role: string }
-type AdminUser = User & { role: "admin" }
-type SuperUser = User & { role: "super" }
-
-const isAdmin: Refinement<User, AdminUser> = Refinement.from.Predicate((u) => u.role === "admin");
-const isSuper: Refinement<User, SuperUser> = Refinement.from.Predicate((u) => u.role === "super");
-
-const isPrivileged: Refinement<User, AdminUser | SuperUser> = pipe(
-  isAdmin,
-  Refinement.or(isSuper),
-);
-```
-
----
-
-## Bridging to Pipelines
-
-Refinements convert into functions compatible with `pipe` and `Maybe`.
-
-### Entering Maybe contexts with `Refinement.to.Maybe`
-
-`Refinement.to.Maybe` converts a `Refinement<A, B>` into a mapping function `(a: A) => Maybe<B>`. This is the standard gateway to validate inputs and lift them safely into an optional pipeline:
-
-```ts
-import { Maybe } from "@pplnd/core";
-
-type NonEmptyString = Brand<"NonEmpty", string>;
-const isNonEmpty: Refinement<string, NonEmptyString> = Refinement.from.Predicate((s) => s.length > 0);
-
-const parseTitle = (raw: string): Maybe<NonEmptyString> =>
+const describeMessage = (message: unknown): string =>
   pipe(
-    raw.trim(),
-    Refinement.to.Maybe(isNonEmpty),
-  ); // Some(NonEmptyString) or None
-```
-
-### Entering Result contexts with `Refinement.to.Result`
-
-`Refinement.to.Result` converts a refinement into a mapping function `(a: A) => Result<E, B>`. It allows you to assert a type and attach a typed error if the check fails:
-
-```ts
-import { Result } from "@pplnd/core";
-
-const parseQuantity = (raw: number): Result<string, PositiveNumber> =>
-  pipe(
-    raw,
-    Refinement.to.Result(isPositive, (n) => `Quantity must be positive, got ${n}`),
+    message,
+    Refinement.to.Result(isHeartbeat, () => "Invalid heartbeat"),
+    Result.match({
+      ok: (heartbeat) => `Heartbeat from ${heartbeat.service}`,
+      err: (error) => error,
+    }),
   );
+
+describeMessage({ kind: "heartbeat", service: "billing" }); // "Heartbeat from billing"
+describeMessage({ kind: "heartbeat", service: 7 });         // "Invalid heartbeat"
 ```
 
-This makes validating nested constraints inside a `Result.chain` extremely elegant:
+## Core Operations
 
-```ts
-type EmailString = Brand<"Email", string>;
-const isEmail: Refinement<NonEmptyString, EmailString> = Refinement.from.Predicate((s) => s.includes("@"));
+### Creating and Combining
 
-const validateEmailInput = (raw: string): Result<string, EmailString> =>
-  pipe(
-    raw,
-    Refinement.to.Result(isNonEmpty, () => "Email address cannot be empty"),
-    Result.chain((nonEmpty) =>
-      pipe(
-        nonEmpty,
-        Refinement.to.Result(isEmail, () => "Email address must contain an '@' symbol"),
-      )
-    ),
-  );
-```
+| Signature | What it does | Result |
+| :-------- | :----------- | :----- |
+| `Refinement.from.Predicate(check)` | Treats a boolean function as a type guard. | A guard whose target type is supplied by the caller. |
+| `Refinement.compose(next)` | Runs a guard against the type narrowed by the first guard. | Guard for the final narrower type. |
+| `Refinement.and(other)` / `or(other)` | Requires both / either guard to pass. | Guard for the intersection / union type. |
 
-### Converting to Predicate with `Refinement.to.Predicate`
+A normal TypeScript type guard can also be used directly as a `Refinement`.
 
-When composing a narrowing check alongside standard boolean predicates (such as in `Predicate.and` or `Predicate.all`), `Refinement.to.Predicate` converts a `Refinement<A, B>` into a plain `Predicate<A>`, discarding the type narrowing at compile time at zero runtime cost:
+### Converting
 
-```ts
-import { Predicate, Refinement } from "@pplnd/core";
+| Signature | What it does | Result |
+| :-------- | :----------- | :----- |
+| `Refinement.to.Maybe(guard)` | Wraps a passing value. | `Some(value)` or `None`. |
+| `Refinement.to.Result(guard, onFail)` | Wraps a passing value or creates an error. | `Ok(value)` or `Err(onFail(value))`. |
+| `Refinement.to.Predicate(guard)` | Uses a guard as a boolean predicate. | Predicate without a narrowing signature. |
 
-const isNonEmptyPredicate: Predicate<string> = Refinement.to.Predicate(isNonEmpty);
+## Failure Behavior and Edge Cases
 
-isNonEmptyPredicate("hello"); // true
-isNonEmptyPredicate("");      // false
-```
-
----
-
-## Problems it solves
-
-- **Narrowing unvalidated inputs at API boundaries**: Inbound HTTP payloads, environment variables, and route parameters arrive as `unknown` or raw strings. `Refinement` encapsulates TypeScript custom type guards (`x is T`) into first-class functions that statically narrow types while verifying data at runtime.
-- **Composing multi-step narrowing rules**: Combining multiple structural type checks (such as verifying a payload is a non-null object, that a specific property exists, and that the property matches a branded type) often requires verbose nested guard functions. `Refinement.and` and `Refinement.compose` chain type-narrowing rules directly inside a pipeline.
-- **Lightweight runtime schema validation**: Validating parsed JSON tokens, localStorage entries, or WebSocket frames without bundling heavy schema libraries, maintaining full TypeScript type narrowing with zero external overhead.
-- **Bridging runtime checks into `Maybe` and `Result` pipelines**: Transforming raw input into narrowed domain types inside pipelines using `Refinement.to.Maybe` or `Refinement.to.Result`, safely converting unverified data into typed values with explicit error messages on failure.
+`Refinement.from.Predicate` asserts that a boolean function proves the target type; it cannot check
+whether that assertion is correct. Supply a check that verifies the target type's requirements, or
+use an existing TypeScript type guard as in the example. An incorrect check can make TypeScript
+accept a value that does not have the promised shape.

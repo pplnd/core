@@ -1,6 +1,6 @@
 ---
-title: Deferred — Infallible Async Values
-description: Model asynchronous computations that are guaranteed to resolve successfully, structurally excluding rejection and chaining at the type level.
+title: Deferred — Awaitable Async Values
+description: Await and combine asynchronous values whose errors have already been handled.
 ---
 
 <!-- BUNDLE_SIZE:START -->
@@ -9,141 +9,86 @@ description: Model asynchronous computations that are guaranteed to resolve succ
 
 <!-- BUNDLE_SIZE:END -->
 
-Standard JavaScript `Promise<A>` exposes `.catch()` and `.finally()`, implying that any asynchronous
-operation might reject. For operations that are guaranteed to resolve successfully (such as timer
-delays, in-memory caches, or pure computations), this creates dead error-handling paths.
+## Core Behavior
 
-`Deferred<A>` represents an awaitable asynchronous value that is structurally typed to never reject:
+`Deferred<A>` is an awaitable value for an asynchronous operation that is expected to resolve
+without rejecting. It is the return type of a `Task` and of `Op` manager runs.
 
-```ts
-type Deferred<A> = {
-  readonly [_deferred]: A;
-  readonly then: (onfulfilled: (value: A) => unknown) => void;
-};
-```
+- Await a `Deferred` to get its value; use `Deferred.to.Promise` when an API needs a native Promise.
+- `Deferred.all` waits for every value; `Deferred.race` returns the first value to resolve.
+- `Deferred.from.Promise` assumes its input will not reject. Handle failures before wrapping it.
 
-Two deliberate design choices make `Deferred` work:
+## Example: Snapshot Status
 
-1. **Nominal Safety**: The `[_deferred]` property is a phantom unique symbol. It carries the type
-   parameter `A` nominally, ensuring that only genuine values produced by `Deferred` satisfy the
-   type. A plain, raw `{ then: ... }` object cannot bypass the type check.
-2. **No Chaining or Rejection**: The `.then()` method accepts only a single fulfillment callback and
-   returns `void` rather than a new thenable. There is no second parameter to pass a rejection
-   handler, and no chainable return value. Rejection and chaining are excluded by construction.
+A snapshot exporter might wait for several independent status readings after each source has already
+converted its own errors into a fallback. `Deferred` lets the exporter await those values without
+adding another error channel.
+
+`Deferred.all` combines values that are already in progress. Its output resolves only after every
+input resolves, and preserves the input order:
 
 ```mermaid
-stateDiagram-v2
-  direction TB
-  [*] --> Pending
-  Pending --> Resolved : then(onfulfilled)
-  Resolved --> Resolved : subsequent resolution (idempotent no-op)
+flowchart TD
+  Inputs["Deferred readings"] --> Wait{"Have all readings resolved?"}
+  Wait -->|No| Pending["Combined value remains pending"]
+  Pending --> Wait
+  Wait -->|Yes| Output["Readings in input order"]
 ```
 
----
+### Collecting Status Readings
 
-## Wrapping Promises with Deferred.from.Promise
-
-`Deferred.from.Promise` is the gateway constructor. It wraps a standard `Promise` that you are
-confident will never reject, lifting it into the infallible `Deferred` type:
+Each status source handles a failure before its Promise is wrapped. The exporter can then wait for
+both readings and format a single status line:
 
 ```ts
 import { Deferred } from "@pplnd/core";
 
-// Wrapping a guaranteed cache lookup
-const themeState: Deferred<string> = Deferred.from.Promise(
-  prefsCache.getOrDefault("theme", "dark"),
-);
+const readStatus = (url: string): Deferred<string> =>
+  Deferred.from.Promise(
+    fetch(url)
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.text();
+      })
+      .catch(() => "unavailable"),
+  );
+
+const report = async (): Promise<string> => {
+  const [primary, replica] = await Deferred.all([
+    readStatus("/snapshot/primary"),
+    readStatus("/snapshot/replica"),
+  ]);
+  return `Snapshot sources: primary=${primary}, replica=${replica}`;
+};
+
+console.log(await report());
 ```
 
-When you call `Deferred.from.Promise`, you are asserting to the compiler that the underlying Promise
-will never reject. **Precondition**: if the underlying Promise does reject, the returned `Deferred`
-will never resolve — `await`-ing it will hang indefinitely. Only wrap Promises that are guaranteed
-to resolve (such as promises whose errors have already been caught and converted into `Result` or
-fallback values, or use `Task.Result.tryCatch` for fallible operations).
+The calls to `readStatus` start the requests. `Deferred.all` only combines their results; it does
+not start or cancel the requests.
 
----
+## Core Operations
 
-## Awaiting a Deferred
+### Creating and Converting
 
-Because the JavaScript runtime evaluates `await` by looking for any object with a compatible
-`.then()` method, `Deferred` qualifies as a standard thenable. The runtime calls `.then(resolve)` on
-it internally, making `await` behave identically to awaiting a standard Promise:
+| Signature                       | What it does                                      | Return type   |
+| :------------------------------ | :------------------------------------------------ | :------------ |
+| `Deferred.from.Promise(value)`  | Wraps a promise or thenable that will not reject. | `Deferred<A>` |
+| `Deferred.to.Promise(deferred)` | Converts an awaitable value to a native Promise.  | `Promise<A>`  |
 
-```ts
-const theme: string = await themeState; // Resolves to string safely
-```
+### Combining and Reading
 
-TypeScript understands this protocol and infers the correct type `A` from any `Deferred<A>`
-automatically.
+| Signature               | What it does                                   | Return type              |
+| :---------------------- | :--------------------------------------------- | :----------------------- |
+| `Deferred.all(values)`  | Waits for every value, preserving input order. | `Deferred` of the tuple. |
+| `Deferred.race(values)` | Resolves with the first value to resolve.      | `Deferred<A>`            |
+| `await deferred`        | Reads the resolved value.                      | `A`                      |
 
----
+## Failure Behavior and Edge Cases
 
-## Interoperability: Deferred.to.Promise
+`Deferred.from.Promise` does not catch rejections. If its input rejects, awaiting the wrapper can
+remain pending and the rejection can be unhandled. Use `Task.Result.tryCatch` for work that can
+fail, or handle the rejection before wrapping as in the example above.
 
-If you need to pass a `Deferred` value to an external library or a third-party API that strictly
-checks `instanceof Promise` rather than accepting generic thenables, you can convert it using
-`Deferred.to.Promise`:
-
-```ts
-const userSession = Deferred.from.Promise(sessionStore.get("userId"));
-
-// Convert back for library interop
-const sessionPromise: Promise<string> = Deferred.to.Promise(userSession);
-```
-
-The resulting `Promise` is guaranteed to resolve, inheriting the structural infallibility of the
-original `Deferred`.
-
----
-
-## Coordinating Infallible Values: all and race
-
-When multiple asynchronous operations have already been initiated and yield `Deferred` handles, you
-can coordinate them directly without converting back to native promises:
-
-### Parallel collection with `Deferred.all`
-
-`Deferred.all` takes an array or tuple of `Deferred` handles and resolves to a tuple containing all
-results once every handle resolves:
-
-```ts
-import { Deferred } from "@pplnd/core";
-
-const cacheLookup: Deferred<string> = loadCachedToken();
-const timerCheck: Deferred<number> = measureElapsedMs();
-
-const [token, elapsedMs] = await Deferred.all([cacheLookup, timerCheck]);
-```
-
-### Racing with `Deferred.race`
-
-`Deferred.race` resolves with whichever `Deferred` completes first:
-
-```ts
-const memorySnapshot: Deferred<Config> = readMemoryCache();
-const diskSnapshot: Deferred<Config> = readDiskCache();
-
-const activeConfig = await Deferred.race([memorySnapshot, diskSnapshot]);
-```
-
----
-
-## Problems it solves
-
-- **Infallible return container for `Task` and `Op.run()`**: When executing a lazy `Task<A>` or
-  running an `Op` invocation, the operation handles errors internally and is guaranteed never to
-  reject. Returning `Promise<A>` misleadingly implies that rejection is possible, forcing callers to
-  write redundant error handlers or silence linter warnings. `Deferred` provides an awaitable handle
-  that communicates certainty at the type level.
-- **Eliminating uncaught rejection crashes**: Standard Promises allow rejections to bubble up if
-  `.catch()` is omitted, risking uncaught promise rejection crashes in Node.js processes or
-  unhandled window errors in browsers. Because `Deferred` structurally excludes `.catch()` and
-  rejection handlers by construction, operations returning `Deferred` cannot produce unhandled
-  rejections.
-- **Preventing arbitrary promise chaining and mutation**: Passing raw promises across library or
-  plugin boundaries allows consumers to attach arbitrary `.then()` chains or mutate execution order.
-  `Deferred` wraps async values into a nominal, read-only container that supports direct awaiting
-  and structured coordination (`Deferred.all`, `Deferred.race`) without uncontrolled chaining.
-- **Safe Promise bridge conversions (`from.Promise`, `to.Promise`)**: Interfacing with external
-  libraries that require native Promises while ensuring error recovery and fallbacks are handled
-  upfront at the conversion boundary.
+`Deferred.race([])` stays pending because there is no value to resolve it. A race does not cancel
+its other inputs after one resolves.

@@ -1,6 +1,6 @@
 ---
-title: Reader — Shared Contexts
-description: Model computations that read from a shared environment, eliminating parameter drilling and making dependency injection clean and testable.
+title: Reader — Shared Environment
+description: Compose computations that use a shared environment and supply it when the pipeline runs.
 ---
 
 <!-- BUNDLE_SIZE:START -->
@@ -9,323 +9,104 @@ description: Model computations that read from a shared environment, eliminating
 
 <!-- BUNDLE_SIZE:END -->
 
-Passing shared configuration, database pools, or request contexts through deep call hierarchies
-leads to parameter drilling, coupling intermediate helper functions to ambient dependencies.
+## Core Behavior
 
-`Reader<R, A>` models a computation that reads from a shared environment `R` to produce `A`
-(`(r: R) => A`), enabling dependency injection without manual parameter threading:
+`Reader<R, A>` is a function that takes an environment `R` and returns a value `A`.
 
-```ts
-function formatUrl(config: ApiConfig, path: string): string {
-  return `${config.baseUrl}${path}`;
-}
+- `map` transforms the value; `chain` passes it to another Reader. Both steps receive the same
+  environment when the pipeline runs.
+- Combining Readers joins their environment requirements, so the caller supplies an environment
+  containing what each step needs.
+- Run a Reader by calling it with an environment or using `Reader.run(environment)` in a pipeline.
 
-function addApiKey(config: ApiConfig, url: string): string {
-  return `${url}?key=${config.apiKey}`;
-}
+## Example: Export Locations
 
-function getEndpoint(config: ApiConfig, path: string): string {
-  return addApiKey(config, formatUrl(config, path));
-}
-```
+An export service builds locations from a storage bucket, a path prefix, and an origin. The same
+location-building pipeline can run with development or production settings.
 
-Notice the structural duplication. The intermediate function `getEndpoint` does not use the `config`
-object for any internal logic; it accepts it only to forward it to the next step. As pipelines
-deepen, this **parameter drilling** introduces noise, clutters type signatures, and makes
-refactoring extremely difficult.
-
-We often try to solve this by importing a global singleton or creating a shared state. But this
-couples our modules to a specific instance, making it impossible to test them in isolation or run
-them against different configurations (e.g. test vs. production contexts).
-
-`Reader<R, A>` solves this structurally. It represents a computation that requires a shared
-environment `R` to produce a value `A`:
-
-```ts
-type Reader<R, A> = (environment: R) => A;
-```
-
-With `Reader`, our functions do not accept dependencies as direct arguments. Instead, they return a
-description of a computation waiting for its context. The pipeline is built as a pure, inactive
-blueprint, and the environment is supplied once at the boundary of our program.
+`chain` sends the first Reader's result to a function that creates the next Reader. Both Readers
+receive the environment supplied at the end:
 
 ```mermaid
-flowchart TB
-    subgraph ParameterDrilling ["Parameter Drilling (Fragile Coupling)"]
-        direction TB
-        Caller["Caller(config)"] --> F1["formatUrl(config, path)"]
-        F1 --> F2["addApiKey(config, url)"]
-        F2 --> F3["fetchWithConfig(config)"]
-    end
-
-    subgraph ReaderModel ["Reader(R, A) (Injected at Boundary)"]
-        direction TB
-        R1["formatUrlReader"] --> R2["addApiKeyReader"]
-        R2 --> R3["fetchReader"]
-        Env["Shared Environment (R)"] -.->|"Injected once: pipeline(env)"| R3
-    end
-
-    F3 ~~~ R1
+flowchart TD
+  Env["Export environment"] --> First["First Reader"]
+  Env --> Next["Next Reader"]
+  First -->|value| Next
+  Next --> Output["Result"]
 ```
 
----
+### Building an Export Location
 
-## Creating Readers
-
-To describe how we want to read from our context, we use the constructors of `Reader`:
+The path helper needs only the storage settings. `local` adapts it to the full environment; the
+following step reads the origin and adds the finished URL:
 
 ```ts
 import { pipe, Reader } from "@pplnd/core";
 
-interface ApiConfig {
-  baseUrl: string;
-  apiKey: string;
-}
+type StorageSettings = { bucket: string; prefix: string };
+type ExportEnvironment = { storage: StorageSettings; origin: string };
 
-// Projecting specific values from the environment
-const getBaseUrl: Reader<ApiConfig, string> = (c) => c.baseUrl;
-const getApiKey: Reader<ApiConfig, string> = (c) => c.apiKey;
+const objectKey = (fileName: string): Reader<StorageSettings, string> =>
+  (storage) => `${storage.prefix}/${fileName}`;
 
-// Accessing the full environment inside a pipeline with Reader.ask()
-const readFullConfig = pipe(
-  Reader.ask<ApiConfig>(),
-  Reader.map((config) => `${config.baseUrl} (key: ${config.apiKey})`),
-);
-
-// Lifting a static value that ignores the environment
-const defaultVersion: Reader<ApiConfig, string> = Reader.make("v1");
-```
-
-Because a `Reader<R, A>` is a plain function `(env: R) => A`, any function that accepts an
-environment is already a valid `Reader`. If a step requires the entire environment inside a
-pipeline, use `Reader.ask<ApiConfig>()`. If you want to lift a static value that does not depend on
-the environment at all, use `Reader.make(value)`.
-
----
-
-## Transforming and Sequencing
-
-Once our computations are represented as `Reader` values, we can compose them linearly.
-
-### Transforming values with `map`
-
-`map` transforms the value produced by a Reader, leaving the environment path completely untouched.
-
-Consider locale-aware formatting, where rendering a price depends on a shared context that is not a
-property of the price value itself:
-
-```ts
-import { pipe, Reader } from "@pplnd/core";
-
-interface LocaleConfig {
-  symbol: string;
-  decimalSeparator: string;
-}
-
-const formatPrice = (cents: number): Reader<LocaleConfig, string> =>
-  (locale) => `${locale.symbol}${(cents / 100).toFixed(2).replace(".", locale.decimalSeparator)}`;
-
-const renderPriceTag = (label: string, cents: number): Reader<LocaleConfig, string> =>
+const exportLocation = (fileName: string): Reader<ExportEnvironment, { key: string; url: string }> =>
   pipe(
-    formatPrice(cents),
-    Reader.map((price) => `${label}: ${price}`),
+    objectKey(fileName),
+    Reader.local((env: ExportEnvironment) => env.storage),
+    Reader.assignTo("key"),
+    Reader.assign("url", ({ key }) =>
+      pipe(
+        Reader.ask<ExportEnvironment>(),
+        Reader.map((env) =>
+          new URL(`/exports/${env.storage.bucket}/${encodeURIComponent(key)}`, env.origin).toString()
+        ),
+      )
+    ),
   );
 
-const usdLocale: LocaleConfig = { symbol: "$", decimalSeparator: "." };
-const eurLocale: LocaleConfig = { symbol: "€", decimalSeparator: "," };
-
-pipe(renderPriceTag("Total", 1999), Reader.run(usdLocale)); // "Total: $19.99"
-pipe(renderPriceTag("Total", 1999), Reader.run(eurLocale)); // "Total: €19,99"
-```
-
-The same pipeline runs against two different environments. The locale configuration is injected once
-at the very end of our execution.
-
-### Sequencing dependencies with `chain`
-
-When a transformation step itself requires the environment, we use `chain` to sequence them
-together. Both steps automatically receive the same shared context:
-
-```ts
-const buildEndpoint = (path: string): Reader<ApiConfig, string> =>
-  pipe(
-    (c: ApiConfig) => `${c.baseUrl}${path}`,
-    Reader.chain((url) => (c) => `${url}?key=${c.apiKey}`),
-  );
-```
-
-The environment is threaded through the pipeline automatically. No intermediate step is forced to
-accept or forward the `ApiConfig` explicitly.
-
----
-
-## Adapting Contexts: local
-
-In large systems, different modules expect different context slices. A database helper only needs
-database credentials, whereas a logger only needs an output stream.
-
-`Reader.local` allows you to adapt a Reader expecting a narrow environment so that it can operate
-inside a broader one, by supplying a mapping function:
-
-```ts
-interface DbConfig { host: string }
-interface LoggerConfig { level: string }
-interface AppEnv { db: DbConfig; log: LoggerConfig }
-
-// This Reader only knows about DbConfig
-const dbConnectionString: Reader<DbConfig, string> =
-  (db) => `postgres://${db.host}:5432/db`;
-
-// This Reader only knows about LoggerConfig
-const activeLogLevel: Reader<LoggerConfig, string> =
-  (log) => `Log level: ${log.level}`;
-
-// Lift both into the broader AppEnv
-const systemDiagnostics: Reader<AppEnv, string> = pipe(
-  dbConnectionString,
-  Reader.local((env: AppEnv) => env.db),
-  Reader.chain((connStr) =>
-    pipe(
-      activeLogLevel,
-      Reader.local((env: AppEnv) => env.log),
-      Reader.map((level) => `${connStr} | ${level}`),
-    )
-  ),
+const location = pipe(
+  exportLocation("report.csv"),
+  Reader.run({
+    storage: { bucket: "daily", prefix: "reports" },
+    origin: "https://files.example.com",
+  }),
 );
+// { key: "reports/report.csv", url: "https://files.example.com/exports/daily/reports%2Freport.csv" }
 ```
 
-This represents an elegant, modular design pattern. Your individual domain helpers declare only the
-narrow context they actually require. When composing the main application, you use `local` to map
-the global environment into these modular slices.
+Calling `exportLocation` creates the Reader. The settings are read when `Reader.run` supplies the
+environment.
 
----
+## Core Operations
 
-## Combining Computations: apply
+### Creating and Adapting
 
-`apply` applies a function wrapped inside a Reader to a value wrapped inside a Reader. Both
-operations receive the same environment:
+| Signature              | What it does                                   | Return type    |
+| :--------------------- | :--------------------------------------------- | :------------- |
+| `Reader.make(value)`   | Creates a Reader that ignores its environment. | `Reader<R, A>` |
+| `Reader.ask<R>()`      | Returns the supplied environment as the value. | `Reader<R, R>` |
+| `Reader.local(select)` | Adapts a Reader to another environment.        | A new Reader.  |
 
-```ts
-interface PricingConfig {
-  defaultPrice: number;
-  defaultTax: number;
-}
+A plain function `(environment: R) => A` is also a Reader.
 
-const calculateTotal = (tax: number) => (price: number) => price + tax;
+### Combining and Transforming
 
-const productPrice: Reader<PricingConfig, number> = (c) => c.defaultPrice;
-const productTax: Reader<PricingConfig, number> = (c) => c.defaultTax;
+| Signature                                  | What it does                                           | Behavior                            |
+| :----------------------------------------- | :----------------------------------------------------- | :---------------------------------- |
+| `Reader.map(fn)`                           | Transforms the result.                                 | Keeps the environment requirement.  |
+| `Reader.chain(fn)`                         | Runs the next Reader with the previous value.          | Combines environment requirements.  |
+| `Reader.apply(argument)`                   | Applies a Reader's function to another Reader's value. | Both receive the same environment.  |
+| `Reader.assignTo(key)` / `assign(key, fn)` | Starts a record / adds a Reader's result to it.        | Later steps can use earlier values. |
+| `Reader.tap(fn)`                           | Observes the result when run.                          | Returns the original result.        |
 
-const total: Reader<PricingConfig, number> = pipe(
-  Reader.make<PricingConfig, typeof calculateTotal>(calculateTotal),
-  Reader.apply(productTax),
-  Reader.apply(productPrice),
-);
-```
+### Running
 
----
+| Signature                         | What it does                      | Return type |
+| :-------------------------------- | :-------------------------------- | :---------- |
+| `reader(environment)`             | Calls the Reader directly.        | `A`         |
+| `Reader.run(environment)(reader)` | Runs it at the end of a pipeline. | `A`         |
 
-## Peeking into pipelines: tap
+## Failure Behavior and Edge Cases
 
-To perform a side effect — such as logging a value or executing an assertion — mid-pipeline without
-altering the flow, you can use `tap`:
-
-```ts
-pipe(
-  buildEndpoint("/users"),
-  Reader.tap((url) => console.log(`Configured request target: ${url}`)),
-  Reader.run(configInstance),
-);
-```
-
----
-
-## Injecting the environment at the edge: run
-
-To execute a Reader, we pass it the environment context using `Reader.run`. This is the data-last
-equivalent of invoking the function directly:
-
-```ts
-// These two invocations are equivalent:
-pipe(buildEndpoint("/users"), Reader.run(apiConfig));
-buildEndpoint("/users")(apiConfig);
-```
-
-`Reader.run` is typically called once, at the outer boundary of your application where your startup
-dependencies and environment variables are resolved.
-
----
-
-## Accumulating values: assign / assignTo
-
-When you need to perform multiple sequential operations reading from the same environment and
-accumulate their results into a single object, traditional pipelines can become deeply nested
-because each successive function needs access to previous results:
-
-```ts
-const userProfile = pipe(
-  getUser(userId),
-  Reader.chain((user) =>
-    pipe(
-      getPreferences(user.id),
-      Reader.map((prefs) => ({ user, prefs }))
-    )
-  ),
-  Reader.chain(({ user, prefs }) =>
-    pipe(
-      getTheme(prefs.themeId),
-      Reader.map((theme) => ({ user, prefs, theme }))
-    )
-  )
-);
-```
-
-To solve this, you can use `assignTo` and `assign` to cleanly accumulate environment-derived values
-key-by-key in a flat, readable pipeline.
-
-`assignTo` wraps the initial `Reader` result into a single-key accumulator object:
-
-```ts
-const initialScope = pipe(
-  getUser(userId),
-  Reader.assignTo("user"),
-); // Reader<AppEnv, { user: User }>
-```
-
-`assign` runs a new operation using the accumulated object and attaches the result to a new key:
-
-```ts
-const userProfile = pipe(
-  getUser(userId),
-  Reader.assignTo("user"),
-  Reader.assign("prefs", ({ user }) => getPreferences(user.id)),
-  Reader.assign("theme", ({ prefs }) => getTheme(prefs.themeId))
-); // Reader({ user: User, prefs: Preferences, theme: Theme })
-```
-
----
-
-## Problems it solves
-
-- **Eliminating dependency drilling**: Low-level domain functions frequently need access to shared
-  runtime context (such as database pools, tenant identifiers, feature flags, or logger instances).
-  Passing context manually across layers clutters signatures and couples intermediate callers.
-  `Reader` threads configuration dependencies implicitly through pipelines, keeping function
-  signatures focused on domain data.
-- **Multi-tenant and multi-environment execution**: Applications operating across multi-tenant
-  partitions, staging clusters, or local dev environments need to run the same business logic
-  against varying configurations. `Reader` decouples computation definitions from environment
-  values, allowing the exact same pipeline to run against distinct runtime configs.
-- **Contextual scoping and override layers (`Reader.local`)**: In request pipelines, sub-operations
-  often require modified contexts (such as attaching a child correlation trace ID, adjusting a
-  timeout window, or running a query in an impersonated user scope). `Reader.local` transforms or
-  overrides the environment for a specific sub-pipeline without affecting outer callers.
-- **Accumulating multi-step contextual pipelines (`Reader.assignTo`, `Reader.assign`)**: When
-  assembling a workflow that depends on multiple resolved environment values or sequential
-  contextual steps (such as reading tenant flags, building connection strings, and compiling
-  headers), `assignTo` and `assign` accumulate contextual results into a structured object
-  step-by-step without losing access to the shared environment.
-- **Deterministic testing without mock libraries**: Rather than relying on global environment
-  variables, singleton containers, or complex mock frameworks, `Reader` makes environmental
-  requirements visible in the type signature, enabling unit tests to pass mock environments directly
-  during execution.
+`Reader` does not add an error channel. If a dependency can fail and the caller needs the error,
+return a `Result` or `Task.Result` from the Reader and handle that result at the boundary.

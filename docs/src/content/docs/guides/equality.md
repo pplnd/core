@@ -1,234 +1,75 @@
 ---
-title: Equality — Composable Equality Checks
-description: Model value equivalence structurally, replacing pointer-based reference checks and fragile JSON stringification with composable equality checkers.
+title: Equality — Comparing Values
+description: Build reusable equality checks for fields, arrays, and tuples.
 ---
 
 <!-- BUNDLE_SIZE:START -->
 
-> 254 B minified + gzipped
+> 255 B minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
-Checking whether two values are equal is one of the most common requirements in software
-development. We do it to deduplicate arrays of items, detect changes in a user profile before
-saving, or confirm if an asset is already in a local collection.
+## Core Behavior
 
-For primitive types like strings, numbers, or booleans, JavaScript’s built-in `===` operator works
-perfectly. However, for structured objects, arrays, and dates, `===` fails to capture our intent:
+`Equality<A>` is a function that takes two values and returns whether they are equal according to a
+chosen rule.
 
-```ts
-const userA = { id: "123", name: "Alice" };
-const userB = { id: "123", name: "Alice" };
+- `by` compares a selected value from each input.
+- `and`, `struct`, and `tuple` combine comparisons and stop when a check fails.
+- Built-in number and string checks use strict equality; dates are compared by their timestamps.
 
-console.log(userA === userB); // false (compares reference pointers, not values)
+## Example: Duplicate Device Readings
+
+A monitoring service may receive the same reading twice as separate objects. To detect duplicates,
+it can compare the device identifier and timestamp rather than object references.
+
+`Equality.struct` checks the selected fields in order. A failure stops the comparison:
+
+```mermaid
+flowchart TD
+  Pair["Two readings"] --> Check{"Selected field matches?"}
+  Check -->|No| Different["false"]
+  Check -->|Yes| More{"More selected fields?"}
+  More -->|Yes| Check
+  More -->|No| Equal["true"]
 ```
 
-Two objects holding identical fields are not equal in standard JavaScript because they occupy
-different locations in memory. Similarly, two `Date` objects representing the exact same millisecond
-will evaluate to `false` when compared with `===`.
-
-To solve this, we often resort to serializing objects with
-`JSON.stringify(a) === JSON.stringify(b)`. But serialization is slow, fragile (it fails if keys are
-written in a different order), and structurally incapable of handling functions, dates, or custom
-maps. Alternatively, we write one-off comparison functions by hand, but they do not compose — you
-cannot combine two checkers into one, or lift a string checker to compare record fields without
-writing new boilerplate from scratch.
-
-`Equality<A>` solves this mismatch. It represents a first-class, pure description of equivalence:
+### Comparing Readings
 
 ```ts
-type Equality<A> = (a: A, b: A) => boolean;
-```
+import { Arr, Equality, pipe } from "@pplnd/core";
 
-Any binary function matching this signature is a valid `Equality` checker. By treating equality as a
-composable value, we can construct, name, and combine equivalence checkers directly without manual
-wrapper boilerplate.
-
----
-
-## Built-In Equivalence Instances
-
-The library provides optimized, built-in instances for common primitive types:
-
-```ts
-import { Equality } from "@pplnd/core";
-
-Equality.string("hello", "hello"); // true
-Equality.number(42, 42);           // true
-Equality.boolean(true, false);     // false
-Equality.date(new Date("2026-01-01"), new Date("2026-01-01")); // true
-```
-
-### Deep Array Equivalence
-
-To compare arrays, we pass the element-level equivalence checker to `Equality.array`:
-
-```ts
-const eqNumberArray = Equality.array(Equality.number);
-
-eqNumberArray([1, 2, 3], [1, 2, 3]); // true
-eqNumberArray([1, 2], [1, 2, 3]);    // false
-```
-
----
-
-## Comparing by Fields: by
-
-`Equality.by` adapts an equality checker designed for type `A` to operate on a richer type `B` by
-extracting the target field to compare:
-
-```ts
-import { pipe } from "@pplnd/core";
-
-interface Product {
-  id: string;
-  name: string;
-  price: number;
-}
-
-// Compare two products solely by their unique identifier:
-const productEqById: Equality<Product> = pipe(
-  Equality.string,
-  Equality.by((p: Product) => p.id),
-);
-
-productEqById(
-  { id: "widget_abc", name: "Heavy Widget", price: 9.99 },
-  { id: "widget_abc", name: "Sleek Widget", price: 14.99 },
-); // true (same identifier, ignoring name and price changes)
-```
-
----
-
-## Combining Checks: and
-
-When we need to assert that two complex objects are equivalent across multiple different fields, we
-combine their respective checkers using `and`:
-
-```ts
-interface User {
-  name: string;
-  role: string;
-}
-
-const eqByName = pipe(Equality.string, Equality.by((u: User) => u.name));
-const eqByRole = pipe(Equality.string, Equality.by((u: User) => u.role));
-
-// Combines both checkers:
-const eqUserExact: Equality<User> = pipe(
-  eqByName,
-  Equality.and(eqByRole),
-);
-
-eqUserExact(
-  { name: "Alice", role: "admin" },
-  { name: "Alice", role: "admin" },
-); // true
-
-eqUserExact(
-  { name: "Alice", role: "admin" },
-  { name: "Alice", role: "member" },
-); // false (names match, but roles differ)
-```
-
----
-
-## Structural Equivalence: struct and tuple
-
-When comparing entire records or fixed-length tuples, chaining individual `Equality.by` and
-`Equality.and` calls for every property can be verbose. `Equality.struct` and `Equality.tuple`
-derive composite equality checkers directly from field-level or positional checkers.
-
-### Record equivalence with `struct`
-
-`Equality.struct` takes a schema of field-level `Equality` instances and returns an `Equality` for
-the entire record:
-
-```ts
-interface ShippingAddress {
-  street: string;
-  postalCode: string;
-  country: string;
-}
-
-const eqAddress: Equality<ShippingAddress> = Equality.struct({
-  street: Equality.string,
-  postalCode: Equality.string,
-  country: Equality.string,
+type Reading = { deviceId: string; recordedAt: string; celsius: number };
+const sameReading = Equality.struct({
+  deviceId: Equality.string,
+  recordedAt: Equality.string,
 });
 
-eqAddress(
-  { street: "100 Main St", postalCode: "94105", country: "US" },
-  { street: "100 Main St", postalCode: "94105", country: "US" },
-); // true
-```
-
-### Positional equivalence with `tuple`
-
-`Equality.tuple` takes positional `Equality` instances and compares fixed-length tuples element by
-element:
-
-```ts
-type CoordinateAndLabel = readonly [number, number, string];
-
-const eqWaypoint: Equality<CoordinateAndLabel> = Equality.tuple(
-  Equality.number,
-  Equality.number,
-  Equality.string,
-);
-
-eqWaypoint([37.7749, -122.4194, "HQ"], [37.7749, -122.4194, "HQ"]); // true
-eqWaypoint([37.7749, -122.4194, "HQ"], [37.7749, -122.4194, "Warehouse"]); // false
-```
-
----
-
-## Practical Application: Custom Deduplication
-
-`Arr.uniqWith` accepts any `Equality<A>` instance to remove duplicate values from a collection,
-allowing you to deduplicate complex objects structurally:
-
-```ts
-import { Arr } from "@pplnd/core";
-
-interface LogEvent {
-  userId: string;
-  action: string;
-}
-
-const eqEventByUserAndAction: Equality<LogEvent> = pipe(
-  pipe(Equality.string, Equality.by((e: LogEvent) => e.userId)),
-  Equality.and(pipe(Equality.string, Equality.by((e: LogEvent) => e.action))),
-);
-
-const rawEvents = [
-  { userId: "user_1", action: "click" },
-  { userId: "user_2", action: "click" },
-  { userId: "user_1", action: "click" }, // Duplicate structural event
+const readings: readonly Reading[] = [
+  { deviceId: "sensor-a", recordedAt: "09:00", celsius: 21 },
+  { deviceId: "sensor-a", recordedAt: "09:00", celsius: 21 },
+  { deviceId: "sensor-a", recordedAt: "09:05", celsius: 22 },
 ];
-
-const uniqueEvents = pipe(
-  rawEvents,
-  Arr.uniqWith(eqEventByUserAndAction),
-);
-// [ { userId: "user_1", action: "click" }, { userId: "user_2", action: "click" } ]
+const unique = pipe(readings, Arr.uniqWith(sameReading));
+// Two readings remain: 09:00 and 09:05.
 ```
 
----
+Only the configured fields participate in `sameReading`. Add a temperature comparison if readings
+with the same identifier and timestamp but different values must remain distinct.
 
-## Problems it solves
+## Core Operations
 
-- **UI change detection without redundant re-renders**: In UI component memoization (such as React
-  `memo` or custom state selectors), comparing object props with `===` triggers false-positive
-  renders because fresh object references are created on each pass. `Equality.struct` and
-  `Equality.array` compare fields structurally, preventing unnecessary re-renders.
-- **Deduplicating event streams by compound keys**: When filtering activity feeds or telemetry
-  queues, deduplicating items based on multiple fields (such as `userId` + `action` + `entityId`)
-  requires explicit equality definitions. `Equality.struct` and `Equality.and` compose field
-  comparators for use with collection helpers like `Arr.uniqWith`.
-- **Projected property and normalized comparisons (`Equality.by`)**: Comparing domain models by
-  specific projected properties (such as comparing users by email address case-insensitively, or
-  orders by currency value) without writing repetitive equality callbacks.
-- **Accurate Date and value-object comparisons**: Comparing JavaScript `Date` instances with `===`
-  tests reference identity rather than chronological time, causing identical dates to evaluate as
-  unequal. `Equality.date` provides accurate timestamp comparisons across domain models.
+| Signature                                         | What it does                                           | Result                               |
+| :------------------------------------------------ | :----------------------------------------------------- | :----------------------------------- |
+| `Equality.string` / `number` / `boolean` / `date` | Compares primitive values or date timestamps.          | `Equality<A>`.                       |
+| `Equality.by(select)`                             | Compares inputs using a selected value.                | An equality for the original inputs. |
+| `Equality.and(other)`                             | Requires two comparisons to pass.                      | Stops when the first returns false.  |
+| `Equality.struct(fields)`                         | Compares specified object fields.                      | Other fields are ignored.            |
+| `Equality.array(itemEquality)`                    | Compares length and items in order.                    | An equality for readonly arrays.     |
+| `Equality.tuple(...equalities)`                   | Compares tuple positions with their respective checks. | A tuple equality.                    |
+
+## Failure Behavior and Edge Cases
+
+`Equality.number` uses `===`, so `NaN` does not equal itself. `Equality.date` compares timestamps;
+invalid dates also compare unequal because their timestamps are `NaN`. Choose a different check if
+those values need special treatment.

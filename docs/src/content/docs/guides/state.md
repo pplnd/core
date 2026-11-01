@@ -1,6 +1,6 @@
 ---
-title: State — Stateful Computations
-description: Thread immutable state through a sequence of transformations cleanly, replacing local mutations and parameter drilling with pure state transitions.
+title: State — Sequential State Updates
+description: Compose computations that pass an updated state from one step to the next.
 ---
 
 <!-- BUNDLE_SIZE:START -->
@@ -9,355 +9,105 @@ description: Thread immutable state through a sequence of transformations cleanl
 
 <!-- BUNDLE_SIZE:END -->
 
-Many programming tasks — such as parsing, sequential ID generation, and simulations — require
-updating state across a sequence of steps.
+## Core Behavior
 
-To keep functions pure without mutable globals, state is typically threaded manually via tuples:
+`State<S, A>` is a function that takes a state `S` and returns a pair: the produced value `A` and
+its next state `S`.
 
-```ts
-// Threading state explicitly:
-function constructNodes(counter: number): [Node[], number] {
-  const [nodeA, c1] = makeNode("root", counter);
-  const [nodeB, c2] = makeNode("child", c1);
-  return [[nodeA, nodeB], c2];
-}
-```
+- `chain` passes the first value to the next computation and uses the first step's next state as its
+  input.
+- `map` changes the produced value while retaining the next state.
+- `run` returns both parts. `evaluate` returns only the value; `execute` returns only the final
+  state.
 
-This is extremely verbose. Every single function must accept the state as a parameter and return a
-tuple of the result and the updated state, even when the state is not the primary concern of that
-function. If you insert or remove a step, you must manually rewrite the variable assignments (`c1`,
-`c2`, etc.).
+## Example: Allocating Sequence Numbers
 
-The common alternative is to introduce a mutable variable:
+An importer assigns sequence numbers to records. Each allocation needs the next available number,
+and the caller needs the updated counter for the next batch.
 
-```ts
-let counter = 0;
-function nextId() {
-  return counter++;
-}
-```
-
-While this eliminates the parameter noise, it introduces a correctness risk. The state is now shared
-globally within its scope. Any function can corrupt it, and testing it in isolation requires manual
-reset hooks.
-
-`State<S, A>` offers an elegant third path. It models a stateful computation as a pure, immutable
-function that takes an initial state `S` and returns a tuple of a result `A` and the new state `S`:
-
-```ts
-type State<S, A> = (initialState: S) => readonly [A, S];
-```
-
-By representing state transitions as a data structure rather than a series of mutable assignments,
-we compose stateful steps cleanly and execute them once at the boundary of our program.
+`chain` feeds the next state from one allocation into the next. The first allocation's value can be
+used to choose the second computation:
 
 ```mermaid
-flowchart TB
-    S0["Initial State (S0)"] --> Step1["Step 1: State(S, A)"]
-    Step1 -->|"Produces value"| A1["Value A1"]
-    Step1 -->|"Threads state S1"| Step2["Step 2: State(S, B)"]
-
-    Step2 -->|"Produces value"| A2["Value A2"]
-    Step2 -->|"Threads state S2"| Step3["Final State (S2)"]
-
-    A1 & A2 --> Comb["Combined Results"]
-    Comb & Step3 --> Final["readonly [CombinedResults, S2]"]
+flowchart TD
+  Initial["Initial counter: 100"] --> First["First State computation"]
+  First -->|"Value: 100"| Select["Choose next computation"]
+  First -->|"Next counter: 101"| Second["Next State computation"]
+  Select --> Second
+  Second --> Final["Value: 101; next counter: 102"]
 ```
 
----
+### Allocating a Batch
 
-## Creating State Operations
-
-To construct state transitions, we use the core constructors of `State`:
-
-```ts
-import { State } from "@pplnd/core";
-
-// Reads the current state
-const snapshot = State.get<number>();
-
-// Modifies the state by applying a function
-const increment = State.modify((n: number) => n + 1);
-
-// Replaces the state entirely
-const overwrite = State.put(42);
-```
-
-- `State.get` reads the current state, returning it as the produced value.
-- `State.modify` updates the state using a mapping function.
-- `State.put` overwrites the active state with a new value.
-- `State.make` lifts a constant value into the `State` context without touching the state itself.
-
----
-
-## Transforming and Sequencing
-
-We can compose our stateful blueprints directly inside a pipeline without passing the state variable
-manually between steps, allowing the state to flow through our transformations automatically.
-
-### Transforming values with `map`
-
-`map` transforms the produced result of a stateful step, leaving the underlying state transition
-completely unaffected:
+A single allocation reads the counter, increments it, and returns a labeled record. `assign` keeps
+both records while passing the updated counter between allocations:
 
 ```ts
-import { pipe } from "@pplnd/core";
+import { pipe, State } from "@pplnd/core";
 
-const stackSize: State<string[], number> = pipe(
-  State.get<string[]>(),
-  State.map((stack) => stack.length),
-);
-```
+type ImportedRecord = { sequence: number; source: string };
 
-### Sequencing transitions with `chain`
-
-`chain` is the engine of the `State` container. It threads the output state of one step into the
-input state of the next step, allowing you to write a sequence of stateful operations without ever
-referencing the state variable explicitly:
-
-```ts
-interface Cart {
-  items: string[];
-  total: number;
-}
-
-const addItem = (name: string, price: number): State<Cart, undefined> =>
-  State.modify((cart) => ({
-    items: [...cart.items, name],
-    total: cart.total + price,
-  }));
-
-const checkout = pipe(
-  addItem("coffee", 4),
-  State.chain(() => addItem("croissant", 3)),
-  State.chain(() => addItem("juice", 2)),
-  State.chain(() => pipe(State.get<Cart>(), State.map((c) => c.total))),
-);
-```
-
-Notice the layout. We describe the addition of three items to the cart and read the final total. The
-intermediate cart state is threaded from step to step behind the scenes.
-
-### Combining stateful computations with `apply`
-
-When you want to combine multiple independent stateful steps using a curried function, `State.apply`
-runs the function computation first and passes its resulting state into the argument computation:
-
-```ts
-const formatReceiptLine = (itemNumber: number) => (sku: string) => `#${itemNumber}: ${sku}`;
-
-const nextItemNumber: State<number, number> = pipe(
-  State.modify((count: number) => count + 1),
-  State.chain(() => State.get<number>()),
-);
-
-const labelItem = (sku: string): State<number, string> =>
+const allocate = (source: string): State<number, ImportedRecord> =>
   pipe(
-    State.make<number, typeof formatReceiptLine>(formatReceiptLine),
-    State.apply(nextItemNumber),
-    State.apply(State.make(sku)),
+    State.get<number>(),
+    State.chain((sequence) =>
+      pipe(
+        State.modify<number>((next) => next + 1),
+        State.map(() => ({ sequence, source })),
+      )
+    ),
   );
 
-State.run(0)(labelItem("COFFEE-01")); // ["#1: COFFEE-01", 1]
-```
-
-### Inspecting values mid-pipeline with `tap`
-
-`State.tap` executes a side effect on the produced value without altering either the value or the
-underlying state transition:
-
-```ts
-const auditedCheckout = pipe(
-  checkout,
-  State.tap((total) => console.log(`Checkout subtotal computed: $${total}`)),
-);
-```
-
-### Focusing on nested state with `focus`
-
-In larger applications, helper transitions often care about a single slice of state (such as a
-shopping cart) while the root application state holds additional fields (such as session metadata).
-`State.focus` pairs a `State` operation with a `Lens` so a narrow state transition can run directly
-against a wider parent state:
-
-```ts
-import { Lens } from "@pplnd/core";
-
-interface StoreSession {
-  userId: string;
-  cart: Cart;
-}
-
-const cartLens = Lens.from.property<StoreSession>()("cart");
-
-// Lift the Cart-specific checkout transition to operate on StoreSession:
-const sessionCheckout: State<StoreSession, number> = pipe(
-  checkout,
-  State.focus(cartLens),
+const batch = pipe(
+  allocate("north.csv"),
+  State.assignTo("north"),
+  State.assign("south", () => allocate("south.csv")),
 );
 
-const initialSession: StoreSession = {
-  userId: "usr_42",
-  cart: { items: [], total: 0 },
-};
-
-const [total, updatedSession] = State.run(initialSession)(sessionCheckout);
-// total = 9
-// updatedSession = { userId: "usr_42", cart: { items: ["coffee", "croissant", "juice"], total: 9 } }
+const [records, nextSequence] = pipe(batch, State.run(100));
+// records: { north: { sequence: 100, source: "north.csv" },
+//            south: { sequence: 101, source: "south.csv" } }
+// nextSequence: 102
 ```
 
----
+Running the same batch with another initial counter starts a separate sequence. To continue this
+one, pass `nextSequence` to the next batch.
 
-## Extracting Results: The Runners
+## Core Operations
 
-`State` is lazy — defining a chain does not execute any transitions. To run the computation, we must
-pass it an initial state using one of three runner functions:
+### Creating State Computations
 
-### Full extraction with `run`
+| Signature           | What it does                                    | Produced value |
+| :------------------ | :---------------------------------------------- | :------------- |
+| `State.make(value)` | Returns a value without changing the state.     | `A`            |
+| `State.get<S>()`    | Reads the current state.                        | `S`            |
+| `State.put(next)`   | Replaces the current state.                     | `undefined`    |
+| `State.modify(fn)`  | Calculates the next state from the current one. | `undefined`    |
 
-`State.run` executes the transitions and returns a tuple containing both the final value and the
-final state:
+A function `(state: S) => readonly [A, S]` can also be used directly.
 
-```ts
-const [value, finalState] = State.run({ items: [], total: 0 })(checkout);
-// value = 9, finalState = { items: ["coffee", "croissant", "juice"], total: 9 }
-```
+### Combining and Transforming
 
-### Reading outcomes with `evaluate`
+| Signature                                 | What it does                                         | Behavior                                   |
+| :---------------------------------------- | :--------------------------------------------------- | :----------------------------------------- |
+| `State.map(fn)` / `chain(fn)`             | Transforms the value / runs a dependent computation. | `chain` passes along the updated state.    |
+| `State.apply(argument)`                   | Applies a stateful function to a stateful argument.  | Function computation runs before argument. |
+| `State.assignTo(key)` / `assign(key, fn)` | Starts a record / adds a later result.               | State passes between the steps.            |
+| `State.focus(lens)`                       | Runs a computation against part of a larger state.   | Replaces that part with its next state.    |
+| `State.tap(fn)`                           | Observes the produced value.                         | Keeps the value and next state.            |
 
-`State.evaluate` executes the transitions and returns **only the produced value**, discarding the
-final state:
+### Running
 
-```ts
-const totalCost = State.evaluate({ items: [], total: 0 })(checkout); // 9
-```
+| Signature                 | Returns               |
+| :------------------------ | :-------------------- |
+| `State.run(initial)`      | `[value, finalState]` |
+| `State.evaluate(initial)` | The value.            |
+| `State.execute(initial)`  | The final state.      |
 
-### Reading state changes with `execute`
+## Failure Behavior and Edge Cases
 
-`State.execute` executes the transitions and returns **only the final state**, discarding the
-produced value:
+`evaluate` and `execute` each run the computation. Calling both separately repeats every step; use
+`run` when both the value and the final state are needed.
 
-```ts
-const cartSnapshot = State.execute({ items: [], total: 0 })(checkout);
-// { items: ["coffee", "croissant", "juice"], total: 9 }
-```
-
----
-
-## Practical Example: Unique ID Generation
-
-A classic use case for `State` is generating unique, sequential IDs while constructing an immutable
-data structure:
-
-```ts
-type IdState = number;
-
-const generateId: State<IdState, number> = pipe(
-  State.get<IdState>(),
-  State.chain((id) =>
-    pipe(
-      State.put(id + 1),
-      State.chain(() => State.make(id)),
-    )
-  ),
-);
-
-const buildNodes = pipe(
-  generateId,
-  State.chain((id1) =>
-    pipe(
-      generateId,
-      State.chain((id2) =>
-        State.make([
-          { id: id1, label: "parent_node" },
-          { id: id2, label: "child_node" },
-        ])
-      )
-    )
-  ),
-);
-
-const nodes = State.evaluate(0)(buildNodes);
-// [{ id: 0, label: "parent_node" }, { id: 1, label: "child_node" }]
-```
-
-Each call to `generateId` reads the current integer, increments the counter in the state, and
-returns the original integer. The state flows through the sequence, ensuring that no two nodes
-receive duplicate IDs.
-
----
-
-## Accumulating values: assign / assignTo
-
-When you need to perform multiple sequential stateful operations and gather their results into a
-single object, nesting `chain` and `map` inside pipelines can become highly complex:
-
-```ts
-const buildProfile = pipe(
-  generateId,
-  State.chain((id) =>
-    pipe(
-      loadData(id),
-      State.map((data) => ({ id, data }))
-    )
-  ),
-  State.chain(({ id, data }) =>
-    pipe(
-      loadPrefs(id),
-      State.map((prefs) => ({ id, data, prefs }))
-    )
-  )
-);
-```
-
-To solve this, you can use `assignTo` and `assign` to cleanly accumulate values key-by-key in a
-flat, readable pipeline.
-
-`assignTo` wraps the initial `State` output into a single-key accumulator object:
-
-```ts
-const initialProfile = pipe(
-  generateId,
-  State.assignTo("id"),
-); // State<IdState, { id: number }>
-```
-
-`assign` runs a new stateful operation using the accumulated object and attaches the result to a new
-key:
-
-```ts
-const buildProfile = pipe(
-  generateId,
-  State.assignTo("id"),
-  State.assign("data", ({ id }) => loadData(id)),
-  State.assign("prefs", ({ id }) => loadPrefs(id))
-); // State({ id: number, data: Data, prefs: Preferences })
-```
-
-The underlying state transition threads behind the scenes key-by-key perfectly.
-
----
-
-## Problems it solves
-
-- **Stateful parsers and tokenizers**: When writing custom data parsers, markdown tokenizers, or
-  protocol decoders, each operation consumes input, advances cursor offsets, and yields syntax
-  nodes. Managing this with shared mutable counters creates fragile off-by-one bugs. `State` models
-  every step as a pure transition that yields a computed value alongside an updated state object.
-- **Sequential ID generation and seed tracking**: In simulations, workflow step engines, or game
-  loops, operations need to generate incremental IDs, advance random seeds, or track fuel/quota
-  budgets without relying on global mutable state. `State` threads accumulated updates sequentially
-  from one step to the next.
-- **Sub-state isolation and modular transitions (`State.focus`)**: In complex state machines,
-  writing transitions that know about the entire root state couples domain helpers to top-level
-  schemas. Pairing `State` with `Lens` via `State.focus(lens)` allows reusable operations to
-  transform isolated sub-properties (such as updating an inventory or cart sub-model) while running
-  directly against the global state tree.
-- **Multi-step wizard flows and branch rollbacks**: In complex onboarding wizards and financial
-  questionnaires, user responses dictate subsequent questions and update a growing payload. Because
-  `State` transitions produce fresh state values without mutating the original, implementing
-  branching navigation, back-tracking, and undo/redo snapshots requires zero defensive cloning.
-- **Deterministic state testing**: Mutable state can leak across unit tests or cause subtle ordering
-  issues. Because `State` computations are pure functions, tests can execute any sequence of steps
-  with an exact initial state and deterministically verify both the final state and intermediate
-  values.
+`State` passes state values between functions; it does not prevent a callback from mutating an
+object supplied as state. Return an updated object when the original must remain unchanged.

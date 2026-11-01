@@ -1,6 +1,6 @@
 ---
 title: RemoteData — Loading States
-description: Explicitly model the four states of an asynchronous data lifecycle, replacing conflicting boolean flags with type-safe state transitions.
+description: Represent an idle, loading, failed, or successful request with one state value.
 ---
 
 <!-- BUNDLE_SIZE:START -->
@@ -9,369 +9,158 @@ description: Explicitly model the four states of an asynchronous data lifecycle,
 
 <!-- BUNDLE_SIZE:END -->
 
-Representing asynchronous UI state with independent boolean flags (`data`, `isLoading`, `error`)
-allows impossible state combinations (such as `isLoading: true` while an `error` is displayed) and
-makes initial un-fetched states ambiguous.
+## Core Behavior
 
-`RemoteData<E, A>` models the complete request lifecycle as a discriminated union of four mutually
-exclusive states: `NotAsked`, `Loading`, `Failure<E>`, and `Success<A>`:
+`RemoteData<E, A>` represents one of four states for a request: `NotAsked`, `Loading`, `Failure`, or
+`Success`.
+
+- `Failure` carries an error of type `E`; `Success` carries a value of type `A`.
+- `map` and `chain` operate on `Success`; the other states pass through.
+- `match` requires a handler for every state. The application chooses when to create each state.
+
+## Example: Invoice Loading
+
+With separate loading, error, and invoice fields, a failed refresh can leave a loading flag or old
+invoice on screen by accident. `RemoteData.make.loading()` represents the loading state on its own;
+there is no invoice or error in that variant.
+
+`filter` inspects a successful invoice and can turn it into a failure. For the other three states,
+it leaves the state unchanged:
 
 ```mermaid
-stateDiagram-v2
-  direction TB
-  [*] --> NotAsked
-  NotAsked --> Loading : request starts
-  Loading --> Success : data arrives (Success A)
-  Loading --> Failure : network fails (Failure E)
-  Failure --> Loading : retry
-  Success --> Loading : refresh
+flowchart TD
+  Input["RemoteData invoice state"] --> State{"Success?"}
+  State -->|Yes| Check{"Amount valid?"}
+  Check -->|Yes| Success["Success(invoice)"]
+  Check -->|No| Failure["Failure(invalid amount)"]
+  State -->|No| Unchanged["NotAsked, Loading, or Failure unchanged"]
 ```
 
-By packaging our loading state into a single, cohesive type, we ensure that our application can only
-ever represent valid states.
+`map` and `chain` also act only on `Success`. The application sets request states; `RemoteData` does
+not start requests or enforce their ordering.
+
+### Loading and Displaying an Invoice
+
+One request can set `Loading` before it starts and `Success` or `Failure` when it finishes. With
+repeated requests, an older response can arrive after a newer one and overwrite it. This loader uses
+a sequence number to ignore an older response and renders every state explicitly:
 
 ```ts
 import { pipe, RemoteData } from "@pplnd/core";
 
-export type RemoteData<E, A> =
-  | RemoteData.NotAsked
-  | RemoteData.Loading
-  | RemoteData.Failure<E>
-  | RemoteData.Success<A>;
-```
-
----
-
-## Creating RemoteData
-
-To track a lifecycle, we transition our state through the explicit constructors of `RemoteData`:
-
-```ts
-import { RemoteData } from "@pplnd/core";
-
-type UserState = RemoteData<string, User>;
-
-// 1. Initial idle state before any action
-let state: UserState = RemoteData.make.notAsked();
-
-// 2. An API request is initiated
-state = RemoteData.make.loading();
-
-// 3. The network times out
-state = RemoteData.make.failure("Request timed out");
-
-// 4. A successful reload brings data
-state = RemoteData.make.success(activeUser);
-```
-
-### Inspecting states with type guards: `is.*`
-
-When checking a specific lifecycle state in imperative code or UI conditionals, use the
-`RemoteData.is` type guards (`notAsked`, `loading`, `failure`, `success`):
-
-```ts
-if (RemoteData.is.notAsked(state)) {
-  triggerInitialFetch();
-}
-
-if (RemoteData.is.loading(state)) {
-  showLoadingSpinner();
-}
-
-if (RemoteData.is.failure(state)) {
-  // Narrowed to RemoteData.Failure<string>
-  reportErrorBanner(state.error);
-}
-
-if (RemoteData.is.success(state)) {
-  // Narrowed to RemoteData.Success<User>
-  renderUserHeader(state.value);
-}
-```
-
----
-
-## Exhaustive Rendering with match
-
-The primary benefit of `RemoteData` is that it makes your rendering and consumption logic safe. When
-you unpack the data, `match` requires you to handle all four branches explicitly. If you forget one,
-the compiler will refuse to build your application:
-
-```ts
-import { pipe } from "@pplnd/core";
-
-const uiMessage = pipe(
-  userDataState,
-  RemoteData.match({
-    notAsked: () => "Click the button to load your profile",
-    loading: () => "Retrieving data...",
-    failure: (error) => `Could not load profile: ${error}`,
-    success: (user) => `Welcome back, ${user.name}`,
-  }),
-);
-```
-
-Because the compiler enforces that every branch is defined, you can never accidentally skip the
-loading spinner or forget to handle a network failure.
-
----
-
-## Transforming States in Flight
-
-We do not have to immediately unpack `RemoteData` to work with it. We can describe transformations
-on our successful values while they are still managed within their lifecycle context.
-
-### Pure transformations with `map`
-
-`map` applies a transformation to the value inside a `Success` container, leaving `NotAsked`,
-`Loading`, and `Failure` entirely untouched:
-
-```ts
-const userDisplayName = pipe(
-  userDataState,
-  RemoteData.map((user) => user.name.toUpperCase()),
-);
-```
-
-If the state is `Loading`, it remains `Loading` after the `map`. The transformation is only executed
-if the data has successfully arrived, allowing us to describe what should happen to the value
-without worrying about whether it is loading or failed.
-
-### Standardizing errors with `mapError`
-
-`mapError` applies a transformation to the error inside a `Failure` container, leaving all other
-states untouched. This is useful for translating low-level API error objects into user-friendly
-message strings:
-
-```ts
-const cleanState = pipe(
-  userDataState,
-  RemoteData.mapError((apiErr) => apiErr.message),
-);
-```
-
-### Combining multiple states with `apply`
-
-When a UI view depends on multiple independent `RemoteData` resources (such as a user profile and
-their billing plan), `RemoteData.apply` merges their lifecycles:
-
-- If all inputs are `Success`, the curried function is applied.
-- If any input is `Failure`, the first `Failure` is propagated.
-- Otherwise, if any input is `Loading`, the combined state is `Loading`.
-- Otherwise, the combined state is `NotAsked`.
-
-```ts
-const buildAccountView = (user: User) => (plan: BillingPlan) => ({
-  userName: user.name,
-  tier: plan.tierName,
-});
-
-const accountViewState = pipe(
-  RemoteData.make.success(buildAccountView),
-  RemoteData.apply(userDataState),
-  RemoteData.apply(billingPlanState),
-); // RemoteData<string, { userName: string; tier: string }>
-```
-
----
-
-## Chaining Dependent Requests
-
-Often, one asynchronous state depends on the result of another — for instance, looking up a selected
-organization's details from a loaded user record.
-
-For this, we use `chain`. If the current state is `Success`, `chain` passes the value to your next
-function and returns its `RemoteData` state. If the state is `Loading`, `Failure`, or `NotAsked`,
-the step is skipped and that state propagates automatically:
-
-```ts
-const activeOrgState = pipe(
-  userDataState,
-  RemoteData.chain((user) => getOrgStateForUser(user.orgId)), // returns RemoteData
-);
-```
-
----
-
-## Validating outcomes: filter
-
-Sometimes a fetch succeeds, but the data does not satisfy our business constraints (e.g., a
-retrieved price list is empty). We can use `filter` to convert a `Success` into a `Failure` based on
-a condition:
-
-```ts
-const verifiedPrice = pipe(
-  priceFetchState,
-  RemoteData.filter(
-    (price) => price > 0,
-    (price) => `Price of ${price} is invalid. Price must be positive.`,
-  ),
-);
-```
-
-If the fetch succeeded with `-1`, the state is converted to `Failure("Price of -1 is invalid...")`.
-If the state was `Loading`, the check is bypassed.
-
----
-
-## Extracting and Recovering
-
-### Safe fallbacks with `getOrElse`
-
-When you simply need to extract the success value or supply a fallback if the data is loading,
-absent, or failed, you can use `getOrElse`:
-
-```ts
-const theme = pipe(
-  themeFetchState,
-  RemoteData.getOrElse(() => "light-theme"),
-);
-```
-
-### Recovering from failures with `recover`
-
-When a `RemoteData` state is `Failure` and you want to fall back to a cached `RemoteData` state (or
-recover to a default `Success` value), use `RemoteData.recover`:
-
-```ts
-const resilientCatalogState = pipe(
-  liveCatalogState,
-  RemoteData.recover((error) =>
-    error === "OFFLINE"
-      ? RemoteData.make.success(cachedCatalogItems)
-      : RemoteData.make.failure(error)
-  ),
-);
-```
-
----
-
-## Side effects with tap and tapError
-
-To run a side effect when data has arrived (`Success`) or when an error has occurred (`Failure`)
-without altering the `RemoteData` state, use `tap` and `tapError`:
-
-```ts
-pipe(
-  userDataState,
-  RemoteData.tap((user) => analytics.identify(user.id)),
-  RemoteData.tapError((err) => {
-    logger.error("User profile fetch failed", { error: err });
-  }),
-);
-```
-
----
-
-## Interoperability at boundaries
-
-`RemoteData` works naturally in UI states, while lower-level utilities usually communicate using
-`Maybe` or `Result` types. You can convert between them at system boundaries.
-
-### Downgrading to Maybe or Result
-
-To discard all error and loading information, you can convert to `Maybe` using `to.Maybe`. Only
-`Success` becomes a `Some`:
-
-```ts
-const maybeUser = RemoteData.to.Maybe(userDataState); // Some(user) or None
-```
-
-To convert to a `Result`, you must provide a fallback error to represent what should happen if the
-data is still `NotAsked` or `Loading`:
-
-```ts
-const resultUser = pipe(
-  userDataState,
-  RemoteData.to.Result(() => "Data has not loaded yet"),
-); // Ok(user) or Err(error | "Data has not loaded yet")
-```
-
-### Converting from Result and Maybe
-
-When you trigger an asynchronous operation (e.g. using a `Task.Result`), you obtain a standard
-`Result<E, A>` when it resolves. Use `RemoteData.from.Result` to convert that `Result` directly into
-`Success` or `Failure`:
-
-```ts
-// In your async execution block:
-const result = await fetchUserProfileTask();
-
-// Passed directly to state:
-setDataState(RemoteData.from.Result(result)); // Success(user) or Failure(error)
-```
-
-Similarly, if you have an optional `Maybe<A>` from a local cache lookup, use `RemoteData.from.Maybe`
-to convert `Some` into `Success` and `None` into `Failure`:
-
-```ts
-const cachedProfileState = pipe(
-  findCachedUser(userId), // Maybe<User>
-  RemoteData.from.Maybe(() => "User not found in cache"),
-); // Success(user) or Failure("User not found in cache")
-```
-
----
-
-## Pipeline composition
-
-Here is a complete UI state pipeline that takes a raw `RemoteData` response for an invoice, filters
-out invalid totals, recovers from transient offline errors using a cached snapshot, and renders a
-status string for the view:
-
-```ts
 interface Invoice {
   id: string;
   amountCents: number;
 }
 
-const renderInvoiceBanner = (
-  invoiceState: RemoteData<string, Invoice>,
-  cachedInvoice: Invoice,
-): string =>
+type InvoiceState = RemoteData<string, Invoice>;
+let invoiceState: InvoiceState = RemoteData.make.notAsked();
+let latestRequest = 0;
+
+const renderInvoice = (state: InvoiceState): string =>
   pipe(
-    invoiceState,
+    state,
     RemoteData.filter(
-      (inv) => inv.amountCents >= 0,
-      () => "INVALID_INVOICE_AMOUNT",
+      (invoice) => Number.isSafeInteger(invoice.amountCents) && invoice.amountCents >= 0,
+      () => "Invoice amount is invalid",
     ),
-    RemoteData.tapError((err) => console.warn(`Invoice fetch issue: ${err}`)),
-    RemoteData.recover((err) =>
-      err === "NETWORK_OFFLINE"
-        ? RemoteData.make.success(cachedInvoice)
-        : RemoteData.make.failure(err)
+    RemoteData.map((invoice) =>
+      `Invoice ${invoice.id}: ${(invoice.amountCents / 100).toFixed(2)} USD`
     ),
-    RemoteData.map((inv) => `Invoice #${inv.id}: $${(inv.amountCents / 100).toFixed(2)}`),
     RemoteData.match({
-      notAsked: () => "Select an invoice to view details",
-      loading: () => "Loading invoice details...",
-      failure: (err) => `Unable to display invoice (${err})`,
+      notAsked: () => "Select an invoice",
+      loading: () => "Loading invoice...",
+      failure: (error) => `Unable to display invoice: ${error}`,
       success: (summary) => summary,
     }),
   );
+
+const publish = (state: InvoiceState): void => {
+  invoiceState = state;
+  console.log(renderInvoice(invoiceState));
+};
+
+const loadInvoice = async (id: string): Promise<void> => {
+  const request = ++latestRequest;
+  publish(RemoteData.make.loading());
+  try {
+    const response = await fetch(`/api/invoices/${encodeURIComponent(id)}`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data: unknown = await response.json();
+    if (
+      typeof data !== "object" || data === null ||
+      !("id" in data) || typeof data.id !== "string" ||
+      !("amountCents" in data) || typeof data.amountCents !== "number"
+    ) {
+      throw new Error("Invalid invoice response");
+    }
+    if (request === latestRequest) {
+      publish(RemoteData.make.success({ id: data.id, amountCents: data.amountCents }));
+    }
+  } catch (error) {
+    if (request === latestRequest) {
+      publish(RemoteData.make.failure(String(error)));
+    }
+  }
+};
+
+console.log(renderInvoice(invoiceState)); // Select an invoice
+void loadInvoice("inv-42");
 ```
 
----
+The sequence number prevents stale responses from updating this state, but the older request still
+runs. To stop it, the application must pass an `AbortSignal` to `fetch` and manage its controller.
+The amount check is part of rendering here; move it into the loading boundary if every consumer must
+receive only validated invoices.
 
-## Problems it solves
+## Core Operations
 
-- **Eliminating impossible UI states**: Managing asynchronous data in UI components with separate
-  variables (`isLoading`, `isError`, `data`, `errorMessage`) creates impossible combinations, like
-  displaying a loading spinner alongside an error banner and stale data. `RemoteData` unifies these
-  into a single four-state discriminated union (`NotAsked`, `Loading`, `Failure`, `Success`),
-  guaranteeing impossible states cannot be represented.
-- **Exhaustive view branch rendering**: Interactive components in frontend frameworks require
-  distinct presentations for idle states, loading skeletons, error recovery cards, and populated
-  content. `RemoteData.match` enforces exhaustive handling of each lifecycle stage at compile time,
-  eliminating blank screens caused by unhandled loading or error conditions.
-- **Coordinating multi-resource dashboard widgets (`RemoteData.apply`)**: When a dashboard widget
-  depends on multiple asynchronous queries (such as user permissions and account metrics),
-  `RemoteData.apply` merges their lifecycles cleanly, ensuring data views render only when every
-  dependency succeeds while propagating `Loading` or `Failure` states automatically.
-- **Transforming loaded state without flickering (`RemoteData.map`)**: In client state stores,
-  formatting or filtering already-loaded records (e.g. applying a local text filter to a fetched
-  product catalog) should not reset the UI to a loading state. `RemoteData.map` applies
-  transformations purely to the `Success` payload while leaving other lifecycle states intact.
-- **Converting asynchronous results (`from.Result`, `from.Maybe`)**: Bridging async API endpoints
-  and cache lookups into UI component state via `RemoteData.from.Result` and `RemoteData.from.Maybe`
-  converts raw outcomes into rendering states in a single line.
+### Creating Values
+
+| Signature                                                | What it does                                             | Return type                 |
+| :------------------------------------------------------- | :------------------------------------------------------- | :-------------------------- |
+| `RemoteData.make.notAsked()` / `make.loading()`          | Creates an idle or loading state.                        | `NotAsked` / `Loading`      |
+| `RemoteData.make.failure(error)` / `make.success(value)` | Stores an error or a value.                              | `Failure<E>` / `Success<A>` |
+| `RemoteData.from.Result(result)`                         | Converts `Ok` to `Success` and `Err` to `Failure`.       | `RemoteData<E, A>`          |
+| `RemoteData.from.Maybe(onNone)`                          | Converts `Some` to `Success`; calls `onNone` for `None`. | `RemoteData<E, A>`          |
+
+### Combining and Transforming Values
+
+| Signature                               | What it does                                      | Guarantee                                                                             |
+| :-------------------------------------- | :------------------------------------------------ | :------------------------------------------------------------------------------------ |
+| `RemoteData.apply(argument)`            | Applies a wrapped function to a wrapped argument. | Failure takes precedence, then Loading, then NotAsked; both must be Success to apply. |
+| `RemoteData.map(fn)` / `mapError(fn)`   | Transforms a success value or failure error.      | Other states pass through.                                                            |
+| `RemoteData.chain(fn)`                  | Calls a state-producing function for `Success`.   | Other states pass through.                                                            |
+| `RemoteData.filter(predicate, onFalse)` | Checks a success value.                           | A failed check becomes `Failure(onFalse(value))`.                                     |
+| `RemoteData.recover(fn)`                | Replaces `Failure` with the callback's state.     | Other states pass through.                                                            |
+| `RemoteData.tap(fn)` / `tapError(fn)`   | Runs a callback for `Success` / `Failure`.        | Returns the original state.                                                           |
+
+### Reading and Converting
+
+| Signature                                                                                         | What it does                                                          | Return type                   |
+| :------------------------------------------------------------------------------------------------ | :-------------------------------------------------------------------- | :---------------------------- |
+| `RemoteData.match(cases)`                                                                         | Handles all four states.                                              | The selected callback result. |
+| `RemoteData.is.notAsked(value)` / `is.loading(value)` / `is.failure(value)` / `is.success(value)` | Checks a state.                                                       | Type guard.                   |
+| `RemoteData.getOrElse(fn)`                                                                        | Reads a success value or calls a fallback for every other state.      | Value or fallback result.     |
+| `RemoteData.to.Maybe(value)`                                                                      | Keeps only a success value.                                           | `Some(value)` or `None`.      |
+| `RemoteData.to.Result(onNotReady)`                                                                | Converts success and failure; calls the fallback for idle or loading. | `Ok(value)` or `Err(error)`.  |
+
+## Failure Behavior and Edge Cases
+
+`recover` handles an existing `Failure`; it does not catch a rejected request. Convert request
+errors to `Failure` at the loading boundary if they should be rendered.
+
+If both inputs to `apply` are failures, it returns the failure from the function's state:
+
+```ts
+import { pipe, RemoteData } from "@pplnd/core";
+
+const formatterState = RemoteData.make.failure("Invoice formatter unavailable");
+const invoiceState = RemoteData.make.failure("Invoice unavailable");
+
+pipe(formatterState, RemoteData.apply(invoiceState));
+// Failure("Invoice formatter unavailable")
+```
+
+In a sequence of applications, an earlier failure is retained. Loading and NotAsked carry no
+previous value, so preserving stale data during refresh requires a separate application model.

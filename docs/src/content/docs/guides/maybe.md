@@ -24,42 +24,42 @@ step.
 - `Maybe` carries presence or absence only. It does not retain a validation reason or handle an
   asynchronous rejection.
 
-## How Execution Flows
+## Example: Thumbnail Worker Configuration
+
+A thumbnail worker needs a secure queue URL, a bounded concurrency value, a visibility timeout, and
+a label for its process manager. The example loads these settings from environment variables.
+
+`chain` calls the next operation only when a value is present. That operation can return `None`,
+which skips subsequent `map` and `chain` callbacks:
 
 ```mermaid
 flowchart TD
-    Raw["Environment value: string or undefined"] --> Enter["Maybe.from.nullable(value)"]
-    Enter -->|"present"| Some["Maybe.Some(string)"]
-    Enter -->|"missing"| None["Maybe.None"]
-    Some --> Parse["Maybe.chain(parsePositiveInteger)"]
-    Parse -->|"valid"| Valid["Maybe.Some(number)"]
-    Parse -->|"invalid"| None
-    Valid --> Build["Maybe.assign(worker setting)"]
-    None --> Exit["Maybe.match(start or reject)"]
-    Build --> Exit
+  Input["Maybe(worker setting)"] --> Present{"Some?"}
+  Present -->|Yes| Parse["chain calls parsePositiveInteger"]
+  Present -->|No| Missing["None passes through"]
+  Parse -->|Valid| Some["Some(worker count)"]
+  Parse -->|Invalid| Missing
+  Some --> Next["Next callback runs"]
+  Missing --> Skip["Next callback is skipped"]
 ```
 
-A `Maybe` has two object shapes: `Some` includes a `value`, while `None` does not. `Maybe.is.some`
-and `Maybe.is.none` narrow it when an imperative boundary needs to inspect the value. Within a
-pipeline, callbacks that consume the wrapped value run only for `Some`. Absence handlers run for
-`None` and receive no wrapped value.
+`None` does not record whether the setting was missing or failed to parse. Use `Result` when the
+caller needs that distinction.
 
-## Architecture: Invoice Worker Configuration
+### Loading Worker Configuration
 
-An invoice worker needs a secure queue URL, a bounded concurrency value, a visibility timeout, and a
-label for its process manager. With raw environment values, each setting needs its own null, blank,
-and parsing branch:
+With raw environment values, each setting needs its own null, blank, and parsing branch:
 
 ```ts
-const concurrency = Number(process.env.INVOICE_WORKER_CONCURRENCY);
+const concurrency = Number(process.env.THUMBNAIL_WORKER_CONCURRENCY);
 
 if (
-  !process.env.INVOICE_QUEUE_URL ||
+  !process.env.THUMBNAIL_QUEUE_URL ||
   !Number.isSafeInteger(concurrency) ||
   concurrency < 1 ||
   concurrency > 64
 ) {
-  throw new Error("Invoice worker configuration is invalid");
+  throw new Error("Thumbnail worker configuration is invalid");
 }
 ```
 
@@ -71,7 +71,7 @@ and trimming it only when it is present:
 import { Maybe, pipe } from "@pplnd/core";
 
 const queueUrl = pipe(
-  Maybe.from.nullable(process.env.INVOICE_QUEUE_URL),
+  Maybe.from.nullable(process.env.THUMBNAIL_QUEUE_URL),
   Maybe.map((value) => value.trim()),
 ); // Maybe<string>
 ```
@@ -85,19 +85,19 @@ import { Arr, Maybe, pipe, Str } from "@pplnd/core";
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
-type InvoiceWorkerConfiguration = {
+type ThumbnailWorkerConfiguration = {
   queueUrl: URL;
   concurrency: number;
   visibilityTimeoutSeconds: number;
   workerLabel: string;
 };
 
-type InvoiceWorkerBoot =
-  | { kind: "ready"; configuration: InvoiceWorkerConfiguration }
+type ThumbnailWorkerBoot =
+  | { kind: "ready"; configuration: ThumbnailWorkerConfiguration }
   | {
       kind: "rejected";
       error: {
-        code: "INVALID_INVOICE_WORKER_CONFIGURATION";
+        code: "INVALID_THUMBNAIL_WORKER_CONFIGURATION";
         message: string;
       };
     };
@@ -141,26 +141,26 @@ const workerLabel = (environment: Environment): Maybe<string> =>
   pipe(
     Maybe.from.nullable(environment.WORKER_LABEL),
     Maybe.chain(nonBlank),
-    Maybe.recover(() => Maybe.make.some("invoice-worker")),
+    Maybe.recover(() => Maybe.make.some("thumbnail-worker")),
   );
 
-const loadInvoiceWorkerConfiguration = (
+const loadThumbnailWorkerConfiguration = (
   environment: Environment,
-): Maybe<InvoiceWorkerConfiguration> =>
+): Maybe<ThumbnailWorkerConfiguration> =>
   pipe(
-    requiredEnvironment(environment, "INVOICE_QUEUE_URL"),
+    requiredEnvironment(environment, "THUMBNAIL_QUEUE_URL"),
     Maybe.chain(parseHttpsUrl),
     Maybe.assignTo("queueUrl"),
     Maybe.assign("concurrency", () =>
       pipe(
-        requiredEnvironment(environment, "INVOICE_WORKER_CONCURRENCY"),
+        requiredEnvironment(environment, "THUMBNAIL_WORKER_CONCURRENCY"),
         Maybe.chain(parsePositiveInteger),
         Maybe.filter((value) => value <= 64),
       ),
     ),
     Maybe.assign("visibilityTimeoutSeconds", () =>
       pipe(
-        requiredEnvironment(environment, "INVOICE_VISIBILITY_TIMEOUT_SECONDS"),
+        requiredEnvironment(environment, "THUMBNAIL_VISIBILITY_TIMEOUT_SECONDS"),
         Maybe.chain(parsePositiveInteger),
         Maybe.filter((value) => value <= 43_200),
       ),
@@ -168,35 +168,35 @@ const loadInvoiceWorkerConfiguration = (
     Maybe.assign("workerLabel", () => workerLabel(environment)),
   );
 
-const resolveInvoiceWorkerBoot = (environment: Environment): InvoiceWorkerBoot =>
+const resolveThumbnailWorkerBoot = (environment: Environment): ThumbnailWorkerBoot =>
   pipe(
-    loadInvoiceWorkerConfiguration(environment),
+    loadThumbnailWorkerConfiguration(environment),
     Maybe.match({
-      some: (configuration): InvoiceWorkerBoot => ({ kind: "ready", configuration }),
-      none: (): InvoiceWorkerBoot => ({
+      some: (configuration): ThumbnailWorkerBoot => ({ kind: "ready", configuration }),
+      none: (): ThumbnailWorkerBoot => ({
         kind: "rejected",
         error: {
-          code: "INVALID_INVOICE_WORKER_CONFIGURATION",
-          message: "Invoice worker configuration is missing or invalid",
+          code: "INVALID_THUMBNAIL_WORKER_CONFIGURATION",
+          message: "Thumbnail worker configuration is missing or invalid",
         },
       }),
     }),
   );
 
-const boot = resolveInvoiceWorkerBoot({
-  INVOICE_QUEUE_URL: "https://queue.example.com/invoices",
-  INVOICE_WORKER_CONCURRENCY: "8",
-  INVOICE_VISIBILITY_TIMEOUT_SECONDS: "300",
+const boot = resolveThumbnailWorkerBoot({
+  THUMBNAIL_QUEUE_URL: "https://queue.example.com/thumbnails",
+  THUMBNAIL_WORKER_CONCURRENCY: "8",
+  THUMBNAIL_VISIBILITY_TIMEOUT_SECONDS: "300",
 });
 // { kind: "ready", configuration: { queueUrl: URL, concurrency: 8,
-//   visibilityTimeoutSeconds: 300, workerLabel: "invoice-worker" } }
+//   visibilityTimeoutSeconds: 300, workerLabel: "thumbnail-worker" } }
 ```
 
 `assignTo` starts an accumulator after the queue URL has passed validation. Each `assign` receives
 that accumulator, but this worker uses only the environment for its remaining independent settings.
 If any required setting becomes `None`, later assignments and the `some` handler never run. The
-label uses `recover`, so a missing or blank label becomes `Some("invoice-worker")`. The process
-manager receives `InvoiceWorkerBoot` and can start the worker only for the `ready` case.
+label uses `recover`, so a missing or blank label becomes `Some("thumbnail-worker")`. The process
+manager receives `ThumbnailWorkerBoot` and can start the worker only for the `ready` case.
 
 `struct` is useful when the settings are already available as independent `Maybe` values. Its
 argument is an ordinary object, so JavaScript evaluates the field expressions before `struct` is
@@ -254,13 +254,23 @@ appropriate when the process manager needs one safe reject message. If an operat
 which rule failed, validate with `Result` from the first parsing step so each failure retains its
 reason; converting an already-empty `Maybe` to `Result` can provide only a new generic error.
 
+For example, a missing worker count and a rejected count become the same `None`, so converting later
+cannot recover their different causes:
+
+```ts
+import { Maybe, pipe } from "@pplnd/core";
+
+const missing = Maybe.from.nullable(undefined);
+const invalid = pipe(Maybe.make.some(0), Maybe.filter((count) => count > 0));
+const withError = Maybe.to.Result(() => "WORKER_COUNT_UNAVAILABLE");
+
+withError(missing); // Err("WORKER_COUNT_UNAVAILABLE")
+withError(invalid); // Err("WORKER_COUNT_UNAVAILABLE")
+```
+
 `Maybe.tryCatch` catches only synchronous exceptions thrown while it calls `operation`. It does not
 catch exceptions thrown later by `map`, `chain`, `filter`, `tap`, `recover`, `getOrElse`, or
 `match`. Those callbacks execute normally when their respective case is reached, so protect code
 that can throw before putting it in a `Maybe` pipeline. It also does not await promises:
 `Maybe.tryCatch(() => fetchConfiguration())` creates `Some(Promise)` and a later rejection remains a
 rejected promise.
-
-`Some` keeps the same object reference it receives. `Maybe` does not freeze configuration objects,
-clone them, validate every property, or prevent a caller from mutating the object after it has
-entered the pipeline.

@@ -1,6 +1,6 @@
 ---
-title: Duration — Type-Safe Time
-description: A branded, compile-time type-safe representation of time quantities to prevent unit-mismatch bugs.
+title: Duration — Time Quantities
+description: Create and combine time quantities with explicit units.
 ---
 
 <!-- BUNDLE_SIZE:START -->
@@ -9,211 +9,65 @@ description: A branded, compile-time type-safe representation of time quantities
 
 <!-- BUNDLE_SIZE:END -->
 
-Modeling time quantities as raw `number` primitives introduces silent unit-mismatch bugs (such as
-passing seconds to a function expecting milliseconds). Because both values are typed as `number`,
-TypeScript cannot catch the error at compile time.
+## Core Behavior
 
-`Duration` provides a branded, unit-safe representation of time with explicit constructors
-(`Duration.seconds`, `Duration.milliseconds`) and conversion helpers.
+`Duration` represents a time quantity as a branded number of milliseconds.
 
-## The problem with primitive numbers for time
+- Constructors accept milliseconds, seconds, minutes, hours, or days and convert to milliseconds.
+- `add` and `subtract` combine durations; `to` converts a duration back to a number in a chosen
+  unit.
+- A raw number does not satisfy a parameter typed as `Duration`.
 
-Consider a typical background worker that retries failed requests with a customizable timeout and
-delay:
+## Example: Report Cache Expiration
 
-```ts
-// What unit is expected here? Seconds? Milliseconds?
-function configureTimeout(timeout: number, retryDelay: number) {
-  // ...
-}
+A report cache has a base lifetime and a grace period. The cache API expects milliseconds, while the
+policy is easier to read in minutes and seconds.
 
-const defaultTimeout = 30; // Seconds?
-const defaultRetry = 500;  // Milliseconds?
-
-configureTimeout(defaultTimeout, defaultRetry);
-```
-
-Nothing prevents a developer from swapping these arguments or passing the wrong scale. The compiler
-happily accepts `configureTimeout(30, 500)`, even if the function internally treats both arguments
-as milliseconds (making the timeout a practically instant 30 milliseconds).
-
-To fix this defensively, developers often append unit suffixes to variable names (e.g.,
-`timeoutMs`), but this is a convention that relies entirely on human memory and is easily bypassed.
-
-## The shift to branded time quantities
-
-`Duration` changes this by raising time from a generic primitive to a distinct, branded type. At
-runtime, a `Duration` is represented purely as a standard number of milliseconds, carrying **zero
-runtime overhead**.
-
-At compile time, however, the nominal type brand prevents it from being mixed with generic numbers
-or other units.
+All constructors produce the same duration type in milliseconds, so arithmetic can combine units:
 
 ```mermaid
-flowchart TB
-    A["Raw Number (1)"] -->|"Duration.seconds(1)"| B["Duration (1000ms, Branded)"]
-    B -->|"Passed to Task.delay"| C["Safe, Type-Checked Delay"]
-    A -->|"Passed to Task.delay"| D["Compile Error: Type 'number' is not assignable to 'Duration'"]
+flowchart TD
+  Minutes["Duration.minutes(5)"] --> Millis["Duration stored in milliseconds"]
+  Seconds["Duration.seconds(30)"] --> Millis
+  Millis --> Convert["Convert to requested unit"]
 ```
 
-## Creating Durations
-
-We construct a `Duration` by calling the constructor that matches our mental model of the time
-quantity. The internal representation is normalized to milliseconds automatically:
+### Calculating the Cache Lifetime
 
 ```ts
-import { Duration } from "@pplnd/core";
+import { Duration, pipe } from "@pplnd/core";
 
-const halfSecond  = Duration.milliseconds(500);
-const threeSeconds = Duration.seconds(3);
-const tenMinutes   = Duration.minutes(10);
-const twelveHours  = Duration.hours(12);
-const oneDay       = Duration.days(1);
+const baseLifetime = Duration.minutes(5);
+const gracePeriod = Duration.seconds(30);
+
+const cacheLifetime = pipe(baseLifetime, Duration.add(gracePeriod));
+const cacheLifetimeMs = Duration.to.milliseconds(cacheLifetime);
+const cacheLifetimeSeconds = Duration.to.seconds(cacheLifetime);
+// cacheLifetimeMs: 330000
+// cacheLifetimeSeconds: 330
 ```
 
-Once branded, TypeScript will reject any attempt to pass a raw number where a `Duration` is
-expected:
+Pass `cacheLifetime` to APIs that accept `Duration`; pass `cacheLifetimeMs` to a timer or cache API
+that accepts a number of milliseconds.
 
-```ts
-declare function sleep(duration: Duration): Promise<void>;
+## Core Operations
 
-// @ts-expect-error: Argument of type 'number' is not assignable to parameter of type 'Duration'
-sleep(1000);
+### Creating and Converting
 
-// Correct usage:
-sleep(Duration.seconds(1));
-```
+| Signature                                                                                                | What it does                           | Result      |
+| :------------------------------------------------------------------------------------------------------- | :------------------------------------- | :---------- |
+| `Duration.milliseconds(n)` / `seconds(n)` / `minutes(n)` / `hours(n)` / `days(n)`                        | Converts the named unit to a duration. | `Duration`. |
+| `Duration.to.milliseconds(value)` / `seconds(value)` / `minutes(value)` / `hours(value)` / `days(value)` | Reads the duration in the named unit.  | `number`.   |
 
-## Converting Durations back to primitives
+### Calculating
 
-When interfacing with third-party libraries, native browser APIs, or database drivers that require
-plain numbers, we unwrap the `Duration` into the specific unit we need:
+| Signature                   | What it does                                    | Result      |
+| :-------------------------- | :---------------------------------------------- | :---------- |
+| `Duration.add(amount)`      | Adds the supplied duration to the input.        | `Duration`. |
+| `Duration.subtract(amount)` | Subtracts the supplied duration from the input. | `Duration`. |
 
-```ts
-const duration = Duration.hours(36);
+## Failure Behavior and Edge Cases
 
-Duration.to.milliseconds(duration); // 129600000
-Duration.to.seconds(duration);      // 129600
-Duration.to.minutes(duration);      // 2160
-Duration.to.hours(duration);        // 36
-Duration.to.days(duration);         // 1.5
-```
-
-## Curried time arithmetic
-
-We can perform arithmetic on durations. `Duration.add` and `Duration.subtract` are curried,
-data-last operations that allow us to adjust time quantities cleanly inside a `pipe`:
-
-```ts
-import { pipe } from "@pplnd/core";
-
-const requestTimeout = Duration.seconds(30);
-const networkLatency = Duration.milliseconds(200);
-
-// Add network latency and subtract a safety margin
-const adjustedTimeout = pipe(
-  requestTimeout,
-  Duration.add(networkLatency),
-  Duration.subtract(Duration.seconds(5))
-);
-
-Duration.to.seconds(adjustedTimeout); // 25.2
-```
-
-## Deep integration with asynchronous APIs
-
-Within the `pipelined` ecosystem, all core time-sensitive operations strictly require `Duration`
-types rather than raw numbers. This guarantees that delays, repeating poll tasks, and timeouts are
-safe by default:
-
-```ts
-import { Task } from "@pplnd/core";
-
-// 1. Delaying execution
-const delayedTask = pipe(
-  Task.make("data"),
-  Task.delay(Duration.seconds(2))
-);
-
-// 2. Setting a computation timeout
-const guardedTask = pipe(
-  fetchLargeDataset,
-  Task.timeout({ duration: Duration.seconds(10), onTimeout: () => "timeout_error" })
-);
-
-// 3. Scheduling a recurring poll
-const pollingTask = pipe(
-  checkQueueStatus,
-  Task.repeat({ times: 5, delay: Duration.milliseconds(500) })
-);
-```
-
-## Modeling retry backoffs with RetryPolicy
-
-Transient network errors, rate-limited endpoints, and brief database lock contentions often succeed
-when retried after a short pause. Rather than scattering ad-hoc retry loops and raw millisecond
-multipliers across your services, `RetryPolicy` (from `@pplnd/core`) pairs with `Duration` to define
-reusable, declarative backoff schedules.
-
-`RetryPolicy` offers two constructors:
-
-- `RetryPolicy.constant({ attempts, delay, when?, onRetry? })`: Waits a fixed `Duration` between
-  each retry attempt.
-- `RetryPolicy.exponential({ attempts, initial, factor?, jitter?, maxDelay?, when?, onRetry? })`:
-  Grows the wait duration exponentially after each failure (defaulting to `factor: 2`), with
-  optional `maxDelay` capping and randomized `jitter` to prevent synchronized retry spikes
-  ("thundering herds") across clients.
-
-```ts
-import { Duration, Op, RetryPolicy, Task } from "@pplnd/core";
-
-// 1. Fixed delay between attempts with failure filter and retry telemetry
-const fixedRetry = RetryPolicy.constant({
-  attempts: 3,
-  delay: Duration.seconds(1),
-  when: (err: { status: number }) => err.status === 503 || err.status === 429,
-  onRetry: ({ attempt, error, delay }) => {
-    console.warn(`Retry attempt ${attempt} for status ${error.status} in ${delay.millis}ms`);
-  },
-});
-
-// 2. Exponential backoff with jitter and an upper ceiling
-const backoffPolicy = RetryPolicy.exponential({
-  attempts: 5,
-  initial: Duration.milliseconds(200),
-  factor: 2,
-  jitter: true,
-  maxDelay: Duration.seconds(10),
-});
-
-// 3. Pairing RetryPolicy with Task.Result.retry
-const resilientFetch = pipe(
-  fetchInvoiceTask,
-  Task.Result.retry(fixedRetry),
-);
-
-// 4. Pairing RetryPolicy with Op.interpret
-const syncInventoryRunner = Op.interpret(syncInventoryOp, {
-  strategy: "exclusive",
-  retry: backoffPolicy,
-});
-```
-
-## Problems it solves
-
-- **Eliminating time unit ambiguity in configurations**: When configuring HTTP timeouts, debounce
-  intervals, cache TTLs, or retry backoffs, accepting raw numbers forces developers to guess whether
-  the function expects seconds or milliseconds. Passing `5` instead of `5000` leads to premature
-  timeout failures in production. `Duration` makes time units explicit (`Duration.seconds(5)`,
-  `Duration.minutes(10)`).
-- **Safe duration arithmetic**: Calculating total timeout budgets or subtracting safety margins
-  using raw numbers risks mixing millisecond and second units. `Duration` provides unit-safe
-  arithmetic (`Duration.add`, `Duration.subtract`).
-- **Declarative retry and backoff strategies (`RetryPolicy`)**: Expressing constant or exponential
-  backoff with jitter and maximum delay caps via `RetryPolicy` eliminates manual exponentiation math
-  and integrates directly with `Task.Result.retry` and `Op.interpret`.
-- **Cache TTL and session expiry policies**: Calculating cache eviction deadlines or token validity
-  spans in security middlewares without manual millisecond multiplier math (`Duration.hours(2)`).
-- **Unified time modeling across async utilities**: Core asynchronous combinators (such as
-  `Task.timeout`, `Task.delay`, and `Op` repeat schedules) enforce `Duration` at the type level,
-  establishing a single consistent time model across the entire application.
+Duration constructors do not reject negative or non-finite numbers. `subtract` can also produce a
+negative duration. Check input ranges before using a duration where a positive finite value is
+required.

@@ -1,6 +1,6 @@
 ---
-title: Predicate — Composable Logic
-description: Represent boolean checks as first-class, composable functions, combining, negating, and adapting them to richer data structures without wrapper boilerplate.
+title: Predicate — Combining Checks
+description: Combine and adapt reusable boolean checks.
 ---
 
 <!-- BUNDLE_SIZE:START -->
@@ -9,248 +9,79 @@ description: Represent boolean checks as first-class, composable functions, comb
 
 <!-- BUNDLE_SIZE:END -->
 
-Boolean checks are the structural foundation of control flow. We write them everywhere: inside
-`Array.prototype.filter` callbacks, authorization gates, and conditional branch guards.
+## Core Behavior
 
-Typically, we write them as ad-hoc, inline lambda functions:
+`Predicate<A>` is a function that accepts an `A` and returns a boolean. `Predicate` provides
+operations for combining and adapting those functions.
 
-```ts
-const activeAdultUsers = users.filter(
-  (u) => u.age >= 18 && u.status === "active" && !u.banned,
-);
+- `and` and `or` run the input predicate first and skip the second when the result is already known.
+- `all` and `any` check a list in order, stopping at the first decisive result.
+- A predicate reports a boolean; use `Refinement` when the check should also narrow a TypeScript
+  type.
+
+## Example: Moderation Review
+
+A moderation queue needs to select pending posts that have at least three reports. Each condition
+can be named separately and combined into one filter.
+
+`and` evaluates the second predicate only when the first returns true:
+
+```mermaid
+flowchart TD
+  Input["Post"] --> First{"First predicate passes?"}
+  First -->|No| Fail["false; skip second predicate"]
+  First -->|Yes| Second["Run second predicate"]
+  Second --> Result["Return second result"]
 ```
 
-While this works, it is entirely un-composable. If we need to negate this rule — for instance, to
-find ineligible users — we are forced to wrap the entire block in `!(...)`. If we want to adapt this
-exact check to operate on an `Order` (e.g., verifying if the customer placing the order is an active
-adult) rather than a raw `User`, we must duplicate and rewrite the logic from scratch.
-
-Our domain rules become scattered, hard to test in isolation, and tightly coupled to specific object
-shapes.
-
-`Predicate<A>` solves this. It is a simple type alias for a function that accepts an input `A` and
-returns a `boolean`:
+### Selecting Posts for Review
 
 ```ts
-type Predicate<A> = (a: A) => boolean;
-```
+import { Predicate, pipe } from "@pplnd/core";
 
-By representing boolean checks as first-class values, we can name them, negate them, combine them,
-and adapt them to new object shapes directly inside pipelines without writing extra wrapper
-functions.
+type Post = { id: string; status: "pending" | "reviewed"; reports: number };
 
----
-
-## Predicate vs Refinement: How they compare
-
-`Predicate<A>` and `Refinement<A, B>` are closely related. In fact, every `Refinement` is
-structurally a `Predicate`. However, they serve different purposes in your design:
-
-- **`Predicate<A>`** tests whether a value satisfies a domain rule (such as `isAdult` or
-  `isAffordable`), keeping the TypeScript type as `A` after the check evaluates to `true`.
-- **`Refinement<A, B>`** is a type guard (`(a: A) => a is B`) that narrows the compile-time type of
-  `A` to a more specific subtype `B` inside conditional branches (such as narrowing `unknown` to
-  `string` or `string` to a branded `Email`).
-
-`Predicate` has a major structural superpower: the `using` operator. It allows you to adapt simple
-primitive checks to work on rich, deeply nested domain objects, which is difficult to express
-cleanly with `Refinement`.
-
-If you have an existing `Refinement<A, B>` and want to compose it alongside plain boolean rules
-using `Predicate.and`, `Predicate.or`, or `Predicate.all`, lift it with `Predicate.from.Refinement`:
-
-```ts
-import { pipe, Predicate, Refinement, Str } from "@pplnd/core";
-
-// Str.is.nonEmpty is a Refinement<string, Str.NonEmpty>
-const isValidUsername: Predicate<string> = pipe(
-  Predicate.from.Refinement(Str.is.nonEmpty),
-  Predicate.and((s) => s.length <= 20),
-);
-```
-
----
-
-## Negating logic with `not`
-
-`not` inverts a predicate, returning a new `Predicate<A>` without any complex type-casting overhead:
-
-```ts
-import { pipe, Predicate } from "@pplnd/core";
-
-const isExpired: Predicate<Date> = (d) => d < new Date();
-const isActive: Predicate<Date> = pipe(isExpired, Predicate.not);
-
-isActive(new Date("2099-01-01")); // true
-isActive(new Date("2000-01-01")); // false
-```
-
----
-
-## Combining with `and` and `or`
-
-`and` and `or` allow you to combine two predicates over the same input type. Both combinators
-**short-circuit** naturally at runtime: `and` stops evaluating the moment a check fails, while `or`
-stops the moment a check succeeds.
-
-```ts
-const isAdult: Predicate<number> = (age) => age >= 18;
-const isSenior: Predicate<number> = (age) => age >= 65;
-const isChild: Predicate<number> = (age) => age < 13;
-
-// Logical AND: both conditions must hold
-const isWorkingAge: Predicate<number> = pipe(
-  isAdult,
-  Predicate.and(pipe(isSenior, Predicate.not)),
+const isPending: Predicate<Post> = (post) => post.status === "pending";
+const hasEnoughReports: Predicate<number> = (reports) => reports >= 3;
+const needsReview = pipe(
+  isPending,
+  Predicate.and(pipe(hasEnoughReports, Predicate.using((post: Post) => post.reports))),
 );
 
-isWorkingAge(30); // true
-isWorkingAge(15); // false (too young)
-isWorkingAge(70); // false (retired)
-
-// Logical OR: passes when either condition holds
-const qualifiesForDiscount: Predicate<number> = pipe(
-  isChild,
-  Predicate.or(isSenior),
-);
-
-qualifiesForDiscount(10); // true
-qualifiesForDiscount(68); // true
-qualifiesForDiscount(35); // false
-```
-
-By chaining `and` in a `pipe`, you describe complex rules as a highly readable checklist:
-
-```ts
-const isValidPassword: Predicate<string> = pipe(
-  (s: string) => s.length >= 8,
-  Predicate.and((s) => /[A-Z]/.test(s)),
-  Predicate.and((s) => /[0-9]/.test(s)),
-);
-```
-
----
-
-## Adapting context: using
-
-`using` is the most powerful operator in the `Predicate` toolbox. It allows you to lift a
-`Predicate<A>` to a `Predicate<B>` by providing a mapping function `B => A`.
-
-This allows you to define core, atomic rules on primitive types, and project them onto rich domain
-objects without rewriting the logic:
-
-```ts
-interface Product {
-  name: string;
-  price: number;
-  inStock: boolean;
-}
-
-const isAffordable: Predicate<number> = (price) => price < 50;
-const isInStock: Predicate<boolean> = (stock) => stock;
-
-// Lift primitive checks to operate on Product:
-const isAffordableProduct: Predicate<Product> = pipe(
-  isAffordable,
-  Predicate.using((p: Product) => p.price),
-);
-
-const isAvailableProduct: Predicate<Product> = pipe(
-  isInStock,
-  Predicate.using((p: Product) => p.inStock),
-);
-
-// Combine the lifted predicates:
-const canPurchaseNow: Predicate<Product> = pipe(
-  isAffordableProduct,
-  Predicate.and(isAvailableProduct),
-);
-```
-
-By writing your rules once on `number` and `boolean`, you keep the core math independent of your
-data models. You can reuse `isAffordable` for checking an `Order`, a `ShippingFee`, or a `TaxRate`
-simply by mapping the input with `using`.
-
----
-
-## Variable-Length Lists: all and any
-
-When combining a dynamic list of conditions, chaining `and`/`or` can become tedious. For this, we
-use `all` and `any`.
-
-`all` constructs a single predicate that requires every check in the array to pass:
-
-```ts
-const uploadRules: Predicate<File>[] = [
-  (file) => file.size <= 5_000_000,
-  (file) => file.name.endsWith(".png"),
-  (file) => !file.name.includes("draft"),
+const posts: readonly Post[] = [
+  { id: "post-1", status: "pending", reports: 4 },
+  { id: "post-2", status: "pending", reports: 1 },
+  { id: "post-3", status: "reviewed", reports: 8 },
 ];
-
-const isValidUpload = Predicate.all(uploadRules);
-
-isValidUpload(activeFile); // Returns true only if all three rules pass
+const reviewQueue = posts.filter(needsReview);
+// [{ id: "post-1", status: "pending", reports: 4 }]
 ```
 
-`any` constructs a predicate that passes if at least one check in the array succeeds:
+`using` adapts a check on the report count to a check on a whole post. `and` combines it with the
+status check.
 
-```ts
-const allowedImageFormats: Predicate<string>[] = [
-  (name) => name.endsWith(".png"),
-  (name) => name.endsWith(".jpg"),
-  (name) => name.endsWith(".webp"),
-];
+## Core Operations
 
-const isSupportedImage = Predicate.any(allowedImageFormats);
-```
+### Combining and Adapting
 
-Both combinators short-circuit on the first decisive element in the loop, ensuring that downstream
-checks are skipped as soon as the outcome is determined.
+| Signature                               | What it does                                    | Result                            |
+| :-------------------------------------- | :---------------------------------------------- | :-------------------------------- |
+| `Predicate.not(check)`                  | Negates a check.                                | Predicate.                        |
+| `Predicate.and(other)` / `or(other)`    | Combines two checks.                            | Predicate with short-circuiting.  |
+| `Predicate.all(checks)` / `any(checks)` | Requires every / at least one check to pass.    | Predicate with short-circuiting.  |
+| `Predicate.using(select)`               | Applies a check to a selected part of an input. | Predicate for the larger input.   |
+| `Predicate.from.Refinement(check)`      | Uses a type guard as a plain boolean check.     | Predicate without type narrowing. |
 
----
+### Choosing a Branch
 
-## Declarative Conditional Branching: match
+| Signature                             | What it does                                                   | Result                                  |
+| :------------------------------------ | :------------------------------------------------------------- | :-------------------------------------- |
+| `Predicate.match(branches, fallback)` | Runs the handler for the first passing check, or the fallback. | Function returning the selected result. |
 
-When routing an input value across multiple mutually exclusive boolean rules, nested `if / else if`
-statements or chained ternaries become difficult to scan. `Predicate.match` accepts an array of
-`[predicate, handler]` pairs and a mandatory fallback handler, evaluating predicates in order and
-returning the result of the first matching branch:
+## Failure Behavior and Edge Cases
 
-```ts
-interface Order {
-  subtotal: number;
-  isExpress: boolean;
-}
+`Predicate.all([])` returns a predicate that always returns `true`; `Predicate.any([])` returns one
+that always returns `false`.
 
-const calculateShippingTier = Predicate.match<Order, string>(
-  [
-    [(order) => order.isExpress, () => "priority-overnight"],
-    [(order) => order.subtotal >= 100, () => "free-standard"],
-    [(order) => order.subtotal >= 50, () => "discounted-ground"],
-  ],
-  () => "standard-ground",
-);
-
-calculateShippingTier({ subtotal: 120, isExpress: false }); // "free-standard"
-calculateShippingTier({ subtotal: 25, isExpress: true });   // "priority-overnight"
-calculateShippingTier({ subtotal: 25, isExpress: false });  // "standard-ground"
-```
-
----
-
-## Problems it solves
-
-- **Composing complex search and catalog filters**: In ecommerce catalogs and search panels,
-  filtering criteria often combine multiple rules (such as
-  `inStock AND (isDiscounted OR isFeatured) AND NOT isArchived`). `Predicate.and`, `Predicate.or`,
-  and `Predicate.not` build dynamic filter pipelines without nested inline boolean expressions.
-- **Authorization and security guard rules**: Combining multi-condition permission checks (such as
-  `isAuthenticated AND (hasAdminRole OR isResourceOwner) AND NOT isAccountSuspended`) into reusable,
-  testable policy functions.
-- **Projecting atomic checks onto nested domain records**: Instead of re-implementing checks across
-  different object structures, `Predicate.using` allows developers to define simple checks on
-  primitives (such as `Str.is.nonEmpty` or `Num.is.positive`) and project them cleanly onto specific
-  entity properties.
-- **Short-circuiting rule evaluations with `all` and `any`**: When checking an array of security or
-  domain conditions against a request, `Predicate.all` and `Predicate.any` short-circuit execution
-  as soon as a passing or failing state is determined, skipping unnecessary downstream evaluations.
+`match` chooses the first matching branch, so order matters when conditions overlap. Put a more
+specific condition before a broader one when it should take precedence.

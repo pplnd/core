@@ -1,6 +1,6 @@
 ---
 title: Brand — Distinguishing Values
-description: Use compile-time phantom tags to distinguish between primitive values that share the same underlying type, preventing semantic bugs at zero runtime cost.
+description: Give values with the same underlying type distinct TypeScript types.
 ---
 
 <!-- BUNDLE_SIZE:START -->
@@ -9,145 +9,79 @@ description: Use compile-time phantom tags to distinguish between primitive valu
 
 <!-- BUNDLE_SIZE:END -->
 
-TypeScript uses structural typing: any `string` is compatible with every other `string`. This allows
-semantic bugs — such as passing an `OrderId` into a function expecting a `UserId`—to compile without
-warnings.
+## Core Behavior
 
-`Brand<K, T>` attaches a compile-time phantom tag `K` to an underlying type `T`, enforcing nominal
-type safety at zero runtime cost:
+`Brand<K, T>` gives a value of type `T` an additional type label `K`. Two strings with different
+brands are distinct to TypeScript, even though both remain strings at runtime.
 
-```ts
-import { Brand } from "@pplnd/core";
+- `Brand.wrap` returns a function that assigns a brand to a value.
+- A branded value can be used where its underlying type is expected.
+- Wrapping does not validate the value; check any required format before wrapping it.
 
-type UserId     = Brand<"UserId",     string>;
-type CustomerId = Brand<"CustomerId", string>;
-```
+## Example: Warehouse Identifiers
 
-The underlying values remain plain JavaScript strings, but the compiler now treats `UserId` and
-`CustomerId` as completely distinct, incompatible types.
+A warehouse transfer needs a warehouse ID and a shipment ID. Both arrive as strings, but a function
+that expects one should not accidentally receive the other.
+
+The brand changes the type accepted by TypeScript without changing the value passed at runtime:
 
 ```mermaid
-flowchart TB
-    Raw["Raw string: 'usr_42'"] --> Lift["Brand.wrap('UserId')"]
-    Lift --> Branded["Brand('UserId')"]
-
-    Branded -->|"Pass to getUserProfile(id: UserId)"| Valid["Type Check Passes"]
-    Raw -->|"Pass to getUserProfile(id: UserId)"| Reject1["Compile Error: string is not assignable to UserId"]
-
-    CustId["Brand('CustomerId')"] -->|"Pass to getUserProfile(id: UserId)"| Reject2["Compile Error: CustomerId is not assignable to UserId"]
+flowchart TD
+  Raw["Raw identifier string"] --> Wrap["Brand.wrap"]
+  Wrap --> Typed["Branded identifier for type checking"]
+  Typed --> Use["Same string at runtime"]
 ```
 
----
+### Validating and Using Identifiers
 
-## Creating and Wrapping Brands
-
-To lift a raw primitive value into a branded context, we first declare a wrapping constructor using
-`Brand.wrap`:
+The parsing functions check each prefix before applying its brand. The transfer function then
+accepts the two distinct types:
 
 ```ts
-const toUserId     = Brand.wrap<"UserId",     string>();
-const toCustomerId = Brand.wrap<"CustomerId", string>();
+import { Brand, Result, pipe } from "@pplnd/core";
 
-const uid = toUserId("usr_42");    // Typed as UserId
-const cid = toCustomerId("cust_99"); // Typed as CustomerId
+type WarehouseId = Brand<"WarehouseId", string>;
+type ShipmentId = Brand<"ShipmentId", string>;
+
+const wrapWarehouse = Brand.wrap<"WarehouseId", string>();
+const wrapShipment = Brand.wrap<"ShipmentId", string>();
+
+const parseWarehouse = (raw: string): Result<string, WarehouseId> =>
+  raw.startsWith("wh_") && raw.length > 3
+    ? Result.make.ok(wrapWarehouse(raw))
+    : Result.make.err("Invalid warehouse ID");
+
+const parseShipment = (raw: string): Result<string, ShipmentId> =>
+  raw.startsWith("sh_") && raw.length > 3
+    ? Result.make.ok(wrapShipment(raw))
+    : Result.make.err("Invalid shipment ID");
+
+const transferLabel = (warehouse: WarehouseId, shipment: ShipmentId): string =>
+  `Transfer ${shipment} to ${warehouse}`;
+
+const label = pipe(
+  parseWarehouse("wh_north"),
+  Result.chain((warehouse) =>
+    pipe(
+      parseShipment("sh_42"),
+      Result.map((shipment) => transferLabel(warehouse, shipment)),
+    )
+  ),
+  Result.getOrElse(() => "Invalid transfer"),
+);
+// "Transfer sh_42 to wh_north"
 ```
 
-At the compile level, passing a `CustomerId` to a function expecting a `UserId` will now trigger a
-static type error:
+## Core Operations
 
-```ts
-function getUserProfile(id: UserId): User { ... }
+| Signature             | What it does                                | Result                            |
+| :-------------------- | :------------------------------------------ | :-------------------------------- |
+| `Brand<K, T>`         | Adds a type label to `T`.                   | A branded type assignable to `T`. |
+| `Brand.wrap<K, T>()`  | Creates an unchecked branding function.     | `(value: T) => Brand<K, T>`.      |
+| `Brand.unwrap(value)` | Returns the value with its underlying type. | `T`.                              |
 
-getUserProfile(uid); // ✓ Compiles successfully
-getUserProfile(cid); // ✗ Static Type Error: CustomerId is not assignable to UserId
-```
+## Failure Behavior and Edge Cases
 
-This error is resolved entirely at compile time.
-
----
-
-## Unwrapping Values
-
-Because `Brand<K, T>` structurally extends the underlying type `T`, any branded value is naturally
-assignable back to its raw type without requiring any conversion:
-
-```ts
-const id: UserId = toUserId("usr_42");
-const rawString: string = id; // Compiles successfully — UserId extends string
-```
-
-If you prefer to make this unwrapping explicit in your code to document your boundary transitions,
-you can use `Brand.unwrap`:
-
-```ts
-const rawString: string = Brand.unwrap(id); // "usr_42"
-```
-
----
-
-## Zero Runtime Cost
-
-The brand tag exists solely for the benefit of the TypeScript compiler. The compiled JavaScript
-output contains no wrapper objects, no class instantiations, and no tag fields on the actual values.
-
-`Brand.wrap` and `Brand.unwrap` compile directly down to identity functions: `x => x`. They incur
-**zero runtime memory allocation** and zero CPU overhead.
-
----
-
-## Structural Integrity: Smart Constructors
-
-Branding becomes exceptionally powerful when combined with validation to build **Smart
-Constructors**.
-
-A standard brand constructor like `toUserId` is unchecked — it trusts you to supply a valid string.
-For branded types that must enforce invariants (such as a valid email address, a non-empty string,
-or a positive integer), we wrap the brand creator in a validation function:
-
-```ts
-import { Maybe } from "@pplnd/core";
-
-export type Email = Brand<"Email", string>;
-
-const toEmail = Brand.wrap<"Email", string>();
-
-// The only public entryway to create an Email value:
-export const parseEmail = (s: string): Maybe<Email> =>
-  s.includes("@") ? Maybe.make.some(toEmail(s)) : Maybe.make.none();
-```
-
-By hiding the raw `toEmail` constructor and only exporting `parseEmail`, we guarantee that **it is
-structurally impossible to instantiate an `Email` type that has not passed validation**.
-
-Downstream functions that accept the `Email` type can trust it completely, bypassing redundant
-validation checks:
-
-```ts
-// No need to check for "@" here; the type Email guarantees it has passed parseEmail
-function sendInvoice(email: Email) {
-  smtp.send(Brand.unwrap(email));
-}
-```
-
----
-
-## Problems it solves
-
-- **Preventing accidental identifier swapping**: In database queries and service calls, functions
-  often accept multiple string IDs (such as `senderId`, `recipientId`, and `organizationId`).
-  Because standard TypeScript uses structural typing, swapping these arguments goes unnoticed by the
-  compiler. `Brand` creates distinct nominal types (like `UserId` and `AccountId`) that catch
-  parameter mismatches at compile time with zero runtime overhead.
-- **Enforcing validation boundaries with smart constructors**: Functions that accept emails, slugs,
-  or formatted telephone numbers often repeat regex checks defensively or assume incoming strings
-  are valid. `Brand` pairs nominal types with smart constructors, ensuring that once a string passes
-  validation at the API edge, downstream business logic can rely on that invariant without
-  re-validating.
-- **Security-critical input sanitization**: Distinguishing sanitized, safe HTML (`SanitizedHtml`) or
-  safe SQL fragments from raw user-submitted text prevents XSS and injection vulnerabilities by
-  enforcing at compile time that raw strings cannot be passed directly into dangerous rendering or
-  query APIs.
-- **Eliminating unit and currency mixups**: In calculations involving units (such as `Milliseconds`
-  vs `Seconds`, or `UsdCents` vs `EurCents`), raw numbers allow arithmetic across incompatible
-  units. `Brand` attaches compile-time units to primitives, preventing mathematical bugs across
-  domain layers.
+`Brand.wrap` accepts any value of the underlying type, including an invalid identifier. The brand
+records a type distinction; it does not enforce a format. Keep validation at the input boundary, as
+in the example, when the format matters to the application.

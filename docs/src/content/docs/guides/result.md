@@ -1,6 +1,6 @@
 ---
 title: Result — Modeling Failures
-description: Bring the possibility of failure into the type system, replacing scattered try/catch blocks with typed flow.
+description: Represent synchronous success and failure as typed values and handle both outcomes at the boundary.
 ---
 
 <!-- BUNDLE_SIZE:START -->
@@ -9,661 +9,197 @@ description: Bring the possibility of failure into the type system, replacing sc
 
 <!-- BUNDLE_SIZE:END -->
 
-Every function that can fail has two possible outcomes: it succeeds and returns a value, or it fails
-and returns an error. Yet, in traditional JavaScript and TypeScript, only the success outcome is
-visible in the return type. The failure is thrown out of band as a runtime exception.
+## Core Behavior
 
-## The problem with exceptions
+`Result<E, A>` represents a synchronous operation as either `Ok` with a value or `Err` with an
+error.
 
-In standard TypeScript, exceptions are invisible to the compiler. A function signature gives no
-warning that an operation can fail:
+- `map`, `chain`, and `ensure` skip their callbacks when they receive an `Err`.
+- `chain` runs a dependent operation after success and includes its error type in the result.
+- `match` handles both cases; `is.ok` and `is.err` narrow the union for ordinary `if` statements.
 
-```ts
-interface UserConfig {
-  port: number;
-  host: string;
-}
+## Example: Server Configuration
 
-// Signature claims this always returns UserConfig:
-function loadConfig(rawJson: string): UserConfig {
-  const parsed = JSON.parse(rawJson); // Can throw SyntaxError
-  if (typeof parsed.port !== "number" || parsed.port <= 0) {
-    throw new Error("Invalid port"); // Throws Error
-  }
-  return { port: parsed.port, host: parsed.host ?? "localhost" };
-}
+A server reads its configuration from JSON and checks the host and port before it starts. Each check
+depends on the previous one succeeding.
 
-// Callers have no compiler warning forcing them to catch:
-try {
-  const config = loadConfig(userInput);
-  startServer(config);
-} catch (error: unknown) {
-  // error is unknown: did JSON parsing fail, or port validation?
-  // TypeScript provides zero type narrowing for thrown exceptions.
-}
-```
-
-This model creates three distinct failure modes:
-
-1. **Invisible failure contracts**: Callers must inspect source code or read documentation to know
-   what can throw.
-2. **Untyped error handling**: In a `catch (error: unknown)` block, TypeScript loses all error type
-   information.
-3. **Unhandled crashes**: Any forgot-to-catch exception crashes the entire worker or HTTP request
-   cycle.
-
-With `Result`, the possibility of failure becomes part of the return type:
-
-```ts
-import { pipe, Result } from "@pplnd/core";
-
-const loadConfig = (rawJson: string): Result<"INVALID_JSON" | "INVALID_PORT", UserConfig> =>
-  pipe(
-    Result.tryCatch(
-      () => JSON.parse(rawJson) as { port?: unknown; host?: unknown },
-      { onError: () => "INVALID_JSON" as const },
-    ),
-    Result.ensure(
-      (data): data is { port: number; host?: string } =>
-        typeof data.port === "number" && data.port > 0,
-      () => "INVALID_PORT" as const,
-    ),
-    Result.map((data) => ({
-      port: data.port,
-      host: typeof data.host === "string" ? data.host : "localhost",
-    })),
-  );
-```
-
-The function signature `Result<"INVALID_JSON" | "INVALID_PORT", UserConfig>` communicates every
-failure mode directly to callers. The TypeScript compiler refuses to let callers access `UserConfig`
-without handling both error cases.
-
-## The Result approach
-
-`Result<E, A>` represents an operation's outcome as a discriminated union: `Ok<A>` (success holding
-a value) or `Err<E>` (failure holding a typed error).
+`chain` passes an `Ok` value to the next check. An existing `Err` bypasses the check, while the
+check can return its own `Err`:
 
 ```mermaid
-flowchart TB
-    Input(["Raw Operation"]) --> Branch{"Fallible Evaluation"}
-    Branch -->|"Success"| Ok["Result.Ok(A)"]
-    Branch -->|"Failure"| Err["Result.Err(E)"]
-
-    Ok -->|"Result.map / Result.chain"| Step2["Next Transformation"]
-    Step2 -->|"Success"| OkFinal["Result.Ok(B)"]
-    Step2 -->|"New Failure"| ErrFinal["Result.Err(E2)"]
-
-    Err -->|"Short-circuit (bypassed)"| ErrFinal
-
-    OkFinal --> Boundary["Result.match / Result.getOrElse"]
-    ErrFinal --> Boundary
+flowchart TD
+  Input["Result(configuration)"] --> Status{"Ok?"}
+  Status -->|Yes| Check["chain calls configuration check"]
+  Status -->|No| Existing["Existing Err passes through"]
+  Check -->|Valid| Passed["Ok(checked configuration)"]
+  Check -->|Invalid| Failed["Err(check error)"]
+  Passed --> Next["Next check runs"]
+  Existing --> Skip["Next check is skipped"]
+  Failed --> Skip
 ```
 
-By turning exceptions into a data structure, we can chain operations safely. If any step fails, the
-error flows through to the end of the pipeline automatically, while the happy path is skipped. We
-decouple the logic of what we want to do from the logic of handling failures.
+The first returned error stops dependent checks. `match` can then report that error or use the
+successful value.
+
+### Parsing Server Configuration
+
+A direct parser can throw before the caller checks the port. Its return type also does not describe
+that failure:
 
 ```ts
-import { pipe, Result } from "@pplnd/core";
-
-export type Result<E, A> = Result.Ok<A> | Result.Err<E>;
+function readPort(raw: string): number {
+  const config = JSON.parse(raw);
+  return config.port;
+}
 ```
 
----
-
-## Creating Results
-
-To work within a typed error pipeline, we wrap our synchronous operations in a `Result` context at
-the boundaries of our system.
+Start by converting the parsing exception to a named error. `JSON.parse` only checks syntax, so its
+output still needs validation.
 
 ```ts
 import { Result } from "@pplnd/core";
 
-// Representing a successful outcome
-const success = Result.make.ok(42); // Result<never, number>
-
-// Representing a specific failure
-const failure = Result.make.err("Connection timed out"); // Result<string, never>
+const parsed = Result.tryCatch((): unknown => JSON.parse('{"port":8080}'), {
+  onError: () => "INVALID_JSON",
+});
+// Ok with an unknown value, or Err("INVALID_JSON")
 ```
 
-### Wrapping throwing code with `tryCatch`
-
-Most JavaScript libraries and built-in runtime APIs (like `JSON.parse` or filesystem operations)
-rely on exceptions. `Result.tryCatch` wraps these unsafe, throwing operations and converts them into
-a clean `Result`:
+A server configuration also needs a host, a valid port, and a cross-field rule: a public host must
+not use a privileged port. The pipeline checks these in order. Later checks need the parsed object,
+so they cannot run when parsing fails.
 
 ```ts
-interface SessionPayload {
-  userId: string;
+import { pipe, Result } from "@pplnd/core";
+
+interface ServerConfig {
+  host: string;
+  port: number;
 }
 
-const parseSession = (raw: string): Result<string, SessionPayload> =>
-  Result.tryCatch(
-    () => JSON.parse(raw) as SessionPayload,
-    { onError: (error) => `Malformed JSON payload: ${error}` },
-  );
-```
+type ConfigError = "INVALID_JSON" | "INVALID_CONFIG" | "INVALID_PORT" | "PUBLIC_PRIVILEGED_PORT";
+type ConfigResponse = { status: number; body: string };
 
-The second argument is a configuration object with an `onError` mapper that intercepts the thrown
-exception (which is of type `unknown`) and converts it into your designated error type `E`.
+const isConfig = (value: unknown): value is ServerConfig => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const fields = value as Record<string, unknown>;
+  return typeof fields.host === "string" && fields.host.trim().length > 0 &&
+    typeof fields.port === "number";
+};
 
-### Constructing from predicates and nullables
-
-When you have a plain value and a condition that determines whether that value is valid,
-`Result.from.Predicate` wraps the value into `Result` without requiring an explicit `if/else` block:
-
-```ts
-// Boolean condition:
-const validateAge = Result.from.Predicate(
-  (n: number) => n >= 18,
-  (n) => `Age ${n} is below the required threshold of 18`,
-);
-
-// Type guard refinement: narrows unknown to string:
-const parseString = Result.from.Predicate(
-  (val: unknown): val is string => typeof val === "string",
-  () => "Expected a string value",
-);
-```
-
-The second argument receives the original input, allowing you to format descriptive error messages.
-When given a custom TypeScript type guard (`(val: A) => val is B`), `Result.from.Predicate`
-automatically narrows the inner value from `A` to `B`.
-
-When reading a value that may be `null` or `undefined` (such as an environment variable or header),
-`Result.from.nullable` converts non-nullish values to `Ok` and missing values to `Err`:
-
-```ts
-const getApiKey = (env: Record<string, string | undefined>): Result<string, string> =>
+const loadConfig = (raw: string): Result<ConfigError, ServerConfig> =>
   pipe(
-    env.API_KEY,
-    Result.from.nullable(() => "Missing required API_KEY environment variable"),
-  );
-```
-
-### Inspecting with type guards: `is.ok` and `is.err`
-
-When interfacing with imperative code or test assertions, use `Result.is.ok` and `Result.is.err` to
-narrow a `Result` and access `.value` or `.error` directly:
-
-```ts
-const parsed = parseSession('{"userId": "usr_42"}');
-
-if (Result.is.ok(parsed)) {
-  // Narrowed to Result.Ok<SessionPayload>
-  console.log("Active user:", parsed.value.userId);
-}
-
-if (Result.is.err(parsed)) {
-  // Narrowed to Result.Err<string>
-  console.error("Failed to parse session:", parsed.error);
-}
-```
-
----
-
-## Transforming values
-
-Once our data is wrapped inside a `Result`, we can describe transformations on both the success and
-failure branches independently.
-
-### Transforming success values with `map`
-
-`map` transforms the value inside an `Ok` container, leaving `Err` failures untouched:
-
-```ts
-import { pipe } from "@pplnd/core";
-
-const double = (n: number) => n * 2;
-
-pipe(Result.make.ok(5), Result.map(double)); // Ok(10)
-pipe(Result.make.err("oops"), Result.map(double)); // Err("oops")
-```
-
-If you chain multiple `map` steps, they will continue to execute sequentially as long as the
-pipeline remains successful. The moment an `Err` is encountered, all subsequent `map` calls are
-bypassed:
-
-```ts
-const route = pipe(
-  parseSession(input),
-  Result.map((payload) => payload.userId),
-  Result.map((id) => `/users/${id}`),
-);
-```
-
-### Transforming errors with `mapError`
-
-Sometimes you want to standardize or translate errors before passing them upstream. `mapError`
-transforms the error inside an `Err` container, leaving `Ok` success values untouched:
-
-```ts
-const apiError = pipe(
-  Result.make.err("connection_refused"),
-  Result.mapError((code) => ({
-    status: 503,
-    message: `Database offline: ${code}`,
-  })),
-); // Err({ status: 503, message: "Database offline: connection_refused" })
-```
-
-This is especially valuable at the edge of your systems, allowing you to convert low-level database
-or network errors into clean, user-facing error objects.
-
-### Transforming both channels with `bimap`
-
-When an operation requires mapping both the success value and the error value in a single step,
-`bimap` accepts two callbacks: the first applies to `Err`, and the second applies to `Ok`:
-
-```ts
-type ApiPayload = { userId: string; email: string };
-type ApiResponse = { data?: { user: string }; error?: string };
-
-const formatResponse = (result: Result<string, ApiPayload>): ApiResponse =>
-  pipe(
-    result,
-    Result.bimap(
-      (err) => ({ error: `Request rejected: ${err}` }),
-      (user) => ({ data: { user: user.email.toLowerCase() } }),
+    Result.tryCatch((): unknown => JSON.parse(raw), {
+      onError: () => "INVALID_JSON" as const,
+    }),
+    Result.ensure(isConfig, () => "INVALID_CONFIG" as const),
+    Result.map((config) => ({ ...config, host: config.host.trim().toLowerCase() })),
+    Result.ensure(
+      (config) => Number.isInteger(config.port) && config.port >= 1 && config.port <= 65535,
+      () => "INVALID_PORT" as const,
     ),
+    Result.chain((config): Result<ConfigError, ServerConfig> =>
+      config.host !== "localhost" && config.port < 1024
+        ? Result.make.err("PUBLIC_PRIVILEGED_PORT")
+        : Result.make.ok(config)
+    ),
+  );
+
+const configResponse = (raw: string): ConfigResponse =>
+  pipe(
+    loadConfig(raw),
     Result.match({
-      err: (errPayload) => errPayload,
-      ok: (okPayload) => okPayload,
+      ok: (config) => ({ status: 200, body: JSON.stringify(config) }),
+      err: (error) => ({ status: 400, body: error }),
     }),
   );
+
+console.log(configResponse('{"host":"localhost","port":8080}'));
+// { status: 200, body: '{"host":"localhost","port":8080}' }
+console.log(configResponse('{"host":"example.com","port":80}'));
+// { status: 400, body: "PUBLIC_PRIVILEGED_PORT" }
 ```
 
-### Validating success values with `ensure`
-
-Sometimes a value is successfully parsed or retrieved, but fails a subsequent business rule.
-`Result.ensure` tests the `Ok` value against a predicate. If the predicate returns `false`, it
-converts the container to an `Err` using the provided error constructor:
+The error constructors and error-producing callbacks preserve inline literal types. Inline object
+errors can infer readonly literal properties; choose an explicit wider type if the error must be
+mutable:
 
 ```ts
-interface CartItem {
-  id: string;
-  quantity: number;
-}
+import { Result } from "@pplnd/core";
 
-// Boolean validation:
-const validateStock = (item: CartItem, availableStock: number): Result<string, CartItem> =>
-  pipe(
-    Result.make.ok(item),
-    Result.ensure(
-      (i) => i.quantity <= availableStock,
-      (i) => `Requested ${i.quantity} units of ${i.id}, but only ${availableStock} in stock`,
-    ),
-  );
-
-validateStock({ id: "item_9", quantity: 2 }, 5); // Ok({ id: "item_9", quantity: 2 })
-validateStock({ id: "item_9", quantity: 10 }, 5); // Err("Requested 10 units of item_9, but only 5 in stock")
-
-// Type guard refinement:
-type AdminUser = { id: string; role: "admin"; permissions: string[] };
-type AppUser = { id: string; role: "member" } | AdminUser;
-
-const requireAdmin = (user: Result<string, AppUser>): Result<string, AdminUser> =>
-  pipe(
-    user,
-    Result.ensure(
-      (u): u is AdminUser => u.role === "admin",
-      () => "Admin privileges required",
-    ),
-  );
+const failure = Result.make.err<{ code: string }>({ code: "INVALID_PORT" });
+failure.error.code = "INVALID_JSON";
 ```
 
-When given a custom TypeScript type guard (`(value: A) => value is B`), `Result.ensure`
-automatically narrows the success type from `A` to `B`.
+This affects inference, not runtime freezing. TypeScript 5.5 can widen primitive literals returned
+by callbacks; the full example uses `as const` to retain its exact error union on that version.
 
-### Nested pipelines with `chain`
+## Core Operations
 
-When a transformation step itself can fail and returns another `Result`, using `map` would result in
-a nested type: `Result<E, Result<E, A>>`.
+### Creating Values
 
-To prevent this nesting, we use `chain` to apply the transformation and flatten the context:
+| Operation                                      | What it does                                           | Error or return type |
+| ---------------------------------------------- | ------------------------------------------------------ | -------------------- |
+| `make.ok(value)` / `make.err(error)`           | Wrap a success or an error.                            | `Ok<A>` / `Err<E>`   |
+| `tryCatch(operation, { onError })`             | Run synchronous code and map a thrown value.           | `Result<E, A>`       |
+| `from.Predicate(predicate, onFalse)`           | Check a value; a type guard also narrows it.           | `Result<E, A>`       |
+| `from.nullable(onNull)` / `from.Maybe(onNone)` | Replace a missing value with an error.                 | `Result<E, A>`       |
+| `from.Validation(combineErrors)`               | Convert a validation, combining its errors on failure. | `Result<E, A>`       |
+
+### Combining Values
+
+| Operation                             | What it does                                         | Guarantee                                             |
+| ------------------------------------- | ---------------------------------------------------- | ----------------------------------------------------- |
+| `chain(next)`                         | Run a `Result`-returning operation on an `Ok` value. | Preserves the first error; unions error types.        |
+| `assignTo(key)` / `assign(key, next)` | Start a record / add a dependent result to it.       | `assign` skips `next` on an error.                    |
+| `struct(fields)`                      | Combine a record of already-created results.         | Returns the first error in own-key enumeration order. |
+| `apply(argument)`                     | Apply a wrapped function to a wrapped argument.      | Prefers the function result's error if both failed.   |
+
+### Transforming Values
+
+| Operation                                                  | What it does                                                    | Guarantee                                               |
+| ---------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------- |
+| `map(transform)` / `mapError(transform)`                   | Transform the success / error value.                            | The other case passes through.                          |
+| `bimap(onErr, onOk)`                                       | Transform either case.                                          | Only the matching callback runs.                        |
+| `ensure(predicate, onFail)`                                | Check an `Ok` value, optionally narrowing it with a type guard. | Existing errors pass through.                           |
+| `tap(effect)` / `tapError(effect)`                         | Inspect success / error without replacing the result.           | Returns the original result when the callback returns.  |
+| `recover(fallback)` / `recoverUnless(isBlocked, fallback)` | Replace an error with a fallback result.                        | `recoverUnless` keeps errors selected by the predicate. |
+
+### Running Code and Leaving Result
+
+| Operation                                    | What it does                                         | Return type                                                  |
+| -------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------ |
+| `match({ ok, err })`                         | Handle both cases.                                   | The selected handler's return value.                         |
+| `getOrElse(fallback)`                        | Extract success or call a no-argument fallback.      | Success or fallback value.                                   |
+| `is.ok(result)` / `is.err(result)`           | Test and narrow the variant.                         | Boolean type guard.                                          |
+| `to.Maybe(result)` / `to.Validation(result)` | Convert the outcome.                                 | `Maybe` discards the error; `Validation` wraps it in a list. |
+| `sequence.Maybe(result)`                     | Swap `Result<E, Maybe<A>>` to `Maybe<Result<E, A>>`. | An `Err` becomes `Some(Err)`; `Ok(None)` becomes `None`.     |
+
+## Failure Behavior and Edge Cases
+
+`tryCatch` catches synchronous throws from its operation, including a `JSON.parse` syntax error. It
+also calls `onError` inside the catch path; if that callback throws, the exception escapes. Other
+callbacks, including predicates, transformations, recovery, and logging, are not wrapped in a catch.
+Wrap a throwing operation explicitly where it enters the pipeline.
+
+`struct` receives results that have already been created: JavaScript evaluates object property
+expressions before `struct` sees them. Its first-error behavior does not prevent those expressions
+from running. Use `chain` or `assign` to defer a dependent operation until the previous step passes.
+
+For example, both checks below run, even though `struct` returns the host error:
 
 ```ts
-const validateUserExists = (id: string): Result<string, User> =>
-  db.has(id) ? Result.make.ok(db.get(id)) : Result.make.err(`User ${id} not found`);
+import { Result } from "@pplnd/core";
 
-const userProfile = pipe(
-  parseSession(input), // Result<string, SessionPayload>
-  Result.map((payload) => payload.userId), // Result<string, string>
-  Result.chain(validateUserExists), // Result<string, User>
-);
+const checkHost = () => Result.make.err("HOST_REQUIRED");
+const checkPort = () => {
+  console.log("Checking port");
+  return Result.make.err("PORT_INVALID");
+};
+
+const config = Result.struct({ host: checkHost(), port: checkPort() });
+// Logs "Checking port" and returns Err("HOST_REQUIRED")
 ```
 
-If `parseSession` fails, the error short-circuits the pipeline immediately. If it succeeds, the
-resulting `userId` is passed to `validateUserExists`. If that lookup fails, the new error is
-returned. The pipeline reads as a single, linear progression of operations that can each
-independently fail.
-
-### Combining independent values with `apply`
-
-When you have a curried function and multiple independent `Result` arguments, `Result.apply`
-evaluates and applies them one by one, short-circuiting on the first `Err` encountered:
-
-```ts
-const calculateLineTotal = (unitPrice: number) => (quantity: number) => (discount: number) =>
-  unitPrice * quantity * (1 - discount);
-
-const lineTotal = pipe(
-  Result.make.ok(calculateLineTotal),
-  Result.apply(parsePrice(rawPrice)),
-  Result.apply(parseQuantity(rawQuantity)),
-  Result.apply(parseDiscount(rawDiscount)),
-); // Result<string, number>
-```
-
----
-
-## Extracting the value
-
-Eventually, we must unpack our `Result` to interface with the rest of our application.
-
-### Safe defaults with `getOrElse`
-
-`getOrElse` extracts the success value from an `Ok`, or returns a fallback value if we have an
-`Err`:
-
-```ts
-pipe(
-  Result.make.ok(5),
-  Result.getOrElse(() => 0),
-); // 5
-
-pipe(
-  Result.make.err("failed"),
-  Result.getOrElse(() => 0),
-); // 0
-```
-
-`getOrElse` takes a deferred function (a thunk) to construct the fallback. This ensures that
-expensive operations, like reading a default value from a config file or instantiating a fallback
-cache, are only executed if a failure actually occurred.
-
-### Case analysis with `match`
-
-To perform distinct business logic on both the success and failure branches, use `match`:
-
-```ts
-const message = pipe(
-  userProfile,
-  Result.match({
-    ok: (user) => `Welcome back, ${user.name}`,
-    err: (error) => `Login failed: ${error}`,
-  }),
-);
-```
-
----
-
-## Side effects with tap
-
-When you want to perform a side effect — like logging a warning or emitting an analytics event —
-without altering the data or breaking the flow, you can use `tap` and `tapError`.
-
-`tap` runs its callback only on a successful `Ok` value:
-
-```ts
-pipe(
-  userProfile,
-  Result.tap((user) => console.log(`User ${user.id} accessed profile`)),
-);
-```
-
-`tapError` runs its callback only on an `Err` failure:
-
-```ts
-pipe(
-  userProfile,
-  Result.tapError((err) => console.error(`Profile access failed: ${err}`)),
-);
-```
-
-Both operators always return the original, unaltered `Result` to the next step of the pipeline.
-
----
-
-## Recovering from errors
-
-When an operation fails, you don't always want to settle for a static default. Often, you want to
-attempt an alternative strategy that could also fail. For this, we use `recover`:
-
-```ts
-const loadConfig = (path: string): Result<string, Config> =>
-  pipe(
-    readLocalConfig(path),
-    Result.recover((error) => {
-      console.warn(`Local config failed: ${error}. Retrying remote...`);
-      return fetchRemoteConfig(path);
-    }),
-  );
-```
-
-If the primary read succeeds, the recovery lookup is bypassed. If it fails, the recovery lookup is
-tried.
-
-If there are certain fatal errors that you should *never* attempt to recover from, you can use
-`recoverUnless`. It takes a predicate to decide whether to let the error propagate without
-attempting recovery:
-
-```ts
-pipe(
-  authenticate(credentials),
-  Result.recoverUnless(
-    (err) => err === "ACCOUNT_SUSPENDED", // Do not recover if suspended
-    () => refreshSession(),
-  ),
-);
-```
-
----
-
-## Converting to other containers
-
-### Converting to and from Maybe
-
-`Result` and `Maybe` are structurally compatible. The only difference is that `Result` carries a
-typed reason for its failure, whereas `Maybe` models the absence of a value.
-
-To discard the error context and convert to a `Maybe`, use `Result.to.Maybe`:
-
-```ts
-const maybeValue = Result.to.Maybe(Result.make.ok(42)); // Some(42)
-const empty = Result.to.Maybe(Result.make.err("oops")); // None
-```
-
-Conversely, if you want to convert a `Maybe` into a `Result`, supply an error thunk via
-`Result.from.Maybe` (or `Maybe.to.Result`) to replace `None`:
-
-```ts
-import { Maybe } from "@pplnd/core";
-
-const resultValue = pipe(
-  Maybe.make.none(),
-  Result.from.Maybe(() => "Value was absent"),
-); // Err("Value was absent")
-```
-
-### Swapping container contexts: sequence.Maybe
-
-When working with operations that return nested optional results (such as `Result<E, Maybe<A>>`),
-`Result.sequence.Maybe` swaps the outer and inner contexts, producing `Maybe<Result<E, A>>`:
-
-```ts
-Result.sequence.Maybe(Result.make.ok(Maybe.make.some(42))); // Some(Ok(42))
-Result.sequence.Maybe(Result.make.ok(Maybe.make.none())); // None
-Result.sequence.Maybe(Result.make.err("DB error")); // Some(Err("DB error"))
-```
-
-### Converting to and from Validation
-
-While `Result` is designed for fail-fast error propagation, `Validation` accumulates all errors
-across independent fields. Convert between the two representations using `Result.from.Validation`
-and `Result.to.Validation`:
-
-```ts
-import { Validation } from "@pplnd/core";
-
-// Convert error-accumulating Validation into a fail-fast Result with a combined error string:
-const failFastResult = pipe(
-  validationOutcome,
-  Result.from.Validation((errors) => errors.join("; ")),
-);
-
-// Convert a fail-fast Result into a Validation container:
-const validation = Result.to.Validation(Result.make.err("invalid_id")); // Failed(["invalid_id"])
-```
-
----
-
-## Accumulating values: assign / assignTo
-
-When you need to perform multiple sequential operations and gather their results into a single
-object, traditional pipelines can become deeply nested because each successive function needs access
-to previous results:
-
-```ts
-const userProfile = pipe(
-  getUser(userId),
-  Result.chain((user) =>
-    pipe(
-      getPreferences(user.id),
-      Result.map((prefs) => ({ user, prefs })),
-    )
-  ),
-  Result.chain(({ user, prefs }) =>
-    pipe(
-      getTheme(prefs.themeId),
-      Result.map((theme) => ({ user, prefs, theme })),
-    )
-  ),
-);
-```
-
-To solve this, we can use `assignTo` and `assign` to cleanly accumulate values key-by-key in a flat,
-readable pipeline.
-
-`assignTo` wraps a value into the pipeline's accumulator object:
-
-```ts
-pipe(
-  Result.make.ok(42),
-  Result.assignTo("value"),
-); // Ok({ value: 42 })
-```
-
-`assign` runs a new operation using the accumulated object and attaches the result to a new key:
-
-```ts
-const userProfile = pipe(
-  getUser(userId),
-  Result.assignTo("user"),
-  Result.assign("prefs", ({ user }) => getPreferences(user.id)),
-  Result.assign("theme", ({ prefs }) => getTheme(prefs.themeId)),
-); // Ok({ user: User, prefs: Preferences, theme: Theme })
-```
-
-If any step fails, the entire pipeline short-circuits and propagates the failure immediately.
-
----
-
-## Combining records: struct
-
-While `assign` is ideal for sequential steps where a later step depends on the output of a prior
-step, sometimes you have a set of independent `Result`s that you want to combine into a single
-object. For this, you can use `Result.struct`.
-
-It combines a record of `Result`s into a single `Result` holding a record of success values. If any
-individual field is an `Err`, the entire struct short-circuits to that error immediately:
-
-```ts
-const user = Result.struct({
-  name: Result.make.ok("Alice"),
-  age: Result.make.ok(30),
-  role: Result.from.Predicate(
-    (r: string) => r === "admin" || r === "user",
-    () => "Invalid role",
-  )("user"),
-}); // Ok({ name: "Alice", age: 30, role: "user" })
-```
-
-If multiple fields fail, `Result.struct` short-circuits and returns the first error encountered in
-key order:
-
-```ts
-const serviceConfig = Result.struct({
-  host: Result.make.ok("db.internal"),
-  port: Result.make.err("Invalid port number"),
-  apiKey: Result.make.err("Missing API key"),
-}); // Err("Invalid port number")
-```
-
----
-
-## Pipeline composition
-
-Here is an end-to-end checkout authorization pipeline that parses a raw request payload, validates
-inventory and spending limits, logs errors for observability, and formats an HTTP response:
-
-```ts
-interface CheckoutPayload {
-  sku: string;
-  quantity: number;
-  unitPrice: number;
-}
-
-const processOrder = (rawBody: string, availableStock: number): { status: number; body: string } =>
-  pipe(
-    Result.tryCatch(
-      () => JSON.parse(rawBody) as CheckoutPayload,
-      { onError: () => "INVALID_JSON" as const },
-    ),
-    Result.ensure(
-      (order) => order.quantity > 0 && order.quantity <= availableStock,
-      () => "INSUFFICIENT_STOCK" as const,
-    ),
-    Result.map((order) => ({
-      ...order,
-      total: order.quantity * order.unitPrice,
-    })),
-    Result.ensure(
-      (order) => order.total <= 10_000,
-      () => "LIMIT_EXCEEDED" as const,
-    ),
-    Result.tapError((code) => console.warn(`Order rejected: ${code}`)),
-    Result.match({
-      ok: (order) => ({ status: 200, body: `Confirmed ${order.quantity}x ${order.sku} (USD ${order.total})` }),
-      err: (code) => ({ status: 400, body: `Order failed: ${code}` }),
-    }),
-  );
-```
-
----
-
-## Problems it solves
-
-- **Domain service error modeling**: In workflows such as user authentication, checkout processing,
-  or inventory allocation, business failures (like expired sessions, insufficient balance, or
-  duplicate registrations) are expected application outcomes. `Result` models every failure as an
-  explicit, typed data variant, requiring callers to handle specific failure modes without relying
-  on untyped `catch` blocks.
-- **Untyped exception containment at system boundaries**: Third-party packages, system calls, and
-  external parsers often throw untyped runtime exceptions that bubble up unexpectedly. Wrapping
-  these boundaries with `Result.tryCatch` captures runtime exceptions immediately, converting them
-  into typed, inspectable values before they enter application logic.
-- **Sequential fallible pipelines**: Coordinating a sequence of operations — such as reading
-  configuration text, parsing JSON, validating schema constraints, and generating credentials —
-  requires each step to succeed before running the next. `Result` composes these steps linearly via
-  `pipe` and `Result.chain`, short-circuiting automatically on the first failure while preserving
-  type safety across all intermediate values.
-- **Error normalization across subsystem boundaries (`Result.mapError`)**: In complex features that
-  touch the network, database drivers, and disk storage, each subsystem produces distinct error
-  types. `Result.mapError` translates low-level transport errors into a cohesive domain error union
-  at the boundary, ensuring internal business logic deals only with relevant application errors.
-- **Combining multiple fallible steps (`Result.struct`)**: When bootstrapping a service that
-  requires multiple independent config entries (such as database port, API key, and host URL),
-  `Result.struct` combines individual `Result` values into a verified configuration record,
-  succeeding only if all keys resolve and short-circuiting on the first bad value.
+A promise returned from `tryCatch` is an `Ok` containing that promise; a later rejection is not
+caught. Use `Task.Result` or `Op` for asynchronous work.
