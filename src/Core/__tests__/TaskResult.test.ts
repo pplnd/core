@@ -780,6 +780,17 @@ test("timeout: handles signal aborted during execution", async () => {
 	expect(res).toStrictEqual(Result.make.ok(42));
 });
 
+test("timeout: keeps the deadline after external cancellation when the task ignores the signal", async () => {
+	const controller = new AbortController();
+	const task: Task.Result<string, number> = () =>
+		Deferred.from.Promise(new Promise((resolve) => setTimeout(() => resolve(Result.make.ok(42)), 50)));
+	const outcome = pipe(task, Task.Result.timeout({ duration: Duration.milliseconds(10), onTimeout: () => "timed out" }))(
+		controller.signal,
+	);
+	controller.abort();
+	await expect(Deferred.to.Promise(outcome)).resolves.toStrictEqual(Result.make.err("timed out"));
+});
+
 test("retry: aborts during wait delay", async () => {
 	const controller = new AbortController();
 	let attempts = 0;
@@ -1057,6 +1068,7 @@ test("timeout: aborts inner task signal when timeout fires", async () => {
 });
 
 test("timeout: handles throwing onTimeout gracefully", async () => {
+	const cause = new Error("timeout error");
 	const task: Task.Result<string, number> = () =>
 		Deferred.from.Promise(new Promise((resolve) => setTimeout(() => resolve(Result.make.ok(42)), 50)));
 	const res = await pipe(
@@ -1064,11 +1076,25 @@ test("timeout: handles throwing onTimeout gracefully", async () => {
 		Task.Result.timeout({
 			duration: Duration.milliseconds(10),
 			onTimeout: () => {
-				throw new Error("timeout error");
+				throw cause;
 			},
 		}),
 	)();
-	expect(res.kind).toBe("Err");
+	expect(res).toStrictEqual(Result.make.err({ kind: "TaskTimeoutUnexpected", cause }));
+});
+
+test("timeout: returns the deadline error when abort completes the inner task", async () => {
+	const task: Task.Result<never, number> = (signal) =>
+		Deferred.from.Promise(
+			new Promise((resolve) => {
+				signal?.addEventListener("abort", () => resolve(Result.make.ok(42)), { once: true });
+			}),
+		);
+	const result = await pipe(
+		task,
+		Task.Result.timeout({ duration: Duration.milliseconds(1), onTimeout: () => "deadline" }),
+	)();
+	expect(result).toStrictEqual(Result.make.err("deadline"));
 });
 
 test("retry: exits wait immediately if signal is already aborted", async () => {

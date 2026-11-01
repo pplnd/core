@@ -63,6 +63,10 @@ type _TaskResult<E, A> = Task<CoreResult<E, A>>;
 type _TaskValidation<E, A> = Task<CoreValidation<E, A>>;
 
 export namespace Task {
+	/** Queued tasks were not started because the signal was aborted. */
+	export type Aborted = { readonly kind: "TaskAborted"; readonly reason: unknown; };
+	/** The timeout error callback threw instead of returning an error. */
+	export type TimeoutUnexpected = { readonly kind: "TaskTimeoutUnexpected"; readonly cause: unknown; };
 	export type LabeledTask<L extends string, A> = Task<A> & { readonly label: L; };
 	export type Maybe<A> = _TaskMaybe<A>;
 	export type Result<E, A> = _TaskResult<E, A>;
@@ -261,13 +265,14 @@ export const Task = {
 	/**
 	 * Runs multiple Tasks in parallel and collects their results.
 	 * An optional `concurrency` option limits the number of tasks executing at any given time.
+	 * Returns `Err(TaskAborted)` if cancellation prevents queued tasks from starting.
 	 *
 	 * @see {@link Task.sequential} to run an array of Tasks one after another in order.
 	 *
 	 * @example
 	 * ```ts
 	 * Task.all([loadConfig, detectLocale, loadTheme])();
-	 * // Deferred<[Config, string, Theme]>
+	 * // Deferred<Result<Task.Aborted, [Config, string, Theme]>>
 	 *
 	 * Task.all([loadConfig, detectLocale, loadTheme], { concurrency: 2 })();
 	 * ```
@@ -275,19 +280,11 @@ export const Task = {
 	all: <T extends readonly Task<unknown>[]>(
 		tasks: readonly [...T],
 		options?: { concurrency?: number; },
-	): Task<{ [K in keyof T]: T[K] extends Task<infer A> ? A : never; }> =>
+	): Task.Result<Task.Aborted, { [K in keyof T]: T[K] extends Task<infer A> ? A : never; }> =>
 		fromPromise((signal) => {
 			type Results = { [K in keyof T]: T[K] extends Task<infer A> ? A : never; };
 			const concurrency = options?.concurrency;
 			const len = tasks.length;
-			if (concurrency === undefined || concurrency <= 0 || len <= concurrency) {
-				const promises = new Array<Promise<unknown>>(len);
-				for (let i = 0; i < len; i++) {
-					promises[i] = toPromise(tasks[i], signal);
-				}
-				return Promise.all(promises) as Promise<Results>;
-			}
-
 			const results = new Array(len);
 			let nextIndex = 0;
 
@@ -301,13 +298,19 @@ export const Task = {
 				}
 			};
 
-			const workerCount = Math.min(concurrency, len);
+			const workerCount = concurrency === undefined || !Number.isInteger(concurrency) || concurrency <= 0
+				? len
+				: Math.min(concurrency, len);
 			const workers = new Array<Promise<void>>(workerCount);
 			for (let i = 0; i < workerCount; i++) {
 				workers[i] = worker();
 			}
 
-			return Promise.all(workers).then(() => results as unknown as Results);
+			return Promise.all(workers).then(() =>
+				nextIndex < len
+					? CoreResult.make.err({ kind: "TaskAborted", reason: signal?.reason })
+					: CoreResult.make.ok(results as unknown as Results)
+			);
 		}),
 
 	/**
@@ -462,32 +465,32 @@ export const Task = {
 	/**
 	 * Runs an array or tuple of Tasks one at a time in order, collecting all results.
 	 * Each Task starts only after the previous one resolves.
+	 * Returns `Err(TaskAborted)` if cancellation prevents queued tasks from starting.
 	 *
 	 * @see {@link Task.all} to run an array or tuple of tasks in parallel.
 	 *
 	 * @example
 	 * ```ts
-	 * let log: number[] = [];
 	 * const makeTask = (n: number) => Task.make(n);
 	 *
 	 * await Task.sequential([makeTask(1), makeTask(2), makeTask(3)])();
-	 * // log = [1, 2, 3] — tasks ran in order
+	 * // Ok([1, 2, 3])
 	 * ```
 	 */
 	sequential: <T extends readonly Task<unknown>[]>(
 		tasks: readonly [...T],
-	): Task<{ [K in keyof T]: T[K] extends Task<infer A> ? A : never; }> =>
+	): Task.Result<Task.Aborted, { [K in keyof T]: T[K] extends Task<infer A> ? A : never; }> =>
 		fromPromise(async (signal) => {
 			type Results = { [K in keyof T]: T[K] extends Task<infer A> ? A : never; };
 			const len = tasks.length;
 			const results: unknown[] = [];
 			for (let i = 0; i < len; i++) {
 				if (signal?.aborted) {
-					break;
+					return CoreResult.make.err({ kind: "TaskAborted", reason: signal.reason });
 				}
 				results.push(await toPromise(tasks[i], signal));
 			}
-			return results as unknown as Results;
+			return CoreResult.make.ok(results as unknown as Results);
 		}),
 
 	/**
@@ -505,44 +508,49 @@ export const Task = {
 	 * );
 	 * ```
 	 */
-	timeout: <E>(options: { duration: Duration; onTimeout: () => E; }) => <A>(task: Task<A>): Task<CoreResult<E, A>> =>
-		fromPromise((outerSignal) => {
-			const { duration, onTimeout } = options;
-			const controller = new AbortController();
-			let timerId: ReturnType<typeof setTimeout> | undefined;
+	timeout:
+		<E>(options: { duration: Duration; onTimeout: () => E; }) =>
+		<A>(task: Task<A>): Task<CoreResult<E | Task.TimeoutUnexpected, A>> =>
+			fromPromise((outerSignal) => {
+				const { duration, onTimeout } = options;
+				const controller = new AbortController();
+				let timerId: ReturnType<typeof setTimeout> | undefined;
 
-			const onOuterAbort = () => {
-				clearTimeout(timerId);
-				controller.abort();
-			};
-
-			const cleanUp = () => {
-				clearTimeout(timerId);
-				outerSignal?.removeEventListener("abort", onOuterAbort);
-			};
-
-			if (outerSignal) {
-				if (outerSignal.aborted) {
+				const onOuterAbort = () => {
 					controller.abort();
-				} else {
-					outerSignal.addEventListener("abort", onOuterAbort, { once: true });
-				}
-			}
+				};
 
-			return Promise.race([
-				toPromise(task, controller.signal).then((a): CoreResult<E, A> => {
-					cleanUp();
-					return CoreResult.make.ok(a);
-				}),
-				new Promise<CoreResult<E, A>>((res) => {
-					timerId = setTimeout(() => {
+				const cleanUp = () => {
+					clearTimeout(timerId);
+					outerSignal?.removeEventListener("abort", onOuterAbort);
+				};
+
+				if (outerSignal) {
+					if (outerSignal.aborted) {
 						controller.abort();
+					} else {
+						outerSignal.addEventListener("abort", onOuterAbort, { once: true });
+					}
+				}
+
+				return Promise.race([
+					toPromise(task, controller.signal).then((a): CoreResult<E, A> => {
 						cleanUp();
-						res(CoreResult.make.err(onTimeout()));
-					}, getMs(duration));
-				}),
-			]);
-		}),
+						return CoreResult.make.ok(a);
+					}),
+					new Promise<CoreResult<E | Task.TimeoutUnexpected, A>>((res) => {
+						timerId = setTimeout(() => {
+							cleanUp();
+							try {
+								res(CoreResult.make.err(onTimeout()));
+							} catch (cause) {
+								res(CoreResult.make.err({ kind: "TaskTimeoutUnexpected", cause }));
+							}
+							controller.abort();
+						}, getMs(duration));
+					}),
+				]);
+			}),
 
 	/**
 	 * Creates a Task paired with an `abort` handle. Calling `abort()` cancels the

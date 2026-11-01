@@ -6,6 +6,15 @@ import { RetryPolicy } from "../../Types/RetryPolicy.ts";
 import { type Result } from "../Result.ts";
 import { Task } from "../Task.ts";
 
+test("timeout: preserves domain, timeout, and unexpected error types", () => {
+	const source: Task.Result<"source", number> = Task.Result.make.err("source");
+	const timed = pipe(
+		source,
+		Task.Result.timeout({ duration: Duration.seconds(1), onTimeout: () => "deadline" as const }),
+	);
+	expectTypeOf(timed).toEqualTypeOf<Task.Result<"source" | "deadline" | Task.TimeoutUnexpected, number>>();
+});
+
 test("make: infers precise variant types for Ok and Err tasks", () => {
 	const okTask = Task.Result.make.ok(42);
 	expectTypeOf(okTask).toEqualTypeOf<Task.Result<never, number>>();

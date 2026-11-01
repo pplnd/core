@@ -38,22 +38,41 @@ export type Resource<E, A> = WithKind<"Resource"> & {
 
 const _allocate = Symbol("Resource.allocate");
 
+type ResourceExecutionError = {
+	readonly kind: "ResourceUnexpected";
+	readonly phase: "acquire" | "use";
+	readonly cause: unknown;
+};
+
+export namespace Resource {
+	/** An unexpected exception from acquisition, work, or cleanup.
+	 * Cleanup failures retain the preceding result and any additional cleanup exceptions.
+	 */
+	export type Unexpected<E = unknown, A = unknown> = ResourceExecutionError | {
+		readonly kind: "ResourceUnexpected";
+		readonly phase: "release";
+		readonly cause: unknown;
+		readonly additionalErrors: readonly unknown[];
+		readonly previous: Result<E | ResourceExecutionError, A>;
+	};
+}
+
 type Finalizer = (signal?: AbortSignal) => Deferred<unknown>;
 
 type Scope = {
 	readonly addFinalizer: (finalizer: Finalizer) => void;
-	readonly close: (signal?: AbortSignal) => Deferred<unknown>;
+	readonly close: (signal?: AbortSignal) => Promise<readonly unknown[]>;
 };
 
 type InternalResource<E, A> = Resource<E, A> & {
-	readonly [_allocate]: (scope: Scope, signal?: AbortSignal) => Deferred<Result<E, A>>;
+	readonly [_allocate]: (scope: Scope, signal?: AbortSignal) => Promise<Result<E, A>>;
 };
 
 const toInternal = <E, A>(resource: Resource<E, A>): InternalResource<E, A> =>
 	resource as unknown as InternalResource<E, A>;
 
 const makeInternalResource = <E, A>(
-	allocate: (scope: Scope, signal?: AbortSignal) => Deferred<Result<E, A>>,
+	allocate: (scope: Scope, signal?: AbortSignal) => Promise<Result<E, A>>,
 ): Resource<E, A> => ({ kind: "Resource", [_allocate]: allocate }) as unknown as Resource<E, A>;
 
 type InferError<T> = [T] extends [readonly []] ? never
@@ -69,211 +88,135 @@ type InferValue<T> = T extends readonly Resource<any, any>[]
 		? { readonly [K in keyof T]: T[K] extends Resource<any, infer A> ? A : never; }
 	: never;
 
-const closeFinalizers = (finalizers: readonly Finalizer[], signal?: AbortSignal): Deferred<unknown> =>
-	Deferred.from.Promise((async () => {
-		for (let i = finalizers.length - 1; i >= 0; i--) {
-			await Deferred.to.Promise(finalizers[i](signal));
-		}
-	})());
-
 const createScope = (): Scope => {
 	const finalizers: Finalizer[] = [];
 	return {
 		addFinalizer: (finalizer) => {
 			finalizers.push(finalizer);
 		},
-		close: (signal) => closeFinalizers(finalizers, signal),
+		close: async (signal) => {
+			const errors: unknown[] = [];
+			for (let i = finalizers.length - 1; i >= 0; i--) {
+				try {
+					await Deferred.to.Promise(finalizers[i](signal));
+				} catch (error) {
+					errors.push(error);
+				}
+			}
+			return errors;
+		},
 	};
 };
 
 const makeResource = <E, A>(acquire: Task.Result<E, A>, release: (value: A) => Task<unknown>): Resource<E, A> =>
-	makeInternalResource((scope, signal) =>
-		Deferred.from.Promise(
-			Deferred.to.Promise(acquire(signal)).then((acquired) => {
-				if (Result.is.ok(acquired)) {
-					const { value } = acquired;
-					scope.addFinalizer((sig) => release(value)(sig));
-				}
-				return acquired;
-			}),
-		)
-	);
+	makeInternalResource(async (scope, signal) => {
+		const acquired = await Deferred.to.Promise(acquire(signal));
+		if (Result.is.ok(acquired)) {
+			const { value } = acquired;
+			scope.addFinalizer((sig) => release(value)(sig));
+		}
+		return acquired;
+	});
 
 const makeTask = <A, E = never>(acquire: Task<A>, release: (value: A) => Task<unknown>): Resource<E, A> =>
-	makeInternalResource((scope, signal) =>
-		Deferred.from.Promise(
-			Deferred.to.Promise(acquire(signal)).then((value) => {
-				scope.addFinalizer((sig) => release(value)(sig));
-				return Result.make.ok(value);
-			}),
-		)
-	);
+	makeInternalResource(async (scope, signal) => {
+		const value = await Deferred.to.Promise(acquire(signal));
+		scope.addFinalizer((sig) => release(value)(sig));
+		return Result.make.ok(value);
+	});
 
 const use =
 	<A, E2, B>(consume: (value: A) => Task.Result<E2, B>) =>
-	<E1 = never>(resource: Resource<E1, A>): Task.Result<E1 | E2, B> =>
+	<E1 = never>(resource: Resource<E1, A>): Task.Result<E1 | E2 | Resource.Unexpected<E1 | E2, B>, B> =>
 	(signal) =>
 		Deferred.from.Promise((async () => {
 			const scope = createScope();
+			let phase: "acquire" | "use" = "acquire";
+			let outcome: Result<E1 | E2 | ResourceExecutionError, B>;
 			try {
-				const acquired = await Deferred.to.Promise(toInternal(resource)[_allocate](scope, signal));
+				const acquired = await toInternal(resource)[_allocate](scope, signal);
 				if (Result.is.err(acquired)) {
-					return acquired;
+					outcome = acquired;
+				} else {
+					phase = "use";
+					outcome = await Deferred.to.Promise(consume(acquired.value)(signal));
 				}
-				return await Deferred.to.Promise(consume(acquired.value)(signal));
-			} finally {
-				await Deferred.to.Promise(scope.close(signal));
+			} catch (cause) {
+				outcome = Result.make.err({ kind: "ResourceUnexpected", phase, cause });
 			}
+			const cleanupErrors = await scope.close(signal);
+			if (cleanupErrors.length > 0) {
+				return Result.make.err({
+					kind: "ResourceUnexpected" as const,
+					phase: "release" as const,
+					cause: cleanupErrors[0],
+					additionalErrors: cleanupErrors.slice(1),
+					previous: outcome,
+				});
+			}
+			return outcome;
 		})());
 
 const map = <A, B>(transform: (value: A) => B) => <E = never>(resource: Resource<E, A>): Resource<E, B> =>
-	makeInternalResource((scope, signal) =>
-		Deferred.from.Promise((async () => {
-			const acquired = await Deferred.to.Promise(toInternal(resource)[_allocate](scope, signal));
-			if (Result.is.err(acquired)) {
-				return acquired;
-			}
-			return Result.make.ok(transform(acquired.value));
-		})())
-	);
+	makeInternalResource(async (scope, signal) => {
+		const acquired = await toInternal(resource)[_allocate](scope, signal);
+		return Result.is.err(acquired) ? acquired : Result.make.ok(transform(acquired.value));
+	});
 
 const chain =
 	<A, E2, B>(transform: (value: A) => Resource<E2, B>) =>
 	<E1 = never>(resource: Resource<E1, A>): Resource<E1 | E2, B> =>
-		makeInternalResource<E1 | E2, B>((scope, signal) =>
-			Deferred.from.Promise((async () => {
-				const localFinalizers: Finalizer[] = [];
-				const localScope: Scope = {
-					addFinalizer: (finalizer) => {
-						localFinalizers.push(finalizer);
-					},
-					close: (sig) => closeFinalizers(localFinalizers, sig),
-				};
-
-				const acquiredA = await Deferred.to.Promise(toInternal(resource)[_allocate](localScope, signal));
-				if (Result.is.err(acquiredA)) {
-					return acquiredA;
-				}
-
-				const resB = transform(acquiredA.value);
-				const acquiredB = await Deferred.to.Promise(toInternal(resB)[_allocate](localScope, signal));
-
-				if (Result.is.err(acquiredB)) {
-					await Deferred.to.Promise(localScope.close(signal));
-					return acquiredB;
-				}
-
-				for (let i = 0; i < localFinalizers.length; i++) {
-					scope.addFinalizer(localFinalizers[i]);
-				}
-
-				return acquiredB;
-			})())
-		);
+		makeInternalResource<E1 | E2, B>(async (scope, signal) => {
+			const acquired = await toInternal(resource)[_allocate](scope, signal);
+			return Result.is.err(acquired) ? acquired : toInternal(transform(acquired.value))[_allocate](scope, signal);
+		});
 
 const combine = <E1, A, E2, B>(
 	resourceA: Resource<E1, A>,
 	resourceB: Resource<E2, B>,
 ): Resource<E1 | E2, readonly [A, B]> =>
-	makeInternalResource<E1 | E2, readonly [A, B]>((scope, signal) =>
-		Deferred.from.Promise((async () => {
-			const localFinalizers: Finalizer[] = [];
-			const localScope: Scope = {
-				addFinalizer: (finalizer) => {
-					localFinalizers.push(finalizer);
-				},
-				close: (sig) => closeFinalizers(localFinalizers, sig),
-			};
-
-			const acquiredA = await Deferred.to.Promise(toInternal(resourceA)[_allocate](localScope, signal));
-			if (Result.is.err(acquiredA)) {
-				return acquiredA;
-			}
-
-			const acquiredB = await Deferred.to.Promise(toInternal(resourceB)[_allocate](localScope, signal));
-			if (Result.is.err(acquiredB)) {
-				await Deferred.to.Promise(localScope.close(signal));
-				return acquiredB;
-			}
-
-			for (let i = 0; i < localFinalizers.length; i++) {
-				scope.addFinalizer(localFinalizers[i]);
-			}
-
-			return Result.make.ok([acquiredA.value, acquiredB.value] as const);
-		})())
-	);
+	makeInternalResource<E1 | E2, readonly [A, B]>(async (scope, signal) => {
+		const acquiredA = await toInternal(resourceA)[_allocate](scope, signal);
+		if (Result.is.err(acquiredA)) { return acquiredA; }
+		const acquiredB = await toInternal(resourceB)[_allocate](scope, signal);
+		if (Result.is.err(acquiredB)) { return acquiredB; }
+		return Result.make.ok([acquiredA.value, acquiredB.value] as const);
+	});
 
 const all = <const R extends Readonly<Record<string, Resource<any, any>>> | readonly Resource<any, any>[]>(
 	resources: R,
 ): Resource<InferError<R>, InferValue<R>> =>
-	makeInternalResource<InferError<R>, InferValue<R>>((scope, signal) =>
-		Deferred.from.Promise((async () => {
-			const localFinalizers: Finalizer[] = [];
-			const localScope: Scope = {
-				addFinalizer: (finalizer) => {
-					localFinalizers.push(finalizer);
-				},
-				close: (sig) => closeFinalizers(localFinalizers, sig),
-			};
-
-			if (Array.isArray(resources)) {
-				const len = resources.length;
-				const results = new Array<unknown>(len);
-
-				for (let i = 0; i < len; i++) {
-					const res = toInternal(resources[i] as Resource<any, any>);
-					const acquired = await Deferred.to.Promise(res[_allocate](localScope, signal));
-
-					if (Result.is.err(acquired)) {
-						await Deferred.to.Promise(localScope.close(signal));
-						return acquired as Result<InferError<R>, InferValue<R>>;
-					}
-
-					results[i] = acquired.value;
-				}
-
-				for (let i = 0; i < localFinalizers.length; i++) {
-					scope.addFinalizer(localFinalizers[i]);
-				}
-
-				return Result.make.ok(results) as unknown as Result<InferError<R>, InferValue<R>>;
+	makeInternalResource<InferError<R>, InferValue<R>>(async (scope, signal) => {
+		if (Array.isArray(resources)) {
+			const results = new Array<unknown>(resources.length);
+			for (let i = 0; i < resources.length; i++) {
+				const acquired = await toInternal(resources[i])[_allocate](scope, signal);
+				if (Result.is.err(acquired)) { return acquired as Result<InferError<R>, InferValue<R>>; }
+				results[i] = acquired.value;
 			}
+			return Result.make.ok(results) as unknown as Result<InferError<R>, InferValue<R>>;
+		}
 
-			const record = resources as Readonly<Record<string, Resource<any, any>>>;
-			const keys = Object.keys(record);
-			const len = keys.length;
-			const resultRecord: Record<string, unknown> = {};
-
-			for (let i = 0; i < len; i++) {
-				const key = keys[i];
-				const res = toInternal(record[key]);
-				const acquired = await Deferred.to.Promise(res[_allocate](localScope, signal));
-
-				if (Result.is.err(acquired)) {
-					await Deferred.to.Promise(localScope.close(signal));
-					return acquired as Result<InferError<R>, InferValue<R>>;
-				}
-
-				if (key === "__proto__") {
-					Object.defineProperty(resultRecord, key, {
-						value: acquired.value,
-						writable: true,
-						enumerable: true,
-						configurable: true,
-					});
-				} else {
-					resultRecord[key] = acquired.value;
-				}
+		const record = resources as Readonly<Record<string, Resource<any, any>>>;
+		const keys = Object.keys(record);
+		const results: Record<string, unknown> = {};
+		for (let i = 0; i < keys.length; i++) {
+			const key = keys[i];
+			const acquired = await toInternal(record[key])[_allocate](scope, signal);
+			if (Result.is.err(acquired)) { return acquired as Result<InferError<R>, InferValue<R>>; }
+			if (key === "__proto__") {
+				Object.defineProperty(results, key, {
+					value: acquired.value,
+					writable: true,
+					enumerable: true,
+					configurable: true,
+				});
+			} else {
+				results[key] = acquired.value;
 			}
-
-			for (let i = 0; i < localFinalizers.length; i++) {
-				scope.addFinalizer(localFinalizers[i]);
-			}
-
-			return Result.make.ok(resultRecord) as unknown as Result<InferError<R>, InferValue<R>>;
-		})())
-	);
+		}
+		return Result.make.ok(results) as Result<InferError<R>, InferValue<R>>;
+	});
 
 export const Resource = {
 	/**
@@ -312,8 +255,11 @@ export const Resource = {
 	/**
 	 * Acquires the resource, runs `consume` with it, then releases it.
 	 *
-	 * Release always runs, even when `consume` returns an error or throws.
-	 * If acquire fails, `consume` and release are both skipped and the error is returned.
+	 * Release runs even when acquisition or work throws. Unexpected exceptions are returned
+	 * as `Resource.Unexpected`, identifying the phase and retaining the original cause.
+	 * Cleanup runs in reverse order even if a release throws. If cleanup fails, the error
+	 * includes the preceding outcome and any additional cleanup exceptions.
+	 * If acquisition returns an error, work and the failed resource's release are skipped.
 	 *
 	 * @example
 	 * ```ts
@@ -329,7 +275,8 @@ export const Resource = {
 	/**
 	 * Transforms the value of an acquired resource while retaining guaranteed cleanup of the original asset.
 	 *
-	 * If `transform` throws an exception, the acquired resource is released immediately before propagating the error.
+	 * If `transform` throws, `Resource.use` releases the acquired resource and returns a
+	 * `Resource.Unexpected` error.
 	 *
 	 * @see {@link Resource.chain} for sequencing dependent resource acquisitions.
 	 * @example
@@ -345,7 +292,7 @@ export const Resource = {
 	/**
 	 * Sequentially acquires a second resource that depends on the value of the first.
 	 *
-	 * If acquiring the second resource fails or throws, the first resource is released immediately before propagating
+	 * If acquiring the second resource fails or throws, `Resource.use` releases the first resource before returning
 	 * the error. When `Resource.use` completes, both resources are released in reverse (LIFO) order: the second is
 	 * released before the first.
 	 *
@@ -369,8 +316,8 @@ export const Resource = {
 	 * Acquires two resources in sequence and presents them as a tuple.
 	 *
 	 * Resources are released in reverse order: the second is released before the first.
-	 * If the second resource fails to acquire or throws, the first is released immediately
-	 * before propagating the error.
+	 * If the second resource fails to acquire or throws, the first is released before
+	 * `Resource.use` returns the error.
 	 *
 	 * @see {@link Resource.all} for acquiring arbitrary tuples or named records of resources.
 	 * @example
@@ -390,7 +337,7 @@ export const Resource = {
 	 *
 	 * All resources are released in strict reverse (LIFO) order upon completion.
 	 * If the K-th resource fails to acquire or throws, all already-acquired resources (K-1 ... 0)
-	 * are immediately released in reverse order before propagating the error.
+	 * are released in reverse order before `Resource.use` returns the error.
 	 *
 	 * @see {@link Resource.combine} for binary resource pairing.
 	 * @example

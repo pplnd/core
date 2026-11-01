@@ -77,7 +77,12 @@ test("run: returns Err if transaction instance is invalid", async () => {
 	// @ts-expect-error — invalid transaction target
 	const outcome = await Transaction.run()({ kind: "NotTransaction" })();
 	expect(outcome).toStrictEqual(
-		Result.make.err({ kind: "TransactionFailure", stepId: "initial", error: expect.any(TypeError), undoErrors: [] }),
+		Result.make.err({
+			kind: "TransactionFailure",
+			stepId: "initial",
+			error: { kind: "TransactionUnexpected", cause: expect.any(TypeError) },
+			undoErrors: [],
+		}),
 	);
 });
 
@@ -305,7 +310,10 @@ test("rollback: continues draining remaining undos when an intermediate undo fai
 			kind: "TransactionFailure",
 			stepId: "step4",
 			error: "forward_failure",
-			undoErrors: [{ stepId: "step3", error: expect.any(Error) }, { stepId: "step2", error: "step2_undo_err" }],
+			undoErrors: [{ stepId: "step3", error: { kind: "TransactionUnexpected", cause: expect.any(Error) } }, {
+				stepId: "step2",
+				error: "step2_undo_err",
+			}],
 		}),
 	);
 
@@ -337,7 +345,12 @@ test("abort: returns Err immediately if signal is already aborted before startin
 
 	expect(stepExecuted).toBe(false);
 	expect(outcome).toStrictEqual(
-		Result.make.err({ kind: "TransactionFailure", stepId: "s1", error: expect.any(Error), undoErrors: [] }),
+		Result.make.err({
+			kind: "TransactionFailure",
+			stepId: "s1",
+			error: { kind: "TransactionAborted", reason: expect.any(Error) },
+			undoErrors: [],
+		}),
 	);
 });
 
@@ -382,7 +395,12 @@ test("abort: triggers LIFO rollback of completed steps when aborted mid-flight",
 	const outcome = await pipe(tx, Transaction.run(undefined, { signal: controller.signal }))();
 
 	expect(outcome).toStrictEqual(
-		Result.make.err({ kind: "TransactionFailure", stepId: "s3", error: expect.any(Error), undoErrors: [] }),
+		Result.make.err({
+			kind: "TransactionFailure",
+			stepId: "s3",
+			error: { kind: "TransactionAborted", reason: expect.any(Error) },
+			undoErrors: [],
+		}),
 	);
 
 	expect(log).toStrictEqual(["run:s1", "run:s2:aborting", "undo:s2", "undo:s1"]);
@@ -565,7 +583,12 @@ test("signals: combines callerSignal and option signal via AbortSignal.any", asy
 	const outcome = await task(callerCtrl.signal);
 
 	expect(outcome).toStrictEqual(
-		Result.make.err({ kind: "TransactionFailure", stepId: "s3", error: expect.any(Error), undoErrors: [] }),
+		Result.make.err({
+			kind: "TransactionFailure",
+			stepId: "s3",
+			error: { kind: "TransactionAborted", reason: expect.any(Error) },
+			undoErrors: [],
+		}),
 	);
 });
 
@@ -601,9 +624,72 @@ test("run: forward step throwing uncaught error safely fails and rolls back", as
 	const outcome = await pipe(tx, Transaction.run())();
 
 	expect(outcome).toStrictEqual(
-		Result.make.err({ kind: "TransactionFailure", stepId: "s2", error: expect.any(Error), undoErrors: [] }),
+		Result.make.err({
+			kind: "TransactionFailure",
+			stepId: "s2",
+			error: { kind: "TransactionUnexpected", cause: expect.any(Error) },
+			undoErrors: [],
+		}),
 	);
 	expect(undoCalled).toBe(true);
+});
+
+test("run: does not pass thrown step errors to a domain retry predicate", async () => {
+	const cause = new Error("step crashed");
+	let predicateCalled = false;
+	const tx = pipe(
+		Transaction.make(),
+		Transaction.step({
+			id: "publish",
+			retry: RetryPolicy.constant<string>({
+				attempts: 2,
+				delay: Duration.milliseconds(0),
+				when: () => {
+					predicateCalled = true;
+					return true;
+				},
+			}),
+			run: () => {
+				throw cause;
+			},
+		}),
+	);
+	const outcome = await Transaction.run()(tx)();
+	expect(outcome).toStrictEqual(
+		Result.make.err({
+			kind: "TransactionFailure",
+			stepId: "publish",
+			error: { kind: "TransactionUnexpected", cause },
+			undoErrors: [],
+		}),
+	);
+	expect(predicateCalled).toBe(false);
+});
+
+test("timeout: returns the typed cause when the timeout handler throws", async () => {
+	const cause = new Error("timeout handler failed");
+	const tx = pipe(
+		Transaction.make(),
+		Transaction.step({
+			id: "publish",
+			run: () => Task.delay(Duration.milliseconds(20))(Task.Result.make.ok("done")),
+			timeout: {
+				duration: Duration.milliseconds(1),
+				onTimeout: () => {
+					throw cause;
+				},
+			},
+		}),
+	);
+	const outcome = await Transaction.run()(tx)();
+	expect(outcome).toStrictEqual(
+		Result.make.err({
+			kind: "TransactionFailure",
+			stepId: "publish",
+			error: { kind: "TaskTimeoutUnexpected", cause },
+			undoErrors: [],
+		}),
+	);
 });
 
 test("run: accepts run options directly when transaction takes no input", async () => {
@@ -682,7 +768,7 @@ test("rollback: captures synchronous throw in undo function", async () => {
 			kind: "TransactionFailure",
 			stepId: "s2",
 			error: "fail",
-			undoErrors: [{ stepId: "s1", error: expect.any(Error) }],
+			undoErrors: [{ stepId: "s1", error: { kind: "TransactionUnexpected", cause: expect.any(Error) } }],
 		}),
 	);
 });
@@ -715,7 +801,7 @@ test("rollback: captures thrown error during undo Task execution and tolerates o
 			kind: "TransactionFailure",
 			stepId: "s2",
 			error: "fail",
-			undoErrors: [{ stepId: "s1", error: expect.any(Error) }],
+			undoErrors: [{ stepId: "s1", error: { kind: "TransactionUnexpected", cause: expect.any(Error) } }],
 		}),
 	);
 });
@@ -741,7 +827,7 @@ test("rollback: captures thrown error during undo Task execution without onUndo 
 			kind: "TransactionFailure",
 			stepId: "s2",
 			error: "fail",
-			undoErrors: [{ stepId: "s1", error: expect.any(Error) }],
+			undoErrors: [{ stepId: "s1", error: { kind: "TransactionUnexpected", cause: expect.any(Error) } }],
 		}),
 	);
 });
@@ -761,7 +847,12 @@ test("run: captures thrown error during step Task execution", async () => {
 	);
 	const outcome = await pipe(tx, Transaction.run())();
 	expect(outcome).toStrictEqual(
-		Result.make.err({ kind: "TransactionFailure", stepId: "s1", error: expect.any(Error), undoErrors: [] }),
+		Result.make.err({
+			kind: "TransactionFailure",
+			stepId: "s1",
+			error: { kind: "TransactionUnexpected", cause: expect.any(Error) },
+			undoErrors: [],
+		}),
 	);
 });
 
@@ -771,11 +862,16 @@ test("run: returns initial stepId when empty transaction is aborted prior to exe
 	const tx = Transaction.make();
 	const outcome = await pipe(tx, Transaction.run({ signal: ctrl.signal }))();
 	expect(outcome).toStrictEqual(
-		Result.make.err({ kind: "TransactionFailure", stepId: "initial", error: expect.any(Error), undoErrors: [] }),
+		Result.make.err({
+			kind: "TransactionFailure",
+			stepId: "initial",
+			error: { kind: "TransactionAborted", reason: expect.any(Error) },
+			undoErrors: [],
+		}),
 	);
 });
 
-test("run: falls back to default error when signal reason is null or undefined", async () => {
+test("run: preserves a null signal reason before execution", async () => {
 	const ctrl = new AbortController();
 	ctrl.abort(null);
 	const tx = Transaction.make();
@@ -784,13 +880,13 @@ test("run: falls back to default error when signal reason is null or undefined",
 		Result.make.err({
 			kind: "TransactionFailure",
 			stepId: "initial",
-			error: expect.objectContaining({ message: "[Transaction.run] Aborted before execution" }),
+			error: { kind: "TransactionAborted", reason: null },
 			undoErrors: [],
 		}),
 	);
 });
 
-test("run: falls back to default error when signal reason is null or undefined during step execution", async () => {
+test("run: preserves a null signal reason between steps", async () => {
 	const ctrl = new AbortController();
 
 	const tx = pipe(
@@ -810,7 +906,7 @@ test("run: falls back to default error when signal reason is null or undefined d
 		Result.make.err({
 			kind: "TransactionFailure",
 			stepId: "s2",
-			error: expect.objectContaining({ message: "[Transaction.run] Aborted before step 's2'" }),
+			error: { kind: "TransactionAborted", reason: null },
 			undoErrors: [],
 		}),
 	);

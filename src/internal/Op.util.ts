@@ -22,6 +22,13 @@ const _pending: Op.Pending = { kind: "Pending" };
 const ok = <A>(value: A): Op.Ok<A> => ({ kind: "OpOk", value });
 const err = <E>(error: E): Op.Err<E> => ({ kind: "OpErr", error });
 
+const unexpectedMarker = Symbol("Op.unexpected");
+export type InternalUnexpected = { readonly [unexpectedMarker]: true; readonly cause: unknown; };
+export const internalUnexpected = (cause: unknown): InternalUnexpected => ({ [unexpectedMarker]: true, cause });
+const isInternalUnexpected = (value: unknown): value is InternalUnexpected =>
+	typeof value === "object" && value !== null && unexpectedMarker in value;
+const publicUnexpected = (cause: unknown): Op.Unexpected => ({ kind: "OpUnexpected", cause });
+
 const getMs = (duration: Duration): number => Duration.to.milliseconds(duration);
 
 const withManagerMeta = <T extends object>(manager: T, id?: string, opId?: string): T => {
@@ -98,12 +105,13 @@ export const runWithRetry = <Args extends readonly unknown[], E, A>(
 		const result = await Deferred.to.Promise(toInternalOp(op)[OP_FACTORY](args, signal));
 		if (result === null || signal.aborted) { return null; }
 		if (result.kind === "Ok") { return result; }
+		if (isInternalUnexpected(result.error)) { return result; }
 		if (left <= 1) { return result; }
 		if (shouldRetry !== undefined) {
 			try {
 				if (!shouldRetry(result.error)) { return result; }
 			} catch (whenError) {
-				return Result.make.err(whenError as E);
+				return Result.make.err(internalUnexpected(whenError) as E);
 			}
 		}
 		const attemptNumber = attempts - left + 1;
@@ -153,7 +161,11 @@ export const execute = <Args extends readonly unknown[], E, A>(
 	const { signal } = controller;
 
 	const toOutcome = (r: Result<E, A> | null): Op.Outcome<E, A> =>
-		r === null ? _abortedNil : (r.kind === "Ok" ? ok(r.value) : err(r.error));
+		r === null
+			? _abortedNil
+			: (r.kind === "Ok"
+				? ok(r.value)
+				: err(isInternalUnexpected(r.error) ? publicUnexpected(r.error.cause) as E : r.error));
 
 	const runPromise: Promise<Op.Outcome<E, A>> = retryOptions !== undefined && onRetrying !== undefined
 		? runWithRetry(op, args, signal, retryOptions, onRetrying).then(toOutcome)
@@ -173,7 +185,7 @@ export const execute = <Args extends readonly unknown[], E, A>(
 				try {
 					resolve(err(timeoutOptions.onTimeout()));
 				} catch (timeoutHandlerError) {
-					resolve(err(timeoutHandlerError as any));
+					resolve(err(publicUnexpected(timeoutHandlerError) as E));
 				}
 			}, getMs(timeoutOptions.duration));
 		}),
@@ -1184,7 +1196,7 @@ export const makeKeyed = <Args extends readonly unknown[], K, E, A>(
 		try {
 			k = keyFn(...args);
 		} catch (keyError) {
-			return Deferred.from.Promise(Promise.resolve(err(keyError as E)));
+			return Deferred.from.Promise(Promise.resolve(err(publicUnexpected(keyError) as E)));
 		}
 
 		if (slots.has(k)) {

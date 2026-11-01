@@ -638,13 +638,30 @@ test("sequence.Validation: returns Passed of empty array for empty input", () =>
 
 test("traverse.Task: maps elements to tasks and runs in parallel", async () => {
 	const result = await pipe([1, 2, 3], Arr.traverse.Task((n) => Task.make(n * 10)))();
-	expect(result).toStrictEqual([10, 20, 30]);
+	expect(result).toStrictEqual(Result.make.ok([10, 20, 30]));
 });
 
 test("traverse.Task: resolves to empty array for empty input", async () => {
 	const emptyNums: number[] = [];
 	const result = await pipe(emptyNums, Arr.traverse.Task((n) => Task.make(n)))();
-	expect(result).toStrictEqual([]);
+	expect(result).toStrictEqual(Result.make.ok([]));
+});
+
+test("traverse.Task: reports cancellation before starting queued tasks", async () => {
+	const controller = new AbortController();
+	controller.abort("stopped");
+	let started = 0;
+	const task = pipe(
+		[1, 2],
+		Arr.traverse.Task((n) =>
+			Task.from.sync(() => {
+				started++;
+				return n;
+			}), { concurrency: 1 }),
+	);
+	const result = await task(controller.signal);
+	expect(result).toStrictEqual(Result.make.err({ kind: "TaskAborted", reason: "stopped" }));
+	expect(started).toBe(0);
 });
 
 test("traverse.Task: handles asynchronous operations", async () => {
@@ -652,7 +669,7 @@ test("traverse.Task: handles asynchronous operations", async () => {
 		Task.tryCatch(() => new Promise<number>((resolve) => setTimeout(() => resolve(n * 2), 10)), { onError: () => 0 });
 
 	const result = await pipe([1, 2, 3], Arr.traverse.Task(delayedDouble))();
-	expect(result).toStrictEqual([2, 4, 6]);
+	expect(result).toStrictEqual(Result.make.ok([2, 4, 6]));
 });
 
 test("traverse.Task: respects concurrency limit option", async () => {
@@ -673,20 +690,20 @@ test("traverse.Task: respects concurrency limit option", async () => {
 			}), { onError: () => 0 });
 
 	const result = await pipe([1, 2, 3, 4, 5], Arr.traverse.Task(taskFn, { concurrency: 2 }))();
-	expect(result).toStrictEqual([2, 4, 6, 8, 10]);
+	expect(result).toStrictEqual(Result.make.ok([2, 4, 6, 8, 10]));
 	expect(maxActive).toBe(2);
 });
 
 test("sequence.Task: runs all tasks in parallel and collects results", async () => {
 	const tasks: Task<number>[] = [Task.make(10), Task.make(20), Task.make(30)];
 	const result = await Arr.sequence.Task(tasks)();
-	expect(result).toStrictEqual([10, 20, 30]);
+	expect(result).toStrictEqual(Result.make.ok([10, 20, 30]));
 });
 
 test("sequence.Task: resolves to empty array for empty input", async () => {
 	const emptyTasks: Task<number>[] = [];
 	const result = await Arr.sequence.Task(emptyTasks)();
-	expect(result).toStrictEqual([]);
+	expect(result).toStrictEqual(Result.make.ok([]));
 });
 
 test("sequence.Task: preserves order despite varying completion times", async () => {
@@ -696,7 +713,7 @@ test("sequence.Task: preserves order despite varying completion times", async ()
 		Task.tryCatch(() => new Promise<string>((resolve) => setTimeout(() => resolve("medium"), 15)), { onError: () => "" }),
 	];
 	const result = await Arr.sequence.Task(tasks)();
-	expect(result).toStrictEqual(["slow", "fast", "medium"]);
+	expect(result).toStrictEqual(Result.make.ok(["slow", "fast", "medium"]));
 });
 
 // --- Predicates: isNonEmpty, some, every ---

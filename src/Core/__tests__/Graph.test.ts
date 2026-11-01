@@ -206,7 +206,7 @@ test("run: catches thrown exception in node run and settles as Result.err", asyn
 	const outcome = await Graph.run(graph)();
 
 	expect(Result.is.err(outcome)).toBe(true);
-	expect(outcome).toStrictEqual(Result.make.err(expect.objectContaining({ message: "unexpected crash" })));
+	expect(outcome).toStrictEqual(Result.make.err({ kind: "GraphUnexpected", cause: new Error("unexpected crash") }));
 });
 
 // -----------------------------------------------------------------------------
@@ -235,7 +235,7 @@ test("run: cancels execution when caller AbortSignal triggers and settles with r
 	}, 20);
 
 	const outcome = await taskPromise;
-	expect(outcome).toStrictEqual(Result.make.err("caller cancelled"));
+	expect(outcome).toStrictEqual(Result.make.err({ kind: "GraphAborted", reason: "caller cancelled" }));
 	expect(nodeAborted).toBe(true);
 });
 
@@ -441,6 +441,36 @@ test("node: applies timeout policy when execution exceeds duration", async () =>
 	expect(outcome).toStrictEqual(Result.make.err("timed_out"));
 });
 
+test("run: returns a typed error when the timeout callback throws", async () => {
+	const cause = new Error("timeout handler failed");
+	const node = Graph.node({
+		id: "slow-timeout",
+		timeout: {
+			duration: Duration.milliseconds(1),
+			onTimeout: () => {
+				throw cause;
+			},
+		},
+		run: () => Task.delay(Duration.milliseconds(20))(Task.Result.make.ok("finished")),
+	});
+
+	const outcome = await Graph.run(Graph.make(node))();
+	expect(outcome).toStrictEqual(Result.make.err({ kind: "TaskTimeoutUnexpected", cause }));
+});
+
+test("run: wraps exceptions thrown while invoking the node task", async () => {
+	const cause = new Error("task failed");
+	const node = Graph.node({
+		id: "crash",
+		run: () => () => {
+			throw cause;
+		},
+	});
+
+	const outcome = await Graph.run(Graph.make(node))();
+	expect(outcome).toStrictEqual(Result.make.err({ kind: "GraphUnexpected", cause }));
+});
+
 // -----------------------------------------------------------------------------
 // Pipeline Composition & Boundary Tests
 // -----------------------------------------------------------------------------
@@ -471,7 +501,7 @@ test("run: immediately aborts if caller signal is already aborted", async () => 
 	const outcome = await Graph.run(graph)(controller.signal);
 
 	expect(Result.is.err(outcome)).toBe(true);
-	expect(outcome).toStrictEqual(Result.make.err("pre-aborted"));
+	expect(outcome).toStrictEqual(Result.make.err({ kind: "GraphAborted", reason: "pre-aborted" }));
 	expect(executed).toBe(false);
 });
 

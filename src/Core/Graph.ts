@@ -28,6 +28,12 @@ export type Graph<E = unknown, Out = unknown> = WithKind<"Graph"> & {
 };
 
 export namespace Graph {
+	/** The caller cancelled a graph run. */
+	export type Aborted = { readonly kind: "GraphAborted"; readonly reason: unknown; };
+
+	/** A node or graph execution callback threw unexpectedly. */
+	export type Unexpected = { readonly kind: "GraphUnexpected"; readonly cause: unknown; };
+
 	/**
 	 * Represents a distinct, typed node in a Directed Acyclic Graph (DAG).
 	 *
@@ -375,158 +381,168 @@ const makeGraph = <Id extends string, E, Out>(target: Graph.Node<Id, E, Out>): G
  * const outcome = await Graph.run(dashboardGraph, { concurrency: 4 })();
  * ```
  */
-const runGraph = <E, Out>(graph: Graph<E, Out>, options?: Graph.RunOptions): Task.Result<E, Out> => (callerSignal) =>
-	Deferred.from.Promise(
-		new Promise<Result<E, Out>>((resolve) => {
-			if (!graph || (graph as { readonly kind?: unknown; }).kind !== "Graph") {
-				resolve(Result.make.err(new TypeError("[Graph.run] Expected a valid Graph instance.") as E));
-				return;
-			}
-
-			const internal = toInternalGraph(graph)[_internalGraph];
-			const { target, rootNodes, dependentsMap, dependencyCountMap, depKeysMap } = internal;
-
-			const internalController = new AbortController();
-			const activeSignal = internalController.signal;
-
-			const results = new Map<Graph.AnyNode, unknown>();
-			const remainingDeps = new Map<Graph.AnyNode, number>(dependencyCountMap);
-			const queue: Graph.AnyNode[] = rootNodes.slice();
-			let queueHead = 0;
-			let inFlight = 0;
-			let isSettled = false;
-
-			// oxlint-disable-next-line prefer-const
-			let onCallerAbort: () => void;
-
-			const settle = (result: Result<E, Out>): void => {
-				if (isSettled) {
+const runGraph =
+	<E, Out>(
+		graph: Graph<E, Out>,
+		options?: Graph.RunOptions,
+	): Task.Result<E | Graph.Aborted | Graph.Unexpected | Task.TimeoutUnexpected, Out> =>
+	(callerSignal) =>
+		Deferred.from.Promise(
+			new Promise<Result<E | Graph.Aborted | Graph.Unexpected | Task.TimeoutUnexpected, Out>>((resolve) => {
+				if (!graph || (graph as { readonly kind?: unknown; }).kind !== "Graph") {
+					resolve(
+						Result.make.err({
+							kind: "GraphUnexpected",
+							cause: new TypeError("[Graph.run] Expected a valid Graph instance."),
+						}),
+					);
 					return;
 				}
-				isSettled = true;
-				if (callerSignal) {
-					callerSignal.removeEventListener("abort", onCallerAbort);
-				}
-				internalController.abort();
-				resolve(result);
-			};
 
-			if (callerSignal) {
-				const signal = callerSignal;
-				onCallerAbort = () => {
-					settle(Result.make.err(signal.reason as E));
+				const internal = toInternalGraph(graph)[_internalGraph];
+				const { target, rootNodes, dependentsMap, dependencyCountMap, depKeysMap } = internal;
+
+				const internalController = new AbortController();
+				const activeSignal = internalController.signal;
+
+				const results = new Map<Graph.AnyNode, unknown>();
+				const remainingDeps = new Map<Graph.AnyNode, number>(dependencyCountMap);
+				const queue: Graph.AnyNode[] = rootNodes.slice();
+				let queueHead = 0;
+				let inFlight = 0;
+				let isSettled = false;
+
+				// oxlint-disable-next-line prefer-const
+				let onCallerAbort: () => void;
+
+				const settle = (result: Result<E | Graph.Aborted | Graph.Unexpected | Task.TimeoutUnexpected, Out>): void => {
+					if (isSettled) {
+						return;
+					}
+					isSettled = true;
+					if (callerSignal) {
+						callerSignal.removeEventListener("abort", onCallerAbort);
+					}
+					internalController.abort();
+					resolve(result);
 				};
 
-				if (signal.aborted) {
-					onCallerAbort();
-					return;
-				}
-				signal.addEventListener("abort", onCallerAbort, { once: true });
-			}
+				if (callerSignal) {
+					const signal = callerSignal;
+					onCallerAbort = () => {
+						settle(Result.make.err({ kind: "GraphAborted", reason: signal.reason }));
+					};
 
-			const concurrency =
-				options?.concurrency !== undefined && Number.isInteger(options.concurrency) && options.concurrency > 0
-					? options.concurrency
-					: Infinity;
-
-			// oxlint-disable-next-line prefer-const
-			let drain: () => void;
-
-			const executeNode = async (node: Graph.AnyNode): Promise<void> => {
-				const nodeInternal = toInternalNode(node)[_internalNode];
-
-				// Assemble resolved inputs:
-				const depEntries = depKeysMap.get(node);
-				let inputs: Record<string, unknown> | undefined;
-				if (depEntries && depEntries.length > 0) {
-					inputs = {};
-					for (let i = 0; i < depEntries.length; i++) {
-						const [key, depNode] = depEntries[i];
-						inputs[key] = results.get(depNode);
+					if (signal.aborted) {
+						onCallerAbort();
+						return;
 					}
+					signal.addEventListener("abort", onCallerAbort, { once: true });
 				}
 
-				try {
-					let task = nodeInternal.run(inputs ?? {});
+				const concurrency =
+					options?.concurrency !== undefined && Number.isInteger(options.concurrency) && options.concurrency > 0
+						? options.concurrency
+						: Infinity;
 
-					const retryPolicy = nodeInternal.retry;
-					if (retryPolicy) {
-						const graphOnRetry = options?.onRetry;
-						const nodeOnRetry = retryPolicy.onRetry;
+				// oxlint-disable-next-line prefer-const
+				let drain: () => void;
 
-						const policy: RetryPolicy<unknown> = graphOnRetry !== undefined
-							? {
-								...retryPolicy,
-								onRetry: (event) => {
-									if (nodeOnRetry) {
-										try {
-											nodeOnRetry(event);
-										} catch {
-											// Isolated: node-level telemetry error does not disrupt retry
+				const executeNode = async (node: Graph.AnyNode): Promise<void> => {
+					const nodeInternal = toInternalNode(node)[_internalNode];
+
+					// Assemble resolved inputs:
+					const depEntries = depKeysMap.get(node);
+					let inputs: Record<string, unknown> | undefined;
+					if (depEntries && depEntries.length > 0) {
+						inputs = {};
+						for (let i = 0; i < depEntries.length; i++) {
+							const [key, depNode] = depEntries[i];
+							inputs[key] = results.get(depNode);
+						}
+					}
+
+					try {
+						let task = nodeInternal.run(inputs ?? {});
+
+						const retryPolicy = nodeInternal.retry;
+						if (retryPolicy) {
+							const graphOnRetry = options?.onRetry;
+							const nodeOnRetry = retryPolicy.onRetry;
+
+							const policy: RetryPolicy<unknown> = graphOnRetry !== undefined
+								? {
+									...retryPolicy,
+									onRetry: (event) => {
+										if (nodeOnRetry) {
+											try {
+												nodeOnRetry(event);
+											} catch {
+												// Isolated: node-level telemetry error does not disrupt retry
+											}
 										}
-									}
-									try {
-										graphOnRetry({ ...event, nodeId: node.id });
-									} catch {
-										// Isolated: graph-level telemetry error does not disrupt retry
-									}
-								},
-							}
-							: retryPolicy;
+										try {
+											graphOnRetry({ ...event, nodeId: node.id });
+										} catch {
+											// Isolated: graph-level telemetry error does not disrupt retry
+										}
+									},
+								}
+								: retryPolicy;
 
-						task = Task.Result.retry(policy)(task);
-					}
-					if (nodeInternal.timeout) {
-						task = Task.Result.timeout(nodeInternal.timeout as any)(task);
-					}
-
-					const nodeOutcome = await Deferred.to.Promise(task(activeSignal));
-
-					inFlight--;
-
-					if (Result.is.ok(nodeOutcome)) {
-						results.set(node, nodeOutcome.value);
-
-						if (node === target) {
-							settle(Result.make.ok(nodeOutcome.value as Out));
-							return;
+							task = Task.Result.retry(policy)(task);
+						}
+						if (nodeInternal.timeout) {
+							task = Task.Result.timeout(nodeInternal.timeout as any)(task);
 						}
 
-						const dependents = dependentsMap.get(node)!;
-						for (let i = 0; i < dependents.length; i++) {
-							const dep = dependents[i];
-							const rem = remainingDeps.get(dep)! - 1;
-							remainingDeps.set(dep, rem);
-							if (rem === 0) {
-								queue.push(dep);
+						const nodeOutcome = await Deferred.to.Promise(task(activeSignal));
+
+						inFlight--;
+
+						if (Result.is.ok(nodeOutcome)) {
+							results.set(node, nodeOutcome.value);
+
+							if (node === target) {
+								settle(Result.make.ok(nodeOutcome.value as Out));
+								return;
 							}
+
+							const dependents = dependentsMap.get(node)!;
+							for (let i = 0; i < dependents.length; i++) {
+								const dep = dependents[i];
+								const rem = remainingDeps.get(dep)! - 1;
+								remainingDeps.set(dep, rem);
+								if (rem === 0) {
+									queue.push(dep);
+								}
+							}
+
+							drain();
+						} else {
+							settle(Result.make.err(nodeOutcome.error as E | Task.TimeoutUnexpected));
 						}
-
-						drain();
-					} else {
-						settle(Result.make.err(nodeOutcome.error as E));
+					} catch (thrown) {
+						inFlight--;
+						settle(Result.make.err({ kind: "GraphUnexpected", cause: thrown }));
 					}
-				} catch (thrown) {
-					inFlight--;
-					settle(Result.make.err(thrown as E));
-				}
-			};
+				};
 
-			drain = (): void => {
-				if (isSettled) {
-					return;
-				}
+				drain = (): void => {
+					if (isSettled) {
+						return;
+					}
 
-				while (queueHead < queue.length && inFlight < concurrency) {
-					const node = queue[queueHead++];
-					inFlight++;
-					void executeNode(node);
-				}
-			};
+					while (queueHead < queue.length && inFlight < concurrency) {
+						const node = queue[queueHead++];
+						inFlight++;
+						void executeNode(node);
+					}
+				};
 
-			drain();
-		}),
-	);
+				drain();
+			}),
+		);
 
 // =============================================================================
 // Public Module Export

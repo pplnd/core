@@ -11,6 +11,7 @@ import {
 	type WithValue,
 } from "../internal/InternalTypes.ts";
 import {
+	internalUnexpected,
 	makeBuffered,
 	makeConcurrent,
 	makeDebounced,
@@ -121,6 +122,8 @@ export type Op<Args extends readonly unknown[] = readonly unknown[], E = unknown
 };
 
 export namespace Op {
+	/** An exception thrown by an operation's error, retry, timeout, or key callback. */
+	export type Unexpected = { readonly kind: "OpUnexpected"; readonly cause: unknown; };
 	export type ToArgs<T> = NormalizeArgs<T>;
 	export type Outcome<E, A> = Ok<A> | Err<E> | Nil;
 	export type Ok<A> = WithKind<"OpOk"> & WithValue<A>;
@@ -353,7 +356,7 @@ export namespace Op {
 type MaybeRetry<E, O> = O extends { retry: RetryOptionsInternal<E>; } ? Op.Retrying<E> : never;
 
 type TimeoutErrorOf<O> = O extends { timeout: { onTimeout: () => infer ET; }; } ? ET : never;
-type CombinedError<E, O> = E | TimeoutErrorOf<O>;
+type CombinedError<E, O> = E | TimeoutErrorOf<O> | Op.Unexpected;
 
 // Extracts the key type from the `keyed` strategy's `key` function, defaulting to the first argument type.
 type KeyType<Args extends readonly unknown[], O> = O extends { key: (...args: Args) => infer K; } ? K
@@ -832,7 +835,7 @@ function makeFn(
 						try {
 							return CoreResult.make.err(options.onError(error));
 						} catch (handlerError) {
-							return CoreResult.make.err(handlerError);
+							return CoreResult.make.err(internalUnexpected(handlerError));
 						}
 					},
 				),

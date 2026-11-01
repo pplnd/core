@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import { pipe } from "../../Composition/pipe.ts";
 import { Duration } from "../../Types/Duration.ts";
 import { Deferred } from "../Deferred.ts";
+import { Result } from "../Result.ts";
 import { Task } from "../Task.ts";
 
 const fromPromise = <A>(f: (signal?: AbortSignal) => Promise<A>): Task<A> => (signal?: AbortSignal) =>
@@ -161,12 +162,12 @@ test("tap: does not alter resolved value", async () => {
 
 test("all: runs multiple Tasks in parallel and collects results", async () => {
 	const result = await Task.all([Task.make(1), Task.make("two"), Task.make(true)] as const)();
-	expect(result).toStrictEqual([1, "two", true]);
+	expect(result).toStrictEqual(Result.make.ok([1, "two", true]));
 });
 
 test("all: returns empty array for empty input", async () => {
 	const result = await Task.all([] as const)();
-	expect(result).toStrictEqual([]);
+	expect(result).toStrictEqual(Result.make.ok([]));
 });
 
 test("all: preserves order regardless of completion time", async () => {
@@ -174,7 +175,7 @@ test("all: preserves order regardless of completion time", async () => {
 	const fast = fromPromise(() => new Promise<string>((resolve) => setTimeout(() => resolve("fast"), 10)));
 
 	const result = await Task.all([slow, fast] as const)();
-	expect(result).toStrictEqual(["slow", "fast"]);
+	expect(result).toStrictEqual(Result.make.ok(["slow", "fast"]));
 });
 
 test("all: runs Tasks in parallel not sequentially", async () => {
@@ -186,7 +187,7 @@ test("all: runs Tasks in parallel not sequentially", async () => {
 	const result = await Task.all([t1, t2, t3] as const)();
 	const elapsed = Date.now() - start;
 
-	expect(result).toStrictEqual([1, 2, 3]);
+	expect(result).toStrictEqual(Result.make.ok([1, 2, 3]));
 	// All 3 should run in ~50ms parallel, not 150ms sequential
 	expect(elapsed).toBeLessThan(100);
 });
@@ -212,7 +213,7 @@ test("all: limits concurrent executions when concurrency option is provided", as
 	const tasks = [makeTask(1), makeTask(2), makeTask(3), makeTask(4), makeTask(5)] as const;
 	const result = await Task.all(tasks, { concurrency: 2 })();
 
-	expect(result).toStrictEqual([1, 2, 3, 4, 5]);
+	expect(result).toStrictEqual(Result.make.ok([1, 2, 3, 4, 5]));
 	expect(maxActive).toBe(2);
 });
 
@@ -222,7 +223,36 @@ test("all: preserves order when concurrency option is provided", async () => {
 	const t3 = fromPromise(() => new Promise<string>((resolve) => setTimeout(() => resolve("medium"), 20)));
 
 	const result = await Task.all([t1, t2, t3] as const, { concurrency: 2 })();
-	expect(result).toStrictEqual(["slow", "fast", "medium"]);
+	expect(result).toStrictEqual(Result.make.ok(["slow", "fast", "medium"]));
+});
+
+test("all: treats invalid concurrency values as unbounded", async () => {
+	for (const concurrency of [1.5, NaN, Infinity, 0, -1]) {
+		const result = await Task.all([Task.make("first"), Task.make("second")], { concurrency })();
+		expect(result).toStrictEqual(Result.make.ok(["first", "second"]));
+	}
+});
+
+test("all: pre-aborted signals do not start tasks", async () => {
+	const controller = new AbortController();
+	controller.abort("cancelled");
+	let starts = 0;
+	const task = Task.from.sync(() => ++starts);
+	for (const options of [undefined, { concurrency: 1 }]) {
+		const result = await Task.all([task, task], options)(controller.signal);
+		expect(result).toStrictEqual(Result.make.err({ kind: "TaskAborted", reason: "cancelled" }));
+	}
+	expect(starts).toBe(0);
+});
+
+test("all: returns completed values when abort follows the last start", async () => {
+	const controller = new AbortController();
+	const task = Task.from.sync(() => {
+		controller.abort("late");
+		return 42;
+	});
+	const result = await Task.all([task], { concurrency: 1 })(controller.signal);
+	expect(result).toStrictEqual(Result.make.ok([42]));
 });
 
 // ---------------------------------------------------------------------------
@@ -372,12 +402,12 @@ test("race: aborts remaining subtasks when outer signal aborts mid-flight", asyn
 
 test("sequential: runs Tasks in order and collects results", async () => {
 	const result = await Task.sequential([Task.make(1), Task.make(2), Task.make(3)])();
-	expect(result).toStrictEqual([1, 2, 3]);
+	expect(result).toStrictEqual(Result.make.ok([1, 2, 3]));
 });
 
 test("sequential: returns empty array for empty array", async () => {
 	const result = await Task.sequential([])();
-	expect(result).toStrictEqual([]);
+	expect(result).toStrictEqual(Result.make.ok([]));
 });
 
 test("sequential: executes each Task only after previous resolves", async () => {
@@ -398,7 +428,7 @@ test("sequential: executes each Task only after previous resolves", async () => 
 
 test("sequential: returns single-element array for single Task", async () => {
 	const result = await Task.sequential([Task.make(99)])();
-	expect(result).toStrictEqual([99]);
+	expect(result).toStrictEqual(Result.make.ok([99]));
 });
 
 test("sequential: short-circuits early when signal is aborted", async () => {
@@ -417,7 +447,27 @@ test("sequential: short-circuits early when signal is aborted", async () => {
 	const result = await Task.sequential([makeTask(1), makeTask(2), makeTask(3)])(controller.signal);
 
 	expect(order).toStrictEqual([1, 2]);
-	expect(result).toStrictEqual([1, 2]);
+	expect(result).toStrictEqual(Result.make.err({ kind: "TaskAborted", reason: controller.signal.reason }));
+});
+
+test("sequential: pre-aborted signals do not start tasks", async () => {
+	const controller = new AbortController();
+	controller.abort("cancelled");
+	let starts = 0;
+	const task = Task.from.sync(() => ++starts);
+	const result = await Task.sequential([task, task])(controller.signal);
+	expect(result).toStrictEqual(Result.make.err({ kind: "TaskAborted", reason: "cancelled" }));
+	expect(starts).toBe(0);
+});
+
+test("sequential: returns completed values when abort follows the last start", async () => {
+	const controller = new AbortController();
+	const task = Task.from.sync(() => {
+		controller.abort("late");
+		return 42;
+	});
+	const result = await Task.sequential([task])(controller.signal);
+	expect(result).toStrictEqual(Result.make.ok([42]));
 });
 
 // ---------------------------------------------------------------------------
@@ -443,6 +493,32 @@ test("timeout: uses onTimeout return value as error", async () => {
 	const error = new Error("request timed out");
 	const result = await pipe(slow, Task.timeout({ duration: Duration.milliseconds(10), onTimeout: () => error }))();
 	expect(result).toStrictEqual({ kind: "Err", error });
+});
+
+test("timeout: returns a typed unexpected error when onTimeout throws", async () => {
+	const cause = { message: "callback failed" };
+	const task: Task<number> = () => Deferred.from.Promise(new Promise(() => {}));
+	const result = await pipe(
+		task,
+		Task.timeout({
+			duration: Duration.milliseconds(1),
+			onTimeout: () => {
+				throw cause;
+			},
+		}),
+	)();
+	expect(result).toStrictEqual(Result.make.err({ kind: "TaskTimeoutUnexpected", cause }));
+});
+
+test("timeout: returns the deadline error when abort completes the inner task", async () => {
+	const task: Task<number> = (signal) =>
+		Deferred.from.Promise(
+			new Promise((resolve) => {
+				signal?.addEventListener("abort", () => resolve(42), { once: true });
+			}),
+		);
+	const result = await pipe(task, Task.timeout({ duration: Duration.milliseconds(1), onTimeout: () => "deadline" }))();
+	expect(result).toStrictEqual(Result.make.err("deadline"));
 });
 
 // ---------------------------------------------------------------------------
@@ -754,6 +830,16 @@ test("timeout: removes outer signal listener after normal completion", async () 
 	expect(innerSignal?.aborted).toBe(false);
 });
 
+test("timeout: keeps the deadline after external cancellation when the task ignores the signal", async () => {
+	const controller = new AbortController();
+	const task = fromPromise(() => new Promise<number>((resolve) => setTimeout(() => resolve(42), 50)));
+	const outcome = pipe(task, Task.timeout({ duration: Duration.milliseconds(10), onTimeout: () => "timed out" }))(
+		controller.signal,
+	);
+	controller.abort();
+	await expect(Deferred.to.Promise(outcome)).resolves.toStrictEqual({ kind: "Err", error: "timed out" });
+});
+
 // ---------------------------------------------------------------------------
 // fromSync
 // ---------------------------------------------------------------------------
@@ -904,7 +990,7 @@ test("all: preserves tuple element types for heterogeneous task literals", async
 
 	const combined = Task.all([tNum, tStr]);
 	const result = await combined();
-	expect(result).toStrictEqual([42, "hello"]);
+	expect(result).toStrictEqual(Result.make.ok([42, "hello"]));
 });
 
 test("sequential: preserves tuple element types for heterogeneous task literals", async () => {
@@ -913,7 +999,7 @@ test("sequential: preserves tuple element types for heterogeneous task literals"
 
 	const combined = Task.sequential([tNum, tStr]);
 	const result = await combined();
-	expect(result).toStrictEqual([42, "hello"]);
+	expect(result).toStrictEqual(Result.make.ok([42, "hello"]));
 });
 
 // --- assignTo ---
@@ -1022,8 +1108,9 @@ test("all: does not start queued tasks when signal is aborted during execution",
 			return Promise.resolve(2);
 		}),
 	];
-	await Task.all(tasks, { concurrency: 1 })(controller.signal);
+	const result = await Task.all(tasks, { concurrency: 1 })(controller.signal);
 	expect(executedCount).toBe(1);
+	expect(result).toStrictEqual(Result.make.err({ kind: "TaskAborted", reason: controller.signal.reason }));
 });
 
 test("repeat: exits wait immediately if signal is already aborted", async () => {

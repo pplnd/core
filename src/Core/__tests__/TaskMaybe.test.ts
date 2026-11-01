@@ -56,6 +56,13 @@ test("tryCatch: returns None when Promise rejects", async () => {
 	await expect(Task.Maybe.tryCatch(() => Promise.reject(new Error("boom")))()).resolves.toStrictEqual({ kind: "None" });
 });
 
+test("tryCatch: returns None when the factory throws before returning a promise", async () => {
+	const task = Task.Maybe.tryCatch(() => {
+		throw new Error("invalid request");
+	});
+	await expect(task()).resolves.toStrictEqual({ kind: "None" });
+});
+
 test("tryCatch: receives AbortSignal from call site", async () => {
 	let receivedSignal: AbortSignal | undefined;
 	const task = Task.Maybe.tryCatch((signal) => {

@@ -79,6 +79,12 @@ export type Transaction<
 };
 
 export namespace Transaction {
+	/** Cancellation observed before starting a step. */
+	export type Aborted = { readonly kind: "TransactionAborted"; readonly reason: unknown; };
+
+	/** An exception thrown by forward or rollback work. */
+	export type Unexpected = { readonly kind: "TransactionUnexpected"; readonly cause: unknown; };
+
 	/**
 	 * Telemetry and failure metadata when an individual step's compensating `undo` action fails.
 	 */
@@ -228,6 +234,12 @@ type UndoItem = {
 	readonly context: Record<string, unknown>;
 };
 
+const unexpectedMarker = Symbol("Transaction.unexpected");
+type InternalUnexpected = { readonly [unexpectedMarker]: true; readonly cause: unknown; };
+const internalUnexpected = (cause: unknown): InternalUnexpected => ({ [unexpectedMarker]: true, cause });
+const isInternalUnexpected = (value: unknown): value is InternalUnexpected =>
+	typeof value === "object" && value !== null && unexpectedMarker in value;
+
 const drainUndoStack = async (
 	undoStack: readonly UndoItem[],
 	options: Transaction.RunOptions | undefined,
@@ -242,7 +254,10 @@ const drainUndoStack = async (
 			try {
 				undoTask = item.undo(item.output, item.context);
 			} catch (thrown) {
-				undoTask = () => Deferred.from.Promise(globalThis.Promise.resolve(Result.make.err(thrown)));
+				undoTask = () =>
+					Deferred.from.Promise(
+						globalThis.Promise.resolve(Result.make.err({ kind: "TransactionUnexpected", cause: thrown })),
+					);
 			}
 
 			const undoOutcome = await Deferred.to.Promise(undoTask(undefined));
@@ -265,7 +280,7 @@ const drainUndoStack = async (
 				}
 			}
 		} catch (thrown) {
-			const errRecord = { stepId: item.id, error: thrown };
+			const errRecord = { stepId: item.id, error: { kind: "TransactionUnexpected", cause: thrown } };
 			undoErrors.push(errRecord);
 			if (options?.onUndo) {
 				try {
@@ -444,7 +459,13 @@ function runTransaction(
 	options?: Transaction.RunOptions,
 ): <Acc extends Record<string, unknown> = Record<never, never>, E = never, EUndo = never>(
 	transaction: Transaction<void, Acc, E, EUndo>,
-) => Task.Result<Transaction.Failure<E, EUndo>, Acc>;
+) => Task.Result<
+	Transaction.Failure<
+		E | Transaction.Aborted | Transaction.Unexpected | Task.TimeoutUnexpected,
+		EUndo | Transaction.Unexpected
+	>,
+	Acc
+>;
 
 /**
  * Executes a parameterized Transaction with input and optional run options.
@@ -454,7 +475,13 @@ function runTransaction<In>(
 	options?: Transaction.RunOptions,
 ): <Acc extends Record<string, unknown> = Record<never, never>, E = never, EUndo = never>(
 	transaction: Transaction<[In] extends [undefined] ? void : In, Acc, E, EUndo>,
-) => Task.Result<Transaction.Failure<E, EUndo>, Acc>;
+) => Task.Result<
+	Transaction.Failure<
+		E | Transaction.Aborted | Transaction.Unexpected | Task.TimeoutUnexpected,
+		EUndo | Transaction.Unexpected
+	>,
+	Acc
+>;
 
 function runTransaction(
 	inputOrOptions?: unknown,
@@ -476,14 +503,23 @@ function runTransaction(
 
 	return <Acc extends Record<string, unknown>, E, EUndo>(
 		transaction: Transaction<any, Acc, E, EUndo>,
-	): Task.Result<Transaction.Failure<E, EUndo>, Acc> =>
+	): Task.Result<
+		Transaction.Failure<
+			E | Transaction.Aborted | Transaction.Unexpected | Task.TimeoutUnexpected,
+			EUndo | Transaction.Unexpected
+		>,
+		Acc
+	> =>
 	(callerSignal) =>
 		Deferred.from.Promise((async () => {
 			if (!transaction || (transaction as { readonly kind?: unknown; }).kind !== "Transaction") {
 				return Result.make.err({
 					kind: "TransactionFailure" as const,
 					stepId: "initial",
-					error: new TypeError("[Transaction.run] Expected a valid Transaction instance.") as E,
+					error: {
+						kind: "TransactionUnexpected" as const,
+						cause: new TypeError("[Transaction.run] Expected a valid Transaction instance."),
+					},
 					undoErrors: [],
 				});
 			}
@@ -496,11 +532,10 @@ function runTransaction(
 				: (callerSignal ?? options?.signal);
 
 			if (activeSignal?.aborted) {
-				const abortError = activeSignal.reason ?? new Error("[Transaction.run] Aborted before execution");
 				return Result.make.err({
 					kind: "TransactionFailure" as const,
 					stepId: internal.steps[0]?.id ?? "initial",
-					error: abortError as E,
+					error: { kind: "TransactionAborted" as const, reason: activeSignal.reason },
 					undoErrors: [],
 				});
 			}
@@ -517,13 +552,12 @@ function runTransaction(
 				const stepDef = internal.steps[i];
 
 				if (activeSignal?.aborted) {
-					const abortError = activeSignal.reason ?? new Error(`[Transaction.run] Aborted before step '${stepDef.id}'`);
 					const undoErrors = await drainUndoStack(undoStack, options);
 					return Result.make.err({
 						kind: "TransactionFailure" as const,
 						stepId: stepDef.id,
-						error: abortError as E,
-						undoErrors: undoErrors as readonly Transaction.UndoFailure<EUndo>[],
+						error: { kind: "TransactionAborted" as const, reason: activeSignal.reason },
+						undoErrors: undoErrors as readonly Transaction.UndoFailure<EUndo | Transaction.Unexpected>[],
 					});
 				}
 
@@ -534,14 +568,18 @@ function runTransaction(
 						const task = stepDef.run(context);
 						return task(signal);
 					} catch (thrown) {
-						return Deferred.from.Promise(globalThis.Promise.resolve(Result.make.err(thrown)));
+						return Deferred.from.Promise(globalThis.Promise.resolve(Result.make.err(internalUnexpected(thrown))));
 					}
 				};
 
 				let effectiveTask = stepTask;
 
 				if (stepDef.retry) {
-					effectiveTask = Task.Result.retry(stepDef.retry)(effectiveTask);
+					const { retry } = stepDef;
+					effectiveTask = Task.Result.retry({
+						...retry,
+						when: (error: unknown) => !isInternalUnexpected(error) && (retry.when?.(error) ?? true),
+					})(effectiveTask);
 				}
 				if (stepDef.timeout) {
 					effectiveTask = Task.Result.timeout(stepDef.timeout)(effectiveTask);
@@ -551,13 +589,16 @@ function runTransaction(
 				try {
 					stepOutcome = await Deferred.to.Promise(effectiveTask(activeSignal));
 				} catch (thrown) {
-					stepOutcome = Result.make.err(thrown);
+					stepOutcome = Result.make.err(internalUnexpected(thrown));
 				}
 
 				if (Result.is.err(stepOutcome)) {
+					const error = isInternalUnexpected(stepOutcome.error)
+						? { kind: "TransactionUnexpected" as const, cause: stepOutcome.error.cause }
+						: stepOutcome.error;
 					if (options?.onStepFailure) {
 						try {
-							options.onStepFailure({ stepId: stepDef.id, error: stepOutcome.error });
+							options.onStepFailure({ stepId: stepDef.id, error });
 						} catch {
 							// Telemetry errors must never disrupt rollback sequence
 						}
@@ -567,8 +608,8 @@ function runTransaction(
 					return Result.make.err({
 						kind: "TransactionFailure" as const,
 						stepId: stepDef.id,
-						error: stepOutcome.error as E,
-						undoErrors: undoErrors as readonly Transaction.UndoFailure<EUndo>[],
+						error: error as E | Transaction.Unexpected | Task.TimeoutUnexpected,
+						undoErrors: undoErrors as readonly Transaction.UndoFailure<EUndo | Transaction.Unexpected>[],
 					});
 				}
 

@@ -85,7 +85,12 @@ test("run: returns Task.Result resolving to Result with exact Acc and Failure ty
 	expectTypeOf(runner).toBeFunction();
 
 	type RunnerOutcome = typeof runner extends Task.Result<infer E, infer Acc> ? { E: E; Acc: Acc; } : never;
-	expectTypeOf<RunnerOutcome["E"]>().toEqualTypeOf<Transaction.Failure<"run_err", "undo_err">>();
+	expectTypeOf<RunnerOutcome["E"]>().toEqualTypeOf<
+		Transaction.Failure<
+			"run_err" | Transaction.Aborted | Transaction.Unexpected | Task.TimeoutUnexpected,
+			"undo_err" | Transaction.Unexpected
+		>
+	>();
 	expectTypeOf<RunnerOutcome["Acc"]["stepA"]>().toEqualTypeOf<number>();
 	expectTypeOf<RunnerOutcome["Acc"]["stepB"]>().toEqualTypeOf<never>();
 });
@@ -97,7 +102,9 @@ test("run: void transaction allows invocation without input argument", () => {
 	expectTypeOf(runner).toBeFunction();
 
 	type VoidOutcome = typeof runner extends Task.Result<infer E, infer Acc> ? { E: E; Acc: Acc; } : never;
-	expectTypeOf<VoidOutcome["E"]>().toEqualTypeOf<Transaction.Failure<never, never>>();
+	expectTypeOf<VoidOutcome["E"]>().toEqualTypeOf<
+		Transaction.Failure<Transaction.Aborted | Transaction.Unexpected | Task.TimeoutUnexpected, Transaction.Unexpected>
+	>();
 	expectTypeOf<VoidOutcome["Acc"]["init"]>().toEqualTypeOf<string>();
 });
 

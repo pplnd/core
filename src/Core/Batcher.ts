@@ -32,13 +32,17 @@ import type { Task } from "./Task.ts";
 export type Batcher<K, E, V> = {
 	/**
 	 * Immediately coalesces the given key into the active batch window and returns
-	 * an eager `Deferred` resolving to a tri-state `Batcher.Outcome<E, V, K>`.
+	 * an eager `Deferred` resolving to a tri-state `Batcher.Outcome`.
+	 * Cancellation and synchronous fetch exceptions have their own error variants.
 	 *
 	 * @param key - The key to look up.
 	 * @param signal - Optional AbortSignal to cancel this individual caller's lookup.
 	 * @see {@link Batcher.loadMany} to coalesce multiple keys in a single call.
 	 */
-	readonly load: (key: K, signal?: AbortSignal) => Deferred<Batcher.Outcome<E, V, K>>;
+	readonly load: (
+		key: K,
+		signal?: AbortSignal,
+	) => Deferred<Batcher.Outcome<E | Batcher.Aborted | Batcher.Unexpected, V, K>>;
 
 	/**
 	 * Immediately coalesces multiple keys into the batch window and returns their resolved
@@ -51,7 +55,10 @@ export type Batcher<K, E, V> = {
 	 * @param signal - Optional AbortSignal to cancel this caller's lookup batch.
 	 * @see {@link Batcher.load} to look up an individual key.
 	 */
-	readonly loadMany: (keys: readonly K[], signal?: AbortSignal) => Deferred<readonly Batcher.Outcome<E, V, K>[]>;
+	readonly loadMany: (
+		keys: readonly K[],
+		signal?: AbortSignal,
+	) => Deferred<readonly Batcher.Outcome<E | Batcher.Aborted | Batcher.Unexpected, V, K>[]>;
 
 	/**
 	 * Immediately flushes and settles all currently queued batches without waiting
@@ -66,6 +73,12 @@ export type Batcher<K, E, V> = {
 };
 
 export namespace Batcher {
+	/** A caller cancelled its lookup. */
+	export type Aborted = { readonly kind: "BatcherAborted"; readonly reason: unknown; };
+
+	/** The batch fetch threw before returning a result. */
+	export type Unexpected = { readonly kind: "BatcherUnexpected"; readonly cause: unknown; };
+
 	/**
 	 * Represents a successful batch resolution containing the found value.
 	 */
@@ -199,12 +212,12 @@ const toNullableOutcome = <E = never, V = never, K = never>(outcome: Batcher.Out
 
 const defaultSerialize = <K>(key: K): unknown => key;
 
-const getAbortReason = <E>(signal: AbortSignal): E =>
-	(signal.reason !== undefined ? signal.reason : new Error("Aborted")) as E;
+const getAbortReason = (signal: AbortSignal): Batcher.Aborted => ({ kind: "BatcherAborted", reason: signal.reason });
 
 const makeBatcher = <K, E, V>(options: Batcher.Options<K, E, V>): Batcher<K, E, V> => {
 	type KeyHash = unknown;
-	type CallerEntry = { readonly resolve: (outcome: Batcher.Outcome<E, V, K>) => void; readonly signal?: AbortSignal; };
+	type Failure = E | Batcher.Aborted | Batcher.Unexpected;
+	type CallerEntry = { readonly resolve: (outcome: Batcher.Outcome<Failure, V, K>) => void; };
 	type PendingKeySlot = { readonly key: K; readonly callers: CallerEntry[]; };
 
 	const serialize = options.serializeKey ?? defaultSerialize;
@@ -243,29 +256,45 @@ const makeBatcher = <K, E, V>(options: Batcher.Options<K, E, V>): Batcher<K, E, 
 		}
 
 		return new Promise<void>((resolveDispatch) => {
-			const taskDeferred = options.fetch(keys)();
-			taskDeferred.then((batchResult) => {
-				if (Result.is.err(batchResult)) {
-					const errOutcome = makeErr<E, V, K>(batchResult.error);
-					for (let i = 0; i < chunkLen; i++) {
-						const { callers } = chunk[i];
-						for (let j = 0; j < callers.length; j++) {
-							callers[j].resolve(errOutcome);
-						}
-					}
-				} else {
-					const resultMap = batchResult.value;
-					for (let i = 0; i < chunkLen; i++) {
-						const { key, callers } = chunk[i];
-						const outcome: Batcher.Outcome<E, V, K> = resultMap.has(key) ? makeOk(resultMap.get(key)!) : makeMissing(key);
-
-						for (let j = 0; j < callers.length; j++) {
-							callers[j].resolve(outcome);
-						}
+			const rejectChunk = (cause: unknown): void => {
+				const outcome = makeErr<Batcher.Unexpected, V, K>({ kind: "BatcherUnexpected", cause });
+				for (let i = 0; i < chunkLen; i++) {
+					const { callers } = chunk[i];
+					for (let j = 0; j < callers.length; j++) {
+						callers[j].resolve(outcome);
 					}
 				}
 				resolveDispatch();
-			});
+			};
+			try {
+				const taskDeferred = options.fetch(keys)();
+				taskDeferred.then((batchResult) => {
+					if (Result.is.err(batchResult)) {
+						const errOutcome = makeErr<E, V, K>(batchResult.error);
+						for (let i = 0; i < chunkLen; i++) {
+							const { callers } = chunk[i];
+							for (let j = 0; j < callers.length; j++) {
+								callers[j].resolve(errOutcome);
+							}
+						}
+					} else {
+						const resultMap = batchResult.value;
+						for (let i = 0; i < chunkLen; i++) {
+							const { key, callers } = chunk[i];
+							const outcome: Batcher.Outcome<Failure, V, K> = resultMap.has(key)
+								? makeOk(resultMap.get(key)!)
+								: makeMissing(key);
+
+							for (let j = 0; j < callers.length; j++) {
+								callers[j].resolve(outcome);
+							}
+						}
+					}
+					resolveDispatch();
+				});
+			} catch (cause) {
+				rejectChunk(cause);
+			}
 		});
 	};
 
@@ -341,11 +370,11 @@ const makeBatcher = <K, E, V>(options: Batcher.Options<K, E, V>): Batcher<K, E, 
 		}
 	};
 
-	const load = (key: K, signal?: AbortSignal): Deferred<Batcher.Outcome<E, V, K>> =>
+	const load = (key: K, signal?: AbortSignal): Deferred<Batcher.Outcome<Failure, V, K>> =>
 		Deferred.from.Promise(
-			new Promise<Batcher.Outcome<E, V, K>>((resolve) => {
+			new Promise<Batcher.Outcome<Failure, V, K>>((resolve) => {
 				if (signal?.aborted) {
-					resolve(makeErr(getAbortReason<E>(signal)));
+					resolve(makeErr(getAbortReason(signal)));
 					return;
 				}
 
@@ -356,18 +385,28 @@ const makeBatcher = <K, E, V>(options: Batcher.Options<K, E, V>): Batcher<K, E, 
 					queue.set(hash, slot);
 				}
 
-				const entry: CallerEntry = { resolve, signal };
+				const currentSlot = slot;
+				// The settlement and abort callbacks remove one another.
+				// oxlint-disable-next-line prefer-const
+				let onAbort: () => void;
+				const entry: CallerEntry = {
+					resolve: (outcome) => {
+						signal?.removeEventListener("abort", onAbort);
+						resolve(outcome);
+					},
+				};
+				onAbort = () => {
+					const { callers } = currentSlot;
+					const index = callers.indexOf(entry);
+					callers.splice(index, 1);
+					if (callers.length === 0 && queue.get(hash) === currentSlot) {
+						queue.delete(hash);
+					}
+					entry.resolve(makeErr(getAbortReason(signal!)));
+				};
 				slot.callers.push(entry);
-
 				if (signal !== undefined) {
-					signal.addEventListener("abort", () => {
-						const { callers } = slot!;
-						callers.splice(callers.indexOf(entry), 1);
-						if (callers.length === 0) {
-							queue.delete(hash);
-						}
-						resolve(makeErr(getAbortReason<E>(signal)));
-					}, { once: true });
+					signal.addEventListener("abort", onAbort, { once: true });
 				}
 
 				if (queue.size >= maxBatchSize) {
@@ -378,7 +417,7 @@ const makeBatcher = <K, E, V>(options: Batcher.Options<K, E, V>): Batcher<K, E, 
 			}),
 		);
 
-	const loadMany = (keys: readonly K[], signal?: AbortSignal): Deferred<readonly Batcher.Outcome<E, V, K>[]> => {
+	const loadMany = (keys: readonly K[], signal?: AbortSignal): Deferred<readonly Batcher.Outcome<Failure, V, K>[]> => {
 		const len = keys.length;
 		if (len === 0) {
 			return Deferred.from.Promise(Promise.resolve([]));

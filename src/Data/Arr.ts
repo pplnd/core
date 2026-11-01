@@ -63,7 +63,7 @@ const sequenceValidation = <E, A>(items: readonly CoreValidation<E, A>[]): CoreV
 
 const traverseTask =
 	<A, B>(transform: (item: A) => CoreTask<B>, options?: { concurrency?: number; }) =>
-	(items: readonly A[]): CoreTask<readonly B[]> => {
+	(items: readonly A[]): CoreTask.Result<CoreTask.Aborted, readonly B[]> => {
 		const n = items.length;
 		const tasks = new Array<CoreTask<B>>(n);
 		for (let i = 0; i < n; i++) {
@@ -72,7 +72,7 @@ const traverseTask =
 		return CoreTask.all(tasks, options);
 	};
 
-const sequenceTask = <A>(items: readonly CoreTask<A>[]): CoreTask<readonly A[]> =>
+const sequenceTask = <A>(items: readonly CoreTask<A>[]): CoreTask.Result<CoreTask.Aborted, readonly A[]> =>
 	traverseTask<CoreTask<A>, A>((item) => item)(items);
 
 /**
@@ -1343,10 +1343,12 @@ export const Arr = {
 	is: ArrIs,
 	/**
 	 * Maps elements to an effectful container and aggregates the results.
+	 * `Task` traversal returns a `Task.Result` that reports cancellation of queued tasks.
 	 */
 	traverse: { Maybe: traverseMaybe, Result: traverseResult, Task: traverseTask, Validation: traverseValidation },
 	/**
 	 * Sequences an array of effectful containers into a container of array.
+	 * `Task` sequencing returns a `Task.Result` that reports cancellation of queued tasks.
 	 */
 	sequence: { Maybe: sequenceMaybe, Result: sequenceResult, Task: sequenceTask, Validation: sequenceValidation },
 	/**

@@ -615,8 +615,13 @@ test("protect: handles synchronously throwing task in Closed state by resolving 
 	};
 
 	const res = await breaker.protect(throwingTask)();
-	expect(res).toStrictEqual(Result.make.err(new Error("sync_throw")));
-	expect(CircuitBreaker.is.open(breaker.state())).toBe(true);
+	expect(res).toStrictEqual(Result.make.err({ kind: "CircuitBreakerUnexpected", cause: new Error("sync_throw") }));
+	const state = breaker.state();
+	assert(CircuitBreaker.is.open(state));
+	expect(state.lastError).toStrictEqual({ kind: "CircuitBreakerUnexpected", cause: new Error("sync_throw") });
+	const rejected = await breaker.protect(throwingTask)();
+	assert(Result.is.err(rejected) && CircuitBreaker.is.openError(rejected.error));
+	expect(rejected.error.lastError).toStrictEqual({ kind: "CircuitBreakerUnexpected", cause: new Error("sync_throw") });
 });
 
 test("protect: handles synchronously throwing task in HalfOpen state by resolving to Err", async () => {
@@ -630,8 +635,23 @@ test("protect: handles synchronously throwing task in HalfOpen state by resolvin
 	};
 
 	const res = await breaker.protect(throwingTask)();
-	expect(res).toStrictEqual(Result.make.err(new Error("sync_throw_half_open")));
+	expect(res).toStrictEqual(
+		Result.make.err({ kind: "CircuitBreakerUnexpected", cause: new Error("sync_throw_half_open") }),
+	);
 	expect(CircuitBreaker.is.open(breaker.state())).toBe(true);
+});
+
+test("protect: a pre-aborted throwing task does not count as a breaker failure", async () => {
+	const breaker = CircuitBreaker.make<string>({ failureThreshold: 1, resetTimeout: Duration.seconds(1) });
+	const controller = new AbortController();
+	controller.abort("cancelled");
+	const cause = new Error("task failed");
+	const task = () => {
+		throw cause;
+	};
+	const result = await breaker.protect(task)(controller.signal);
+	expect(result).toStrictEqual(Result.make.err({ kind: "CircuitBreakerUnexpected", cause }));
+	expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 0 });
 });
 
 // -----------------------------------------------------------------------------
@@ -675,7 +695,12 @@ test("pipe: composes in realistic multi-step pipeline with fallback error recove
 		breaker.protect,
 		Task.Result.match({
 			ok: (user) => `Hello, ${user.name}`,
-			err: (err) => (CircuitBreaker.is.openError(err) ? `Fallback: ${cachedUser.name}` : `Error: ${err.message}`),
+			err: (err) =>
+				CircuitBreaker.is.openError(err)
+					? `Fallback: ${cachedUser.name}`
+					: "message" in err
+					? `Error: ${err.message}`
+					: "Unexpected error",
 		}),
 	);
 

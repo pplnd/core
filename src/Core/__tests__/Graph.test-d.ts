@@ -21,6 +21,12 @@ test("node: infers standalone root node types", () => {
 	Graph.node({ id: "bad", deps: "not_an_object", run: () => Task.Result.make.ok(1) });
 });
 
+test("run: infallible nodes still expose cancellation and unexpected failures", () => {
+	const node = Graph.node({ id: "count", run: () => Task.Result.make.ok(1) });
+	const task = Graph.run(Graph.make(node));
+	expectTypeOf(task).toEqualTypeOf<Task.Result<Graph.Aborted | Graph.Unexpected | Task.TimeoutUnexpected, number>>();
+});
+
 test("node: infers contextual dependency outputs and accumulates error unions", () => {
 	const user = Graph.node({
 		id: "user",
@@ -77,10 +83,14 @@ test("make & run: compiles and preserves error and output channels", () => {
 	expectTypeOf(graph).toEqualTypeOf<Graph<"e_perm" | "e_user", string[]>>();
 
 	const task = Graph.run(graph);
-	expectTypeOf(task).toEqualTypeOf<Task.Result<"e_perm" | "e_user", string[]>>();
+	expectTypeOf(task).toEqualTypeOf<
+		Task.Result<"e_perm" | "e_user" | Graph.Aborted | Graph.Unexpected | Task.TimeoutUnexpected, string[]>
+	>();
 
 	const taskWithConcurrency = Graph.run(graph, { concurrency: 2 });
-	expectTypeOf(taskWithConcurrency).toEqualTypeOf<Task.Result<"e_perm" | "e_user", string[]>>();
+	expectTypeOf(taskWithConcurrency).toEqualTypeOf<
+		Task.Result<"e_perm" | "e_user" | Graph.Aborted | Graph.Unexpected | Task.TimeoutUnexpected, string[]>
+	>();
 
 	const taskWithTelemetry = Graph.run(graph, {
 		concurrency: 2,
@@ -92,7 +102,9 @@ test("make & run: compiles and preserves error and output channels", () => {
 			expectTypeOf(event.delay).toEqualTypeOf<Duration>();
 		},
 	});
-	expectTypeOf(taskWithTelemetry).toEqualTypeOf<Task.Result<"e_perm" | "e_user", string[]>>();
+	expectTypeOf(taskWithTelemetry).toEqualTypeOf<
+		Task.Result<"e_perm" | "e_user" | Graph.Aborted | Graph.Unexpected | Task.TimeoutUnexpected, string[]>
+	>();
 
 	const retryingNode = Graph.node({
 		id: "with-retry",

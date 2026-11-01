@@ -20,7 +20,7 @@ test("make & from.Task: constructs resource objects with acquire and release", (
 	Resource.make(fallibleAcquire, () => undefined);
 });
 
-test("use: passes acquired value to consume and unifies error channels", () => {
+test("use: passes acquired value to consume and unifies error channels", async () => {
 	const resFallible = Resource.make(
 		constTruthyBool() ? Task.Result.make.ok(42) : Task.Result.make.err("acquire_err"),
 		(_n) => Task.make(undefined),
@@ -30,7 +30,16 @@ test("use: passes acquired value to consume and unifies error channels", () => {
 		resFallible,
 		Resource.use((n) => constTruthyBool() ? Task.Result.make.ok(n.toString()) : Task.Result.make.err(500)),
 	);
-	expectTypeOf(program).toEqualTypeOf<Task.Result<"acquire_err" | 500, string>>();
+	expectTypeOf(program).toEqualTypeOf<
+		Task.Result<"acquire_err" | 500 | Resource.Unexpected<"acquire_err" | 500, string>, string>
+	>();
+	const outcome = await program();
+	if (
+		outcome.kind === "Err" && typeof outcome.error === "object" && outcome.error.phase === "release"
+		&& outcome.error.previous.kind === "Ok"
+	) {
+		expectTypeOf(outcome.error.previous.value).toEqualTypeOf<string>();
+	}
 
 	// @ts-expect-error — consume callback must return Task.Result, not a primitive
 	pipe(resFallible, Resource.use((n) => n * 2));

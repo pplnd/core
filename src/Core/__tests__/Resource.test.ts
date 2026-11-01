@@ -5,6 +5,148 @@ import { Resource } from "../Resource.ts";
 import type { Result } from "../Result.ts";
 import { Task } from "../Task.ts";
 
+test("from.Task: a throwing acquisition settles without running release or work", async () => {
+	const failure = new Error("acquisition crashed");
+	const events: string[] = [];
+	const resource = Resource.from.Task(
+		Task.from.sync(() => {
+			throw failure;
+		}),
+		() =>
+			Task.from.sync(() => {
+				events.push("release");
+			}),
+	);
+	const result = await pipe(
+		resource,
+		Resource.use(() => {
+			events.push("work");
+			return Task.Result.make.ok("done");
+		}),
+	)();
+
+	expect(result).toStrictEqual({ kind: "Err", error: { kind: "ResourceUnexpected", phase: "acquire", cause: failure } });
+	expect(events).toStrictEqual([]);
+});
+
+test("chain: a throwing setup callback releases earlier resources and settles with an unexpected error", async () => {
+	const events: string[] = [];
+	const failure = new Error("invalid setup");
+	const connection = Resource.from.Task(Task.make("connection"), () =>
+		Task.from.sync(() => {
+			events.push("released connection");
+		}));
+	const chained = pipe(
+		connection,
+		Resource.chain(() => {
+			throw failure;
+		}),
+	);
+	const result = await pipe(
+		chained,
+		Resource.use(() => {
+			events.push("work");
+			return Task.Result.make.ok("done");
+		}),
+	)();
+
+	expect(result).toStrictEqual({ kind: "Err", error: { kind: "ResourceUnexpected", phase: "acquire", cause: failure } });
+	expect(events).toStrictEqual(["released connection"]);
+});
+
+test("all: a throwing nested acquisition releases every acquired resource in reverse order", async () => {
+	const failure = new Error("bad mapping");
+	for (const collect of ["combine", "tuple", "record"]) {
+		const released: string[] = [];
+		const first = Resource.from.Task(Task.make("first"), (value) => Task.from.sync(() => released.push(value)));
+		const second = pipe(
+			Resource.from.Task(Task.make("second"), (value) => Task.from.sync(() => released.push(value))),
+			Resource.map(() => {
+				throw failure;
+			}),
+		);
+		const consume = Resource.use(() => Task.Result.make.ok("unreachable"));
+		const task = collect === "combine"
+			? consume(Resource.combine(first, second))
+			: collect === "tuple"
+			? consume(Resource.all([first, second]))
+			: consume(Resource.all({ first, second }));
+		const result = await task();
+		expect(result).toStrictEqual({
+			kind: "Err",
+			error: { kind: "ResourceUnexpected", phase: "acquire", cause: failure },
+		});
+		expect(released).toStrictEqual(["second", "first"]);
+	}
+});
+
+test("use: a throwing work callback releases the resource and settles with an unexpected error", async () => {
+	const failure = new Error("work crashed");
+	let released = false;
+	const resource = Resource.from.Task(Task.make("handle"), () =>
+		Task.from.sync(() => {
+			released = true;
+		}));
+	const result = await pipe(
+		resource,
+		Resource.use(() => {
+			throw failure;
+		}),
+	)();
+
+	expect(released).toBe(true);
+	expect(result).toStrictEqual({ kind: "Err", error: { kind: "ResourceUnexpected", phase: "use", cause: failure } });
+});
+
+test("use: cleanup failures do not skip earlier finalizers and retain the work result", async () => {
+	const released: string[] = [];
+	const firstError = new Error("first release failed");
+	const secondError = new Error("second release failed");
+	const first = Resource.from.Task(Task.make("first"), () =>
+		Task.from.sync(() => {
+			released.push("first");
+			throw firstError;
+		}));
+	const second = Resource.from.Task(Task.make("second"), () =>
+		Task.from.sync(() => {
+			released.push("second");
+			throw secondError;
+		}));
+	const result = await pipe(Resource.combine(first, second), Resource.use(() => Task.Result.make.err("work failed")))();
+
+	expect(released).toStrictEqual(["second", "first"]);
+	expect(result).toStrictEqual({
+		kind: "Err",
+		error: {
+			kind: "ResourceUnexpected",
+			phase: "release",
+			cause: secondError,
+			additionalErrors: [firstError],
+			previous: { kind: "Err", error: "work failed" },
+		},
+	});
+});
+
+test("use: a cleanup failure retains a successful work result", async () => {
+	const failure = new Error("release failed");
+	const resource = Resource.from.Task(Task.make("handle"), () =>
+		Task.from.sync(() => {
+			throw failure;
+		}));
+	const result = await pipe(resource, Resource.use(() => Task.Result.make.ok("report")))();
+
+	expect(result).toStrictEqual({
+		kind: "Err",
+		error: {
+			kind: "ResourceUnexpected",
+			phase: "release",
+			cause: failure,
+			additionalErrors: [],
+			previous: { kind: "Ok", value: "report" },
+		},
+	});
+});
+
 // ---------------------------------------------------------------------------
 // make
 // ---------------------------------------------------------------------------
@@ -114,7 +256,9 @@ test("use: infers union error type E1 | E2 without type annotations", async () =
 	);
 	const result = await resultTask();
 	expect(result).toStrictEqual({ kind: "Ok", value: "val: 42" });
-	expectTypeOf(result).toEqualTypeOf<Result<"acquire-err" | "use-err", string>>();
+	expectTypeOf(result).toEqualTypeOf<
+		Result<"acquire-err" | "use-err" | Resource.Unexpected<"acquire-err" | "use-err", string>, string>
+	>();
 });
 
 // ---------------------------------------------------------------------------

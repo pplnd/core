@@ -62,10 +62,10 @@ test("all, sequential & race: preserve element types and execute multiple tasks"
 	const taskB = Task.make("hello");
 
 	const allTask = Task.all([taskA, taskB]);
-	expectTypeOf(allTask).toEqualTypeOf<Task<[number, string]>>();
+	expectTypeOf(allTask).toEqualTypeOf<Task.Result<Task.Aborted, [number, string]>>();
 
 	const seqTask = Task.sequential([taskA, taskB]);
-	expectTypeOf(seqTask).toEqualTypeOf<Task<[number, string]>>();
+	expectTypeOf(seqTask).toEqualTypeOf<Task.Result<Task.Aborted, [number, string]>>();
 
 	const raceTask = Task.race([taskA, Task.make(2)]);
 	expectTypeOf(raceTask).toEqualTypeOf<Task<number>>();
@@ -77,7 +77,7 @@ test("all, sequential & race: preserve element types and execute multiple tasks"
 test("timeout: converts task into fallible result channel with typed error", () => {
 	const taskNum = Task.make(42);
 	const timed = pipe(taskNum, Task.timeout({ duration: Duration.seconds(1), onTimeout: () => "timed_out" as const }));
-	expectTypeOf(timed).toEqualTypeOf<Task<Result<"timed_out", number>>>();
+	expectTypeOf(timed).toEqualTypeOf<Task<Result<"timed_out" | Task.TimeoutUnexpected, number>>>();
 });
 
 test("assign & assignTo: accumulates pipeline object record correctly", () => {

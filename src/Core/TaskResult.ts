@@ -522,14 +522,13 @@ export const TaskResult = {
 	 */
 	timeout:
 		<E2>(options: { duration: Duration; onTimeout: () => E2; }) =>
-		<E1 = never, A = unknown>(task: Task.Result<E1, A>): Task.Result<E1 | E2, A> =>
+		<E1 = never, A = unknown>(task: Task.Result<E1, A>): Task.Result<E1 | E2 | Task.TimeoutUnexpected, A> =>
 		(outerSignal) =>
 			Deferred.from.Promise((() => {
 				const controller = new AbortController();
 				let timerId: ReturnType<typeof setTimeout> | undefined;
 
 				const onOuterAbort = () => {
-					clearTimeout(timerId);
 					controller.abort();
 				};
 
@@ -551,17 +550,15 @@ export const TaskResult = {
 						cleanUp();
 						return res;
 					}),
-					new Promise<Result<E1 | E2, A>>((resolve) => {
+					new Promise<Result<E1 | E2 | Task.TimeoutUnexpected, A>>((resolve) => {
 						timerId = setTimeout(() => {
-							controller.abort();
 							cleanUp();
-							let errVal: E2;
 							try {
-								errVal = options.onTimeout();
-							} catch (e) {
-								errVal = e as E2;
+								resolve(CoreResult.make.err(options.onTimeout()));
+							} catch (cause) {
+								resolve(CoreResult.make.err({ kind: "TaskTimeoutUnexpected", cause }));
 							}
-							resolve(CoreResult.make.err(errVal));
+							controller.abort();
 						}, Duration.to.milliseconds(options.duration));
 					}),
 				]);

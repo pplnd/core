@@ -418,7 +418,7 @@ test("AbortSignal: immediately settles with BatcherErr if caller signal is pre-a
 	const batcher = Batcher.make({ fetch: () => () => Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map()))) });
 
 	const res = await batcher.load("k", controller.signal);
-	expect(res).toStrictEqual(Batcher.Outcome.make.err(controller.signal.reason));
+	expect(res).toStrictEqual(Batcher.Outcome.make.err({ kind: "BatcherAborted", reason: controller.signal.reason }));
 });
 
 test("AbortSignal: isolates aborted caller while sibling callers in batch settle normally", async () => {
@@ -500,7 +500,7 @@ test("AbortSignal: skips chunk execution if all callers in a queued chunk abort 
 	const [res1, res2] = await Promise.all([p1, p2]);
 
 	expect(res1).toStrictEqual(Batcher.Outcome.make.ok(1));
-	expect(res2).toStrictEqual(Batcher.Outcome.make.err(c.signal.reason));
+	expect(res2).toStrictEqual(Batcher.Outcome.make.err({ kind: "BatcherAborted", reason: c.signal.reason }));
 	expect(executedChunks).toBe(1);
 });
 
@@ -635,6 +635,61 @@ test("AbortSignal: deduplicated key where one caller aborts in queue while sibli
 	expect(res2).toStrictEqual(Batcher.Outcome.make.ok("res_shared"));
 });
 
+test("AbortSignal: aborting a settled caller does not remove a newer queued lookup for the same key", async () => {
+	const controller = new AbortController();
+	const batches: string[][] = [];
+	const batcher = Batcher.make({
+		window: Duration.seconds(10),
+		fetch: (keys: readonly string[]) => () => {
+			batches.push([...keys]);
+			return Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map(keys.map((key) => [key, batches.length])))));
+		},
+	});
+
+	const first = batcher.load("sku", controller.signal);
+	await batcher.flush();
+	await expect(Deferred.to.Promise(first)).resolves.toStrictEqual(Batcher.Outcome.make.ok(1));
+
+	const second = batcher.load("sku");
+	controller.abort();
+	await batcher.flush();
+	expect(batches).toStrictEqual([["sku"], ["sku"]]);
+	await expect(Deferred.to.Promise(second)).resolves.toStrictEqual(Batcher.Outcome.make.ok(2));
+});
+
+test("AbortSignal: aborting an in-flight caller does not remove a newer queued lookup for the same key", async () => {
+	const controller = new AbortController();
+	const batches: string[][] = [];
+	let finishFirst = () => {};
+	const batcher = Batcher.make({
+		window: Duration.seconds(10),
+		fetch: (keys: readonly string[]) => () => {
+			batches.push([...keys]);
+			if (batches.length === 1) {
+				return Deferred.from.Promise(
+					new Promise<Result<never, ReadonlyMap<string, number>>>((resolve) => {
+						finishFirst = () => resolve(Result.make.ok(new Map([["sku", 1]])));
+					}),
+				);
+			}
+			return Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map([["sku", 2]]))));
+		},
+	});
+
+	const first = batcher.load("sku", controller.signal);
+	const firstFlush = batcher.flush();
+	const second = batcher.load("sku");
+	controller.abort("cancelled");
+	const secondFlush = batcher.flush();
+	finishFirst();
+	await Promise.all([firstFlush, secondFlush]);
+	expect(batches).toStrictEqual([["sku"], ["sku"]]);
+	await expect(Deferred.to.Promise(first)).resolves.toStrictEqual(
+		Batcher.Outcome.make.err({ kind: "BatcherAborted", reason: "cancelled" }),
+	);
+	await expect(Deferred.to.Promise(second)).resolves.toStrictEqual(Batcher.Outcome.make.ok(2));
+});
+
 test("AbortSignal: handles abort with undefined reason", async () => {
 	const fakeSignal = {
 		aborted: true,
@@ -649,5 +704,47 @@ test("AbortSignal: handles abort with undefined reason", async () => {
 	const batcher = Batcher.make({ fetch: () => () => Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map()))) });
 
 	const res = await batcher.load("k", fakeSignal);
-	expect(res).toStrictEqual(Batcher.Outcome.make.err(new Error("Aborted")));
+	expect(res).toStrictEqual(Batcher.Outcome.make.err({ kind: "BatcherAborted", reason: undefined }));
+});
+
+test("load: a throwing fetch factory settles its callers and lets later chunks run", async () => {
+	const failure = new Error("catalog unavailable");
+	const batches: string[][] = [];
+	const batcher = Batcher.make({
+		maxBatchSize: 2,
+		concurrency: 1,
+		fetch: (keys: readonly string[]) => {
+			batches.push([...keys]);
+			if (keys.includes("bad")) { throw failure; }
+			return () => Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map(keys.map((key) => [key, key])))));
+		},
+	});
+
+	const first = batcher.load("bad");
+	const duplicate = batcher.load("bad");
+	const other = batcher.load("also-bad");
+	const later = batcher.load("good");
+	await batcher.flush();
+	const failed = Batcher.Outcome.make.err({ kind: "BatcherUnexpected", cause: failure });
+	await expect(Promise.all([first, duplicate, other, later])).resolves.toStrictEqual([
+		failed,
+		failed,
+		failed,
+		Batcher.Outcome.make.ok("good"),
+	]);
+	expect(batches).toStrictEqual([["bad", "also-bad"], ["good"]]);
+});
+
+test("load: a fetch task that throws before returning settles the caller and flush", async () => {
+	const failure = new Error("task could not start");
+	const batcher = Batcher.make({
+		fetch: (_keys: readonly string[]) => () => {
+			throw failure;
+		},
+	});
+	const outcome = batcher.load("item");
+	await batcher.flush();
+	await expect(Deferred.to.Promise(outcome)).resolves.toStrictEqual(
+		Batcher.Outcome.make.err({ kind: "BatcherUnexpected", cause: failure }),
+	);
 });

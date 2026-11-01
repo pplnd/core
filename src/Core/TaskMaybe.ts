@@ -106,7 +106,7 @@ export const TaskMaybe = {
 
 	/**
 	 * Creates a Task.Maybe from a Promise-returning function.
-	 * Returns Some if the promise resolves, None if it rejects.
+	 * Returns Some if the promise resolves, None if the factory throws or the promise rejects.
 	 * The factory optionally receives an `AbortSignal` forwarded from the call site.
 	 *
 	 * @example
@@ -117,7 +117,10 @@ export const TaskMaybe = {
 	 * ```
 	 */
 	tryCatch: <A>(fn: (signal?: AbortSignal) => Thenable<A>): Task.Maybe<A> => (signal) =>
-		Deferred.from.Promise(Promise.resolve(fn(signal)).then(CoreMaybe.make.some).catch(() => CoreMaybe.make.none())),
+		Deferred.from.Promise(
+			// oxlint-disable-next-line require-await
+			Promise.resolve().then(async () => fn(signal)).then(CoreMaybe.make.some).catch(() => CoreMaybe.make.none()),
+		),
 
 	/**
 	 * Transforms the value inside a Task.Maybe.
