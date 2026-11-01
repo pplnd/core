@@ -5,7 +5,7 @@ description: Combine nearby key lookups into bulk requests and handle found, mis
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.90 kB minified + gzipped
+> 2.91 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -114,9 +114,9 @@ the bulk fetch receives the first key in each group.
 A missing key and a failed fetch are separate outcomes. When a batch completes, `loadMany` preserves
 input order, including positions that requested the same key.
 
-A synchronous exception while creating or starting the fetch is returned as `BatcherErr` with a
-`BatcherUnexpected` error. Aborting a caller returns a `BatcherAborted` error containing the
-signal's reason; it does not cancel the shared bulk fetch.
+A synchronous exception while creating or starting the fetch is returned as `BatcherErr` with an
+`Unexpected` error. Aborting a caller returns a `BatcherAborted` error containing the signal's
+reason; it does not cancel the shared bulk fetch.
 
 `serializeKey` controls grouping, but the returned map is looked up using the first original key for
 each group. For object keys, the fetch must return map entries keyed by those original objects.

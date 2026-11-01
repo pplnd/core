@@ -4,7 +4,7 @@ description: Compose asynchronous work that starts when you run it and handle fa
 ---
 {/* BUNDLE_SIZE:START */}
 
-> 4.08 kB minified + gzipped
+> 4.68 kB minified + gzipped
 
 {/* BUNDLE_SIZE:END */}
 
@@ -149,9 +149,10 @@ at a fallible boundary. Cancellation is cooperative: `abortable`, `race`, and `t
 underlying work, which must handle the signal. In particular, `abortable` does not turn a rejection
 caused by abort into a typed result.
 
-`Task.all` and `Task.sequential` return `Ok` with all results. If the signal aborts before every
-task has started, they return `Err` with a `TaskAborted` error and its abort reason. Work already
-started must still settle; an abort does not force an uncooperative task to finish.
+`Task.all` and `Task.sequential` return all completed results directly as a tuple. Cancellation
+forwards the abort signal to every task, including tasks scheduled after the signal aborts. For
+fallible async workflows where cancellation must prevent queued work from starting and short-circuit
+on the first error, use `Task.Result.all` or `Task.Result.sequential`.
 
-If either timeout's `onTimeout` callback throws, the result contains a `TaskTimeoutUnexpected`
-error with the thrown value in `cause`.
+If either timeout's `onTimeout` callback throws, the result contains an `Unexpected`
+error (`Unexpected.Execution` with `source: "Task"`) retaining the thrown value in `cause`.

@@ -31,8 +31,8 @@ Functions accept their data last, so multi-step operations read top-to-bottom in
 
 <!-- BUNDLE_OVERVIEW:START -->
 
-It has zero dependencies, ships ESM and CommonJS builds, and tree-shakes down to ~27 B–6.55 kB
-gzipped for individual modules and 24.83 kB for the entire package.
+It has zero dependencies, ships ESM and CommonJS builds, and tree-shakes down to ~27 B–6.66 kB
+gzipped for individual modules and 24.92 kB for the entire package.
 
 <!-- BUNDLE_OVERVIEW:END -->
 
@@ -642,13 +642,13 @@ When imported individually, only the targeted module is bundled into your applic
 | `Machine`      | **1.88 kB**        |
 | `EventBus`     | **1.17 kB**        |
 | `Batcher`      | **2.91 kB**        |
-| `Resource`     | **2.42 kB**        |
-| `Graph`        | **5.96 kB**        |
-| `Task`         | **4.59 kB**        |
-| `Transaction`  | **5.84 kB**        |
-| `Op`           | **6.55 kB**        |
+| `Resource`     | **2.51 kB**        |
+| `Graph`        | **6.04 kB**        |
+| `Task`         | **4.68 kB**        |
+| `Transaction`  | **5.92 kB**        |
+| `Op`           | **6.66 kB**        |
 | `Lens`         | **233 B**          |
-| `Arr`          | **6.49 kB**        |
+| `Arr`          | **6.58 kB**        |
 | `Rec`          | **2.54 kB**        |
 | `Dict`         | **2.43 kB**        |
 | `Str`          | **2.20 kB**        |

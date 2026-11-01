@@ -5,7 +5,7 @@ description: Run dependent asynchronous steps and compensate completed steps aft
 
 <!-- BUNDLE_SIZE:START -->
 
-> 5.33 kB minified + gzipped
+> 5.92 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -115,7 +115,7 @@ are listed in `undoErrors`; the original forward error remains in `error`.
 Cancellation is checked before each step and the signal is passed to active work. In-flight work
 must respond to the signal; cancellation does not forcibly interrupt an operation that ignores it.
 When cancellation prevents a step from starting, `error` is `Transaction.Aborted` with the signal's
-reason. A thrown step or undo callback is reported as `Transaction.Unexpected` with its cause; undo
-exceptions appear in `undoErrors`. A thrown timeout handler produces `Task.TimeoutUnexpected`.
-Telemetry callback errors are ignored so they do not stop execution or rollback. Step IDs must be
-unique and cannot be `initial`.
+reason. A thrown step or undo callback is reported as `Unexpected` with its cause; undo exceptions
+appear in `undoErrors`. A thrown timeout handler also produces `Unexpected`. Telemetry callback
+errors are ignored so they do not stop execution or rollback. Step IDs must be unique and cannot be
+`initial`.

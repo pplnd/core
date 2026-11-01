@@ -5,7 +5,7 @@ description: Pair an asynchronous acquisition with cleanup and use the acquired 
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.23 kB minified + gzipped
+> 2.51 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -102,10 +102,12 @@ try {
 Only successful acquisitions register a release. A failed acquisition returns its error and the work
 callback is skipped. Release runs in reverse acquisition order.
 
-`Resource.use` returns a `Resource.Unexpected` error when acquisition, work, or a release throws.
-Its `phase` identifies where the exception occurred and `cause` contains the thrown value. Cleanup
-continues after a release throws. A release error also includes the preceding `previous` result and
-any `additionalErrors` from other releases.
+`Resource.use` returns an `Unexpected` error when acquisition, work, or a release throws. For
+exceptions during acquisition or work, it returns `Unexpected.Execution` where `phase` is
+`"acquire"` or `"use"`, and `cause` contains the thrown value. When a release throws, it returns
+`Unexpected.Release` where `phase` is `"release"`, containing `cause`, the preceding work `previous`
+result (which may itself hold an error or `Unexpected.Execution`), and `additionalErrors` if other
+finalizers fail. Cleanup continues even if a release throws.
 
 Tasks supplied to a resource must honor the `Task` contract and not reject. The signal passed to
 `use` is also passed to acquisition, work, and cleanup; cancellation depends on those tasks' signal

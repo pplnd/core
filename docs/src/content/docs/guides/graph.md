@@ -5,7 +5,7 @@ description: Run asynchronous tasks after their dependencies are ready.
 
 <!-- BUNDLE_SIZE:START -->
 
-> 5.48 kB minified + gzipped
+> 6.04 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -93,10 +93,9 @@ A failure prevents unstarted dependents from running. Active work receives an ab
 must cooperate with that signal to stop. A caller can also pass a signal when invoking the task:
 `Graph.run(graph)(signal)`.
 
-Cancellation returns `Graph.Aborted` with the signal's reason. A thrown node callback or task
-returns `Graph.Unexpected` with the original cause. If a node's `onTimeout` callback throws, the
-graph returns `Task.TimeoutUnexpected` with that cause. These errors appear alongside node errors in
-the task's error type.
+Cancellation returns `Graph.Aborted` with the signal's reason. A thrown node callback, task, or
+timeout handler returns `Unexpected` (`Unexpected.Execution` with the original cause). These errors
+appear alongside node errors in the task's error type.
 
 `Graph.make` validates node IDs and checks for cycles at runtime. A nonpositive or non-integer
 `concurrency` value is treated as unbounded. Wrap fallible work in `Task.Result.tryCatch` to map

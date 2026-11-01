@@ -5,7 +5,7 @@ description: Search, transform, group, and validate readonly arrays in pipelines
 
 <!-- BUNDLE_SIZE:START -->
 
-> 5.98 kB minified + gzipped
+> 6.58 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -108,5 +108,5 @@ pipe(["21", "missing"], Arr.partitionMaybe(Str.parse.float));
 `Arr.sequence` receives values that were already created; use `traverse` when the callback itself
 must be skipped after a failure.
 
-`Arr.traverse.Task` and `Arr.sequence.Task` return a `Task.Result`. If cancellation prevents queued
-tasks from starting, the result contains `TaskAborted` instead of an incomplete array.
+`Arr.traverse.Task` and `Arr.sequence.Task` return `Task<readonly B[]>`. Infallible task composition
+forwards the abort signal to every task, collecting a complete array.

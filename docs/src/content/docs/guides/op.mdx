@@ -4,7 +4,7 @@ description: Run asynchronous operations with observable state and a choice of c
 ---
 {/* BUNDLE_SIZE:START */}
 
-> 6.05 kB minified + gzipped
+> 6.66 kB minified + gzipped
 
 {/* BUNDLE_SIZE:END */}
 
@@ -144,5 +144,5 @@ that supports cancellation. Stopping a polling interval prevents future polling 
 separately if the active call should also stop.
 
 If `onError`, a retry predicate, `onTimeout`, or a keyed strategy's key function throws, the
-manager returns an `OpErr` containing `Op.Unexpected` and the original cause. An error mapper
+manager returns an `OpErr` containing `Unexpected` and the original cause. An error mapper
 exception does not enter the retry predicate.

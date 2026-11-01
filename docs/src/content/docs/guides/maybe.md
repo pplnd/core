@@ -5,7 +5,7 @@ description: Model missing worker configuration as a value that can move through
 
 <!-- BUNDLE_SIZE:START -->
 
-> 1.56 kB minified + gzipped
+> 1.57 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
