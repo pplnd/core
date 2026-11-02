@@ -19,6 +19,13 @@ test("constant: clamps negative attempts to minimum of 1", () => {
 
 // --- RetryPolicy.exponential ---
 
+test("exponential: clamps invalid attempt counts", () => {
+	for (const attempts of [0, -1, 1.5, NaN, Infinity]) {
+		const policy = RetryPolicy.exponential({ attempts, initial: Duration.milliseconds(10) });
+		expect(policy.attempts).toBe(1);
+	}
+});
+
 test("exponential: scales delays by factor without jitter", () => {
 	const policy = RetryPolicy.exponential({ attempts: 4, initial: Duration.milliseconds(100), factor: 2, jitter: false });
 

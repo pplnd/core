@@ -23,5 +23,4 @@ export * from "./State";
 export * from "./Task";
 export * from "./These";
 export * from "./Transaction";
-export * from "./Unexpected";
 export * from "./Validation";

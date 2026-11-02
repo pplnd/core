@@ -7,7 +7,6 @@ import type { Deferred } from "../Deferred.ts";
 import type { Maybe } from "../Maybe.ts";
 import { Op } from "../Op.ts";
 import type { Result } from "../Result.ts";
-import type { Unexpected } from "../Unexpected.ts";
 
 interface User {
 	id: string;
@@ -96,9 +95,7 @@ test("lift: infers unknown error type and preserves argument/return shapes", () 
 
 test("interpret: infers strategy-specific state unions and manager run return types", () => {
 	const onceManager = Op.interpret(delayedOp, { strategy: "once" });
-	expectTypeOf(onceManager).toEqualTypeOf<
-		Op.Manager<[n: number], string | Unexpected, number, Op.OnceState<string | Unexpected, number>>
-	>();
+	expectTypeOf(onceManager).toEqualTypeOf<Op.Manager<[n: number], string, number, Op.OnceState<string, number>>>();
 	expectTypeOf(onceManager.id).toEqualTypeOf<string | undefined>();
 	expectTypeOf(onceManager[Symbol.toStringTag]).toEqualTypeOf<string | undefined>();
 
@@ -109,37 +106,35 @@ test("interpret: infers strategy-specific state unions and manager run return ty
 	Op.interpret(delayedOp, { strategy: "once", id: 123 });
 
 	expectTypeOf(onceManager.run).returns.toEqualTypeOf<
-		Deferred<Op.Ok<number> | Op.Err<string | Unexpected> | Op.AbortedNil | Op.DroppedNil>
+		Deferred<Op.Ok<number> | Op.Err<string> | Op.AbortedNil | Op.DroppedNil>
 	>();
 
 	const restartableManager = Op.interpret(delayedOp, { strategy: "restartable" });
-	expectTypeOf(restartableManager.state).toEqualTypeOf<Op.RestartableState<string | Unexpected, number>>();
+	expectTypeOf(restartableManager.state).toEqualTypeOf<Op.RestartableState<string, number>>();
 	expectTypeOf(restartableManager.run).returns.toEqualTypeOf<
-		Deferred<Op.Ok<number> | Op.Err<string | Unexpected> | Op.AbortedNil | Op.ReplacedNil>
+		Deferred<Op.Ok<number> | Op.Err<string> | Op.AbortedNil | Op.ReplacedNil>
 	>();
 
 	const exclusiveManager = Op.interpret(delayedOp, { strategy: "exclusive" });
-	expectTypeOf(exclusiveManager.state).toEqualTypeOf<Op.ExclusiveState<string | Unexpected, number>>();
+	expectTypeOf(exclusiveManager.state).toEqualTypeOf<Op.ExclusiveState<string, number>>();
 	expectTypeOf(exclusiveManager.run).returns.toEqualTypeOf<
-		Deferred<Op.Ok<number> | Op.Err<string | Unexpected> | Op.AbortedNil | Op.DroppedNil>
+		Deferred<Op.Ok<number> | Op.Err<string> | Op.AbortedNil | Op.DroppedNil>
 	>();
 
 	const queueManager = Op.interpret(delayedOp, { strategy: "queue" });
-	expectTypeOf(queueManager.state).toEqualTypeOf<Op.QueueState<string | Unexpected, number>>();
-	expectTypeOf(queueManager.run).returns.toEqualTypeOf<
-		Deferred<Op.Ok<number> | Op.Err<string | Unexpected> | Op.AbortedNil>
-	>();
+	expectTypeOf(queueManager.state).toEqualTypeOf<Op.QueueState<string, number>>();
+	expectTypeOf(queueManager.run).returns.toEqualTypeOf<Deferred<Op.Ok<number> | Op.Err<string> | Op.AbortedNil>>();
 
 	const queueDropManager = Op.interpret(delayedOp, { strategy: "queue", maxSize: 5 });
-	expectTypeOf(queueDropManager.state).toEqualTypeOf<Op.QueueDropState<string | Unexpected, number>>();
+	expectTypeOf(queueDropManager.state).toEqualTypeOf<Op.QueueDropState<string, number>>();
 	expectTypeOf(queueDropManager.run).returns.toEqualTypeOf<
-		Deferred<Op.Ok<number> | Op.Err<string | Unexpected> | Op.AbortedNil | Op.DroppedNil>
+		Deferred<Op.Ok<number> | Op.Err<string> | Op.AbortedNil | Op.DroppedNil>
 	>();
 
 	const queueReplaceManager = Op.interpret(delayedOp, { strategy: "queue", overflow: "replace-last" });
-	expectTypeOf(queueReplaceManager.state).toEqualTypeOf<Op.QueueReplaceState<string | Unexpected, number>>();
+	expectTypeOf(queueReplaceManager.state).toEqualTypeOf<Op.QueueReplaceState<string, number>>();
 	expectTypeOf(queueReplaceManager.run).returns.toEqualTypeOf<
-		Deferred<Op.Ok<number> | Op.Err<string | Unexpected> | Op.AbortedNil | Op.EvictedNil>
+		Deferred<Op.Ok<number> | Op.Err<string> | Op.AbortedNil | Op.EvictedNil>
 	>();
 
 	const queueDropAndReplace = Op.interpret(delayedOp, {
@@ -147,27 +142,27 @@ test("interpret: infers strategy-specific state unions and manager run return ty
 		overflow: "replace-last",
 		dedupe: (a, b) => a[0] === b[0],
 	});
-	expectTypeOf(queueDropAndReplace.state).toEqualTypeOf<Op.QueueDropAndReplaceState<string | Unexpected, number>>();
+	expectTypeOf(queueDropAndReplace.state).toEqualTypeOf<Op.QueueDropAndReplaceState<string, number>>();
 	expectTypeOf(queueDropAndReplace.run).returns.toEqualTypeOf<
-		Deferred<Op.Ok<number> | Op.Err<string | Unexpected> | Op.AbortedNil | Op.DroppedNil | Op.EvictedNil>
+		Deferred<Op.Ok<number> | Op.Err<string> | Op.AbortedNil | Op.DroppedNil | Op.EvictedNil>
 	>();
 
 	const bufferedManager = Op.interpret(delayedOp, { strategy: "buffered", size: 3 });
-	expectTypeOf(bufferedManager.state).toEqualTypeOf<Op.BufferedState<string | Unexpected, number>>();
+	expectTypeOf(bufferedManager.state).toEqualTypeOf<Op.BufferedState<string, number>>();
 	expectTypeOf(bufferedManager.run).returns.toEqualTypeOf<
-		Deferred<Op.Ok<number> | Op.Err<string | Unexpected> | Op.AbortedNil | Op.EvictedNil>
+		Deferred<Op.Ok<number> | Op.Err<string> | Op.AbortedNil | Op.EvictedNil>
 	>();
 
 	const debouncedManager = Op.interpret(delayedOp, { strategy: "debounced", duration: Duration.milliseconds(100) });
-	expectTypeOf(debouncedManager.state).toEqualTypeOf<Op.DebouncedState<string | Unexpected, number>>();
+	expectTypeOf(debouncedManager.state).toEqualTypeOf<Op.DebouncedState<string, number>>();
 	expectTypeOf(debouncedManager.run).returns.toEqualTypeOf<
-		Deferred<Op.Ok<number> | Op.Err<string | Unexpected> | Op.AbortedNil | Op.EvictedNil>
+		Deferred<Op.Ok<number> | Op.Err<string> | Op.AbortedNil | Op.EvictedNil>
 	>();
 
 	const throttledManager = Op.interpret(delayedOp, { strategy: "throttled", duration: Duration.milliseconds(100) });
-	expectTypeOf(throttledManager.state).toEqualTypeOf<Op.ThrottledState<string | Unexpected, number>>();
+	expectTypeOf(throttledManager.state).toEqualTypeOf<Op.ThrottledState<string, number>>();
 	expectTypeOf(throttledManager.run).returns.toEqualTypeOf<
-		Deferred<Op.Ok<number> | Op.Err<string | Unexpected> | Op.AbortedNil | Op.DroppedNil>
+		Deferred<Op.Ok<number> | Op.Err<string> | Op.AbortedNil | Op.DroppedNil>
 	>();
 
 	const throttledTrailingManager = Op.interpret(delayedOp, {
@@ -175,47 +170,47 @@ test("interpret: infers strategy-specific state unions and manager run return ty
 		duration: Duration.milliseconds(100),
 		trailing: true,
 	});
-	expectTypeOf(throttledTrailingManager.state).toEqualTypeOf<Op.ThrottledTrailingState<string | Unexpected, number>>();
+	expectTypeOf(throttledTrailingManager.state).toEqualTypeOf<Op.ThrottledTrailingState<string, number>>();
 	expectTypeOf(throttledTrailingManager.run).returns.toEqualTypeOf<
-		Deferred<Op.Ok<number> | Op.Err<string | Unexpected> | Op.AbortedNil | Op.EvictedNil>
+		Deferred<Op.Ok<number> | Op.Err<string> | Op.AbortedNil | Op.EvictedNil>
 	>();
 
 	const concurrentDropManager = Op.interpret(delayedOp, { strategy: "concurrent", concurrency: 2 });
-	expectTypeOf(concurrentDropManager.state).toEqualTypeOf<Op.ConcurrentDropState<string | Unexpected, number>>();
+	expectTypeOf(concurrentDropManager.state).toEqualTypeOf<Op.ConcurrentDropState<string, number>>();
 	expectTypeOf(concurrentDropManager.run).returns.toEqualTypeOf<
-		Deferred<Op.Ok<number> | Op.Err<string | Unexpected> | Op.AbortedNil | Op.DroppedNil>
+		Deferred<Op.Ok<number> | Op.Err<string> | Op.AbortedNil | Op.DroppedNil>
 	>();
 
 	const concurrentQueueManager = Op.interpret(delayedOp, { strategy: "concurrent", concurrency: 2, overflow: "queue" });
-	expectTypeOf(concurrentQueueManager.state).toEqualTypeOf<Op.ConcurrentQueueState<string | Unexpected, number>>();
+	expectTypeOf(concurrentQueueManager.state).toEqualTypeOf<Op.ConcurrentQueueState<string, number>>();
 	expectTypeOf(concurrentQueueManager.run).returns.toEqualTypeOf<
-		Deferred<Op.Ok<number> | Op.Err<string | Unexpected> | Op.AbortedNil>
+		Deferred<Op.Ok<number> | Op.Err<string> | Op.AbortedNil>
 	>();
 
 	const keyedImplicit = Op.interpret(delayedOp, { strategy: "keyed", perKey: "exclusive" });
 	expectTypeOf(keyedImplicit).toEqualTypeOf<
-		Op.KeyedManager<[n: number], number, string | Unexpected, Op.KeyedExclusivePerKey<string | Unexpected, number>>
+		Op.KeyedManager<[n: number], number, string, Op.KeyedExclusivePerKey<string, number>>
 	>();
 	expectTypeOf(keyedImplicit.id).toEqualTypeOf<string | undefined>();
 	expectTypeOf(keyedImplicit[Symbol.toStringTag]).toEqualTypeOf<string | undefined>();
 	expectTypeOf(keyedImplicit.run).returns.toEqualTypeOf<
-		Deferred<Op.Ok<number> | Op.Err<string | Unexpected> | Op.AbortedNil | Op.DroppedNil>
+		Deferred<Op.Ok<number> | Op.Err<string> | Op.AbortedNil | Op.DroppedNil>
 	>();
 
 	const keyedExclusive = Op.interpret(delayedOp, { strategy: "keyed", key: (n: number) => n, perKey: "exclusive" });
 	expectTypeOf(keyedExclusive).toEqualTypeOf<
-		Op.KeyedManager<[n: number], number, string | Unexpected, Op.KeyedExclusivePerKey<string | Unexpected, number>>
+		Op.KeyedManager<[n: number], number, string, Op.KeyedExclusivePerKey<string, number>>
 	>();
 	expectTypeOf(keyedExclusive.run).returns.toEqualTypeOf<
-		Deferred<Op.Ok<number> | Op.Err<string | Unexpected> | Op.AbortedNil | Op.DroppedNil>
+		Deferred<Op.Ok<number> | Op.Err<string> | Op.AbortedNil | Op.DroppedNil>
 	>();
 
 	const keyedRestartable = Op.interpret(delayedOp, { strategy: "keyed", key: (n: number) => n, perKey: "restartable" });
 	expectTypeOf(keyedRestartable).toEqualTypeOf<
-		Op.KeyedManager<[n: number], number, string | Unexpected, Op.KeyedRestartablePerKey<string | Unexpected, number>>
+		Op.KeyedManager<[n: number], number, string, Op.KeyedRestartablePerKey<string, number>>
 	>();
 	expectTypeOf(keyedRestartable.run).returns.toEqualTypeOf<
-		Deferred<Op.Ok<number> | Op.Err<string | Unexpected> | Op.AbortedNil | Op.ReplacedNil>
+		Deferred<Op.Ok<number> | Op.Err<string> | Op.AbortedNil | Op.ReplacedNil>
 	>();
 
 	// @ts-expect-error — invalid strategy name
@@ -245,15 +240,11 @@ test("interpret options: widens state union with Retrying and widens error with 
 	expectTypeOf(typedTimeout).toEqualTypeOf<Op.TimeoutOptions<Error>>();
 
 	const retryManager = Op.interpret(delayedOp, { strategy: "restartable", retry: typedRetry });
-	expectTypeOf(retryManager.state).toEqualTypeOf<
-		Op.RestartableState<string | Unexpected, number> | Op.Retrying<string>
-	>();
+	expectTypeOf(retryManager.state).toEqualTypeOf<Op.RestartableState<string, number> | Op.Retrying<string>>();
 
 	const directPolicy = RetryPolicy.constant({ attempts: 3, delay: Duration.seconds(1) });
 	const policyManager = Op.interpret(delayedOp, { strategy: "restartable", retry: directPolicy });
-	expectTypeOf(policyManager.state).toEqualTypeOf<
-		Op.RestartableState<string | Unexpected, number> | Op.Retrying<string>
-	>();
+	expectTypeOf(policyManager.state).toEqualTypeOf<Op.RestartableState<string, number> | Op.Retrying<string>>();
 
 	const timeoutOp = Op.make((_signal: AbortSignal) => (_input: number) => Promise.resolve(42), {
 		onError: (_err) => "op_error" as const,
@@ -262,11 +253,9 @@ test("interpret options: widens state union with Retrying and widens error with 
 		strategy: "restartable",
 		timeout: { duration: Duration.milliseconds(10), onTimeout: () => "timeout_error" as const },
 	});
-	expectTypeOf(timeoutManager.state).toEqualTypeOf<
-		Op.RestartableState<"op_error" | "timeout_error" | Unexpected, number>
-	>();
+	expectTypeOf(timeoutManager.state).toEqualTypeOf<Op.RestartableState<"op_error" | "timeout_error", number>>();
 	expectTypeOf(timeoutManager.run).returns.toEqualTypeOf<
-		Deferred<Op.Ok<number> | Op.Err<"op_error" | "timeout_error" | Unexpected> | Op.AbortedNil | Op.ReplacedNil>
+		Deferred<Op.Ok<number> | Op.Err<"op_error" | "timeout_error"> | Op.AbortedNil | Op.ReplacedNil>
 	>();
 });
 
@@ -481,4 +470,34 @@ test("negative: flags missing cases, illegal property access, and variant incomp
 
 	// @ts-expect-error Nil cannot be assigned to Ok
 	const _nilAsOk: Op.Ok<number> = Op.Outcome.make.nil("aborted");
+});
+
+test("interpret options: explicit undefined for retry and timeout preserves exact error and state unions ([OP-004])", () => {
+	const mgr = Op.interpret(delayedOp, { strategy: "restartable", timeout: undefined, retry: undefined });
+	expectTypeOf(mgr.state).toEqualTypeOf<Op.RestartableState<string, number>>();
+	expectTypeOf(mgr.run).returns.toEqualTypeOf<
+		Deferred<Op.Ok<number> | Op.Err<string> | Op.AbortedNil | Op.ReplacedNil>
+	>();
+});
+
+test("interpret options: dynamic union properties on concurrent, keyed, and queue widen state and outcome unions ([OP-004])", () => {
+	const overflow: Op.Overflow = constTruthyBool() ? "drop" : "queue";
+	const concurrentMgr = Op.interpret(delayedOp, { strategy: "concurrent", concurrency: 2, overflow });
+	expectTypeOf(concurrentMgr.state).toEqualTypeOf<
+		Op.ConcurrentDropState<string, number> | Op.ConcurrentQueueState<string, number>
+	>();
+
+	const perKey: Op.PerKey = constTruthyBool() ? "exclusive" : "restartable";
+	const keyedMgr = Op.interpret(delayedOp, { strategy: "keyed", key: (n: number) => n, perKey });
+	expectTypeOf(keyedMgr.state).toEqualTypeOf<
+		ReadonlyMap<number, Op.KeyedExclusivePerKey<string, number> | Op.KeyedRestartablePerKey<string, number>>
+	>();
+
+	const queueOverflow: "drop" | "replace-last" = constTruthyBool() ? "drop" : "replace-last";
+	const queueMgr = Op.interpret(delayedOp, { strategy: "queue", maxSize: 5, overflow: queueOverflow });
+	expectTypeOf(queueMgr.state).toEqualTypeOf<Op.QueueDropState<string, number> | Op.QueueReplaceState<string, number>>();
+
+	const dynamicSize: number | undefined = constTruthyBool() ? 5 : undefined;
+	const dynamicallyBounded = Op.interpret(delayedOp, { strategy: "queue", maxSize: dynamicSize });
+	expectTypeOf(dynamicallyBounded.state).toEqualTypeOf<Op.QueueDropState<string, number>>();
 });

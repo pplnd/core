@@ -1,11 +1,11 @@
 import type { Thenable } from "../internal/InternalTypes";
+import { waitForDelay } from "../internal/waitForDelay.ts";
 import { Duration } from "../Types/Duration.ts";
 import type { RetryPolicy } from "../Types/RetryPolicy.ts";
 import { Deferred } from "./Deferred.ts";
 import { type Maybe, Maybe as CoreMaybe } from "./Maybe.ts";
 import { type Result, Result as CoreResult } from "./Result.ts";
 import { Task } from "./Task.ts";
-import { Unexpected } from "./Unexpected.ts";
 
 const makeOk = <A>(value: A): Task.Result<never, A> => Task.make(CoreResult.make.ok(value));
 const makeErr = <const E>(error: E): Task.Result<E, never> => Task.make(CoreResult.make.err(error));
@@ -459,51 +459,17 @@ export const TaskResult = {
 			Deferred.from.Promise((() => {
 				const { attempts, when: shouldRetry, onRetry: onRetryCallback } = policy;
 
-				const wait = (duration: Duration): Promise<void> =>
-					new Promise((res) => {
-						// oxlint-disable-next-line prefer-const
-						let timerId: ReturnType<typeof setTimeout> | undefined;
-						const onAbort = () => {
-							clearTimeout(timerId);
-							res();
-						};
-						if (signal) {
-							signal.addEventListener("abort", onAbort, { once: true });
-						}
-						timerId = setTimeout(() => {
-							signal?.removeEventListener("abort", onAbort);
-							res();
-						}, Duration.to.milliseconds(duration));
-					});
+				const wait = (duration: Duration): Promise<void> => waitForDelay(Duration.to.milliseconds(duration), signal);
 
 				const executeAttempt = (attempt: number): Promise<Result<E1, A>> =>
 					Deferred.to.Promise(task(signal)).then((res) => {
 						if (CoreResult.is.ok(res) || attempt >= attempts || signal?.aborted) {
 							return res;
 						}
-						if (shouldRetry) {
-							try {
-								if (!shouldRetry(res.error)) {
-									return res;
-								}
-							} catch {
-								return res;
-							}
-						}
-						let delay: Duration;
-						try {
-							delay = policy.getDelay(attempt);
-						} catch {
-							return res;
-						}
-						if (onRetryCallback) {
-							try {
-								onRetryCallback({ attempt, error: res.error, delay });
-							} catch {
-								// Isolated: logging or telemetry errors do not disrupt retry sequence
-							}
-						}
-						return wait(delay).then(() => executeAttempt(attempt + 1));
+						if (shouldRetry && !shouldRetry(res.error)) { return res; }
+						const delay = policy.getDelay(attempt);
+						onRetryCallback?.({ attempt, error: res.error, delay });
+						return wait(delay).then(() => signal?.aborted ? res : executeAttempt(attempt + 1));
 					});
 
 				return executeAttempt(1);
@@ -534,7 +500,7 @@ export const TaskResult = {
 	 */
 	timeout:
 		<E2>(options: { duration: Duration; onTimeout: () => E2; }) =>
-		<E1 = never, A = unknown>(task: Task.Result<E1, A>): Task.Result<E1 | E2 | Unexpected, A> =>
+		<E1 = never, A = unknown>(task: Task.Result<E1, A>): Task.Result<E1 | E2, A> =>
 		(outerSignal) =>
 			Deferred.from.Promise((() => {
 				const controller = new AbortController();
@@ -562,14 +528,10 @@ export const TaskResult = {
 						cleanUp();
 						return res;
 					}),
-					new Promise<Result<E1 | E2 | Unexpected, A>>((resolve) => {
+					new Promise<Result<E1 | E2, A>>((resolve) => {
 						timerId = setTimeout(() => {
 							cleanUp();
-							try {
-								resolve(CoreResult.make.err(options.onTimeout()));
-							} catch (cause) {
-								resolve(CoreResult.make.err(Unexpected.make.execution({ source: "Task", phase: "execution", cause })));
-							}
+							resolve(CoreResult.make.err(options.onTimeout()));
 							controller.abort();
 						}, Duration.to.milliseconds(options.duration));
 					}),
@@ -600,20 +562,20 @@ export const TaskResult = {
 			tasks: readonly [...T],
 			options?: { concurrency?: number; },
 		): Task.Result<
-			(T[number] extends Task.Result<infer E, unknown> ? E : never) | Task.Aborted | Unexpected,
+			(T[number] extends Task.Result<infer E, unknown> ? E : never) | Task.Aborted,
 			{ [K in keyof T]: T[K] extends Task.Result<unknown, infer A> ? A : never; }
 		> =>
 		(callerSignal) =>
 			Deferred.from.Promise(
 				new Promise<
 					Result<
-						(T[number] extends Task.Result<infer E, unknown> ? E : never) | Task.Aborted | Unexpected,
+						(T[number] extends Task.Result<infer E, unknown> ? E : never) | Task.Aborted,
 						{
 							[K in keyof T]: T[K] extends Task.Result<unknown, infer A> ? A : never;
 						}
 					>
 				>((resolve) => {
-					type AllE = (T[number] extends Task.Result<infer E, unknown> ? E : never) | Task.Aborted | Unexpected;
+					type AllE = (T[number] extends Task.Result<infer E, unknown> ? E : never) | Task.Aborted;
 					type Results = { [K in keyof T]: T[K] extends Task.Result<unknown, infer A> ? A : never; };
 
 					if (callerSignal?.aborted) {
@@ -631,15 +593,11 @@ export const TaskResult = {
 					const activeSignal = internalController.signal;
 
 					let isSettled = false;
-					let firstDomainError: Result<AllE, Results> | undefined;
 
 					// oxlint-disable-next-line prefer-const
 					let onCallerAbort: () => void;
 
 					const settle = (result: Result<AllE, Results>): void => {
-						if (isSettled) {
-							return;
-						}
 						isSettled = true;
 						if (callerSignal) {
 							callerSignal.removeEventListener("abort", onCallerAbort);
@@ -651,11 +609,7 @@ export const TaskResult = {
 					};
 
 					onCallerAbort = () => {
-						if (firstDomainError !== undefined) {
-							settle(firstDomainError);
-						} else {
-							settle(CoreResult.make.err({ kind: "TaskAborted", reason: callerSignal!.reason }));
-						}
+						settle(CoreResult.make.err({ kind: "TaskAborted", reason: callerSignal!.reason }));
 					};
 
 					if (callerSignal) {
@@ -675,20 +629,14 @@ export const TaskResult = {
 						// oxlint-disable-next-line no-unmodified-loop-condition
 						while (nextIndex < len && !isSettled) {
 							const idx = nextIndex++;
-							let taskResult: Result<unknown, unknown>;
-							try {
-								taskResult = await Deferred.to.Promise(tasks[idx](activeSignal));
-							} catch (cause) {
-								taskResult = CoreResult.make.err(Unexpected.make.execution({ source: "Task", phase: "execution", cause }));
-							}
+							const taskResult = await Deferred.to.Promise(tasks[idx](activeSignal));
 
 							if (isSettled) {
 								return;
 							}
 
 							if (CoreResult.is.err(taskResult)) {
-								firstDomainError = taskResult as unknown as Result<AllE, Results>;
-								settle(firstDomainError);
+								settle(taskResult as unknown as Result<AllE, Results>);
 								return;
 							}
 
@@ -723,7 +671,7 @@ export const TaskResult = {
 		<T extends readonly Task.Result<unknown, unknown>[]>(
 			tasks: readonly [...T],
 		): Task.Result<
-			(T[number] extends Task.Result<infer E, unknown> ? E : never) | Task.Aborted | Unexpected,
+			(T[number] extends Task.Result<infer E, unknown> ? E : never) | Task.Aborted,
 			{ [K in keyof T]: T[K] extends Task.Result<unknown, infer A> ? A : never; }
 		> =>
 		(signal) => TaskResult.all(tasks, { concurrency: 1 })(signal),

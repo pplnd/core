@@ -5,7 +5,6 @@ import { CircuitBreaker } from "../CircuitBreaker.ts";
 import { Deferred } from "../Deferred.ts";
 import { Result } from "../Result.ts";
 import { Task } from "../Task.ts";
-import { Unexpected } from "../Unexpected.ts";
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -129,19 +128,6 @@ test("protect: ignores errors where shouldTrip returns false", async () => {
 	expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 1 });
 
 	await breaker.protect(makeErrTask<AppError>({ kind: "ServerCrash" }))();
-	expect(CircuitBreaker.is.open(breaker.state())).toBe(true);
-});
-
-test("protect: treats throwing shouldTrip predicate as tripping error", async () => {
-	const breaker = CircuitBreaker.make<string>({
-		failureThreshold: 1,
-		resetTimeout: Duration.milliseconds(50),
-		shouldTrip: () => {
-			throw new Error("predicate_failure");
-		},
-	});
-
-	await breaker.protect(makeErrTask("boom"))();
 	expect(CircuitBreaker.is.open(breaker.state())).toBe(true);
 });
 
@@ -488,19 +474,6 @@ test("reset: invalidates in-flight probe and prevents late probe failure from re
 	expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 0 });
 });
 
-test("reset: catches and isolates subscriber callback errors without throwing", async () => {
-	const breaker = CircuitBreaker.make<string>({ failureThreshold: 1, resetTimeout: Duration.milliseconds(50) });
-
-	breaker.subscribe(() => {
-		throw new Error("reset_subscriber_crash");
-	});
-
-	await breaker.protect(makeErrTask("err"))();
-
-	expect(() => breaker.reset()).not.toThrow();
-	expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 0 });
-});
-
 test("subscribe: notifies listeners of state transitions and allows unsubscribing", async () => {
 	const breaker = CircuitBreaker.make<string>({ failureThreshold: 1, resetTimeout: Duration.milliseconds(20) });
 
@@ -528,19 +501,6 @@ test("subscribe: notifies listeners of state transitions and allows unsubscribin
 	expect(transitions).toHaveLength(3);
 });
 
-test("subscribe: catches and isolates subscriber callback errors without disrupting execution", async () => {
-	const breaker = CircuitBreaker.make<string>({ failureThreshold: 1, resetTimeout: Duration.milliseconds(50) });
-
-	breaker.subscribe(() => {
-		throw new Error("subscriber_crash");
-	});
-
-	// Should not throw or crash
-	const res = await breaker.protect(makeErrTask("err"))();
-	expect(res).toStrictEqual(Result.make.err("err"));
-	expect(CircuitBreaker.is.open(breaker.state())).toBe(true);
-});
-
 test("protect: in Closed state, caller aborting during in-flight task resolves without incrementing failures", async () => {
 	const breaker = CircuitBreaker.make<string>({ failureThreshold: 1, resetTimeout: Duration.milliseconds(50) });
 
@@ -554,26 +514,6 @@ test("protect: in Closed state, caller aborting during in-flight task resolves w
 	const res = await promise;
 	expect(res).toStrictEqual(Result.make.ok("value"));
 	expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 0 });
-});
-
-test("protect: in HalfOpen state, throwing shouldTrip predicate trips back to Open", async () => {
-	let shouldThrow = false;
-	const breaker = CircuitBreaker.make<string>({
-		failureThreshold: 1,
-		resetTimeout: Duration.milliseconds(20),
-		shouldTrip: () => {
-			if (shouldThrow) { throw new Error("predicate_crash"); }
-			return true;
-		},
-	});
-
-	await breaker.protect(makeErrTask("err_1"))();
-	await sleep(30);
-
-	shouldThrow = true;
-	const res = await breaker.protect(makeErrTask("err_probe"))();
-	expect(res).toStrictEqual(Result.make.err("err_probe"));
-	expect(CircuitBreaker.is.open(breaker.state())).toBe(true);
 });
 
 test("protect: in HalfOpen state with successThreshold 2, non-tripping error advances consecutiveSuccesses", async () => {
@@ -607,54 +547,6 @@ test("protect: in HalfOpen state with successThreshold 2, non-tripping error adv
 // -----------------------------------------------------------------------------
 // Synchronously throwing and rejecting tasks
 // -----------------------------------------------------------------------------
-
-test("protect: handles synchronously throwing task in Closed state by resolving to Err", async () => {
-	const breaker = CircuitBreaker.make<Error>({ failureThreshold: 1, resetTimeout: Duration.milliseconds(50) });
-
-	const throwingTask: Task.Result<Error, number> = () => {
-		throw new Error("sync_throw");
-	};
-
-	const res = await breaker.protect(throwingTask)();
-	const syncThrowErr = Unexpected.make.execution({ source: "CircuitBreaker", cause: new Error("sync_throw") });
-	expect(res).toStrictEqual(Result.make.err(syncThrowErr));
-	const state = breaker.state();
-	assert(CircuitBreaker.is.open(state));
-	expect(state.lastError).toStrictEqual(syncThrowErr);
-	const rejected = await breaker.protect(throwingTask)();
-	assert(Result.is.err(rejected) && CircuitBreaker.is.openError(rejected.error));
-	expect(rejected.error.lastError).toStrictEqual(syncThrowErr);
-});
-
-test("protect: handles synchronously throwing task in HalfOpen state by resolving to Err", async () => {
-	const breaker = CircuitBreaker.make<Error>({ failureThreshold: 1, resetTimeout: Duration.milliseconds(20) });
-
-	await breaker.protect(makeErrTask(new Error("err_1")))();
-	await sleep(30);
-
-	const throwingTask: Task.Result<Error, number> = () => {
-		throw new Error("sync_throw_half_open");
-	};
-
-	const res = await breaker.protect(throwingTask)();
-	expect(res).toStrictEqual(
-		Result.make.err(Unexpected.make.execution({ source: "CircuitBreaker", cause: new Error("sync_throw_half_open") })),
-	);
-	expect(CircuitBreaker.is.open(breaker.state())).toBe(true);
-});
-
-test("protect: a pre-aborted throwing task does not count as a breaker failure", async () => {
-	const breaker = CircuitBreaker.make<string>({ failureThreshold: 1, resetTimeout: Duration.seconds(1) });
-	const controller = new AbortController();
-	controller.abort("cancelled");
-	const cause = new Error("task failed");
-	const task = () => {
-		throw cause;
-	};
-	const result = await breaker.protect(task)(controller.signal);
-	expect(result).toStrictEqual(Result.make.err(Unexpected.make.execution({ source: "CircuitBreaker", cause })));
-	expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 0 });
-});
 
 // -----------------------------------------------------------------------------
 // Pipe composition & Realistic Recovery

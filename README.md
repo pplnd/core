@@ -31,8 +31,8 @@ Functions accept their data last, so multi-step operations read top-to-bottom in
 
 <!-- BUNDLE_OVERVIEW:START -->
 
-It has zero dependencies, ships ESM and CommonJS builds, and tree-shakes down to ~27 B–6.66 kB
-gzipped for individual modules and 24.92 kB for the entire package.
+It has zero dependencies, ships ESM and CommonJS builds, and tree-shakes down to ~27 B–6.25 kB
+gzipped for individual modules and 23.68 kB for the entire package.
 
 <!-- BUNDLE_OVERVIEW:END -->
 
@@ -456,9 +456,8 @@ const appInfra = Resource.all({
 
 // Run operations safely — both handles are closed in reverse order on exit
 const syncUserProfile = (userId: string) =>
-  pipe(
-    appInfra,
-    Resource.use(({ db, cache }) =>
+  Resource.use(appInfra, {
+    run: ({ db, cache }) =>
       Task.Result.tryCatch(
         async () => {
           const user = await db.query(`SELECT * FROM users WHERE id = '${userId}'`);
@@ -466,12 +465,11 @@ const syncUserProfile = (userId: string) =>
           return user;
         },
         { onError: (error): AppError => ({ kind: "DbError", message: String(error) }) },
-      )
-    ),
-  );
+      ),
+  });
 
 const fetchAndCacheUser = syncUserProfile("usr_101");
-const result = await fetchAndCacheUser();
+const result = await fetchAndCacheUser;
 // cache.quit() and db.close() are guaranteed to have run in reverse order
 ```
 
@@ -632,24 +630,24 @@ When imported individually, only the targeted module is bundled into your applic
 | Import Pattern | Minified + Gzipped |
 | :------------- | :----------------- |
 | `pipe`         | **142 B**          |
-| `flow`         | **175 B**          |
+| `flow`         | **173 B**          |
 | `Brand`        | **27 B**           |
 | `Duration`     | **150 B**          |
 | `Maybe`        | **1.57 kB**        |
-| `Result`       | **1.56 kB**        |
+| `Result`       | **1.57 kB**        |
 | `Validation`   | **1.57 kB**        |
 | `RemoteData`   | **1.87 kB**        |
-| `Machine`      | **1.88 kB**        |
-| `EventBus`     | **1.17 kB**        |
-| `Batcher`      | **2.91 kB**        |
-| `Resource`     | **2.51 kB**        |
-| `Graph`        | **6.04 kB**        |
-| `Task`         | **4.68 kB**        |
-| `Transaction`  | **5.92 kB**        |
-| `Op`           | **6.66 kB**        |
+| `Machine`      | **2.05 kB**        |
+| `EventBus`     | **1.21 kB**        |
+| `Batcher`      | **2.86 kB**        |
+| `Resource`     | **2.10 kB**        |
+| `Graph`        | **5.49 kB**        |
+| `Task`         | **4.37 kB**        |
+| `Transaction`  | **5.21 kB**        |
+| `Op`           | **6.20 kB**        |
 | `Lens`         | **233 B**          |
-| `Arr`          | **6.58 kB**        |
-| `Rec`          | **2.54 kB**        |
+| `Arr`          | **6.25 kB**        |
+| `Rec`          | **2.50 kB**        |
 | `Dict`         | **2.43 kB**        |
 | `Str`          | **2.20 kB**        |
 

@@ -6,7 +6,6 @@ import { Deferred } from "../Deferred.ts";
 import { Maybe } from "../Maybe.ts";
 import { Result } from "../Result.ts";
 import { Task } from "../Task.ts";
-import { Unexpected } from "../Unexpected.ts";
 
 // ---------------------------------------------------------------------------
 // make
@@ -1068,22 +1067,6 @@ test("timeout: aborts inner task signal when timeout fires", async () => {
 	expect(innerSignal?.aborted).toBe(true);
 });
 
-test("timeout: handles throwing onTimeout gracefully", async () => {
-	const cause = new Error("timeout error");
-	const task: Task.Result<string, number> = () =>
-		Deferred.from.Promise(new Promise((resolve) => setTimeout(() => resolve(Result.make.ok(42)), 50)));
-	const res = await pipe(
-		task,
-		Task.Result.timeout({
-			duration: Duration.milliseconds(10),
-			onTimeout: () => {
-				throw cause;
-			},
-		}),
-	)();
-	expect(res).toStrictEqual(Result.make.err(Unexpected.make.execution({ source: "Task", cause })));
-});
-
 test("timeout: returns the deadline error when abort completes the inner task", async () => {
 	const task: Task.Result<never, number> = (signal) =>
 		Deferred.from.Promise(
@@ -1103,29 +1086,6 @@ test("retry: exits wait immediately if signal is already aborted", async () => {
 	controller.abort();
 	const policy = RetryPolicy.constant({ attempts: 3, delay: Duration.seconds(10) });
 	const result = await pipe(Task.Result.make.err("fail"), Task.Result.retry(policy))(controller.signal);
-	expect(result).toStrictEqual(Result.make.err("fail"));
-});
-
-test("retry: handles throwing when predicate gracefully", async () => {
-	const policy = RetryPolicy.constant({
-		attempts: 3,
-		delay: Duration.milliseconds(10),
-		when: () => {
-			throw new Error("predicate error");
-		},
-	});
-	const result = await pipe(Task.Result.make.err("fail"), Task.Result.retry(policy))();
-	expect(result).toStrictEqual(Result.make.err("fail"));
-});
-
-test("retry: handles throwing policy.getDelay gracefully", async () => {
-	const faultyPolicy: RetryPolicy = {
-		attempts: 3,
-		getDelay: () => {
-			throw new Error("getDelay error");
-		},
-	};
-	const result = await pipe(Task.Result.make.err("fail"), Task.Result.retry(faultyPolicy))();
 	expect(result).toStrictEqual(Result.make.err("fail"));
 });
 
@@ -1171,29 +1131,6 @@ test("retry: does not invoke onRetry when first attempt succeeds", async () => {
 
 	expect(result).toStrictEqual(Result.make.ok("success"));
 	expect(onRetryCalled).toBe(false);
-});
-
-test("retry: safely isolates throwing onRetry callback", async () => {
-	let attempts = 0;
-	const failingTask: Task.Result<string, number> = () => {
-		attempts++;
-		if (attempts < 2) {
-			return Deferred.from.Promise(Promise.resolve(Result.make.err("fail")));
-		}
-		return Deferred.from.Promise(Promise.resolve(Result.make.ok(100)));
-	};
-
-	const policy = RetryPolicy.constant({
-		attempts: 3,
-		delay: Duration.milliseconds(1),
-		onRetry: () => {
-			throw new Error("logger exploded");
-		},
-	});
-	const result = await pipe(failingTask, Task.Result.retry(policy))();
-
-	expect(result).toStrictEqual(Result.make.ok(100));
-	expect(attempts).toBe(2);
 });
 
 test("assign: safely handles __proto__ property without prototype pollution", async () => {
@@ -1259,6 +1196,21 @@ test("all: pre-aborted signal returns Task.Aborted without starting work", async
 	const result = await Task.Result.all([t, t])(controller.signal);
 	expect(result).toStrictEqual(Result.make.err({ kind: "TaskAborted", reason: "stopped" }));
 	expect(starts).toBe(0);
+});
+
+test("all: ignores a late task result after the caller aborts", async () => {
+	const controller = new AbortController();
+	let finish: (value: Result<never, number>) => void = () => {};
+	const pending = new Promise<Result<never, number>>((resolve) => {
+		finish = resolve;
+	});
+	const task: Task.Result<never, number> = () => Deferred.from.Promise(pending);
+	const outcome = Task.Result.all([task])(controller.signal);
+	controller.abort("cancelled");
+	await expect(outcome).resolves.toStrictEqual(Result.make.err({ kind: "TaskAborted", reason: "cancelled" }));
+	finish(Result.make.ok(1));
+	await pending;
+	await Promise.resolve();
 });
 
 test("all: short-circuits on first error and cancels remaining tasks", async () => {
@@ -1371,24 +1323,24 @@ test("all: does not trigger abort listeners when all tasks succeed", async () =>
 	expect(abortFired).toBe(false);
 });
 
-test("all: synchronously throwing task settles as Unexpected.Execution", async () => {
-	const cause = new Error("sync throw in task");
-	const throwingTask: Task.Result<string, number> = () => {
-		throw cause;
-	};
-	const normalTask = Task.Result.make.ok("hello");
+// ---------------------------------------------------------------------------
+// Open Findings Regression Suite ([TASK-002], [TASK-005])
+// ---------------------------------------------------------------------------
 
-	const result = await Task.Result.all([throwingTask, normalTask])();
-	expect(result).toStrictEqual(Result.make.err(Unexpected.make.execution({ source: "Task", cause })));
-});
+test("retry: exits wait immediately when signal is aborted synchronously inside onRetry ([TASK-005])", async () => {
+	const controller = new AbortController();
+	const policy = RetryPolicy.constant({
+		attempts: 3,
+		delay: Duration.milliseconds(500),
+		onRetry: () => {
+			controller.abort();
+		},
+	});
 
-test("sequential: synchronously throwing task settles as Unexpected.Execution", async () => {
-	const cause = new Error("sync throw in seq task");
-	const throwingTask: Task.Result<string, number> = () => {
-		throw cause;
-	};
-	const normalTask = Task.Result.make.ok("hello");
+	const start = Date.now();
+	const result = await pipe(Task.Result.make.err("fail"), Task.Result.retry(policy))(controller.signal);
+	const elapsed = Date.now() - start;
 
-	const result = await Task.Result.sequential([throwingTask, normalTask])();
-	expect(result).toStrictEqual(Result.make.err(Unexpected.make.execution({ source: "Task", cause })));
+	expect(result).toStrictEqual(Result.make.err("fail"));
+	expect(elapsed).toBeLessThan(100);
 });

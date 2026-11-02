@@ -1,18 +1,18 @@
 import { constTruthyBool } from "#test-utils";
 import { expectTypeOf, test } from "vitest";
 import { pipe } from "../../Composition/pipe.ts";
+import type { Deferred } from "../Deferred.ts";
 import { Resource } from "../Resource.ts";
 import type { Result } from "../Result.ts";
 import { Task } from "../Task.ts";
-import type { Unexpected } from "../Unexpected.ts";
 
-test("make & from.Task: constructs resource objects with acquire and release", () => {
+test("make: constructs resource objects with fallible and infallible acquisition", () => {
 	const fallibleAcquire = constTruthyBool() ? Task.Result.make.ok(42) : Task.Result.make.err("acquire_err");
 	const resFallible = Resource.make(fallibleAcquire, (_n) => Task.make(undefined));
 	expectTypeOf(resFallible).toEqualTypeOf<Resource<"acquire_err", number>>();
 
 	const infallibleAcquire = Task.make(42);
-	const resInfallible = Resource.from.Task(infallibleAcquire, (_n) => Task.make(undefined));
+	const resInfallible = Resource.make(Task.Result.from.Task(infallibleAcquire), (_n) => Task.make(undefined));
 	expectTypeOf(resInfallible).toEqualTypeOf<Resource<never, number>>();
 
 	// @ts-expect-error — acquire must be a Task.Result, not a plain number
@@ -28,23 +28,15 @@ test("use: passes acquired value to consume and unifies error channels", async (
 		(_n) => Task.make(undefined),
 	);
 
-	const program = pipe(
-		resFallible,
-		Resource.use((n) => constTruthyBool() ? Task.Result.make.ok(n.toString()) : Task.Result.make.err(500)),
-	);
-	expectTypeOf(program).toEqualTypeOf<
-		Task.Result<"acquire_err" | 500 | Unexpected<Result<"acquire_err" | 500 | Unexpected.Execution, string>>, string>
-	>();
-	const outcome = await program();
-	if (
-		outcome.kind === "Err" && typeof outcome.error === "object" && outcome.error.phase === "release"
-		&& outcome.error.previous.kind === "Ok"
-	) {
-		expectTypeOf(outcome.error.previous.value).toEqualTypeOf<string>();
-	}
+	const program = Resource.use(resFallible, {
+		run: (n) => constTruthyBool() ? Task.Result.make.ok(n.toString()) : Task.Result.make.err(500),
+	});
+	expectTypeOf(program).toEqualTypeOf<Deferred<Result<"acquire_err" | 500, string>>>();
+	const outcome = await program;
+	expectTypeOf(outcome).toEqualTypeOf<Result<"acquire_err" | 500, string>>();
 
 	// @ts-expect-error — consume callback must return Task.Result, not a primitive
-	pipe(resFallible, Resource.use((n) => n * 2));
+	Resource.use(resFallible, { run: (n) => n * 2 });
 });
 
 test("combine: sequences two resources and combines values and error channels", () => {

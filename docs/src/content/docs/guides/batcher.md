@@ -5,7 +5,7 @@ description: Combine nearby key lookups into bulk requests and handle found, mis
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.91 kB minified + gzipped
+> 2.86 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -52,8 +52,8 @@ const catalog = new Map<string, Item>([
   ["notebook", { id: "notebook", name: "Notebook" }],
 ]);
 
-const items = Batcher.make({
-  fetch: (ids: readonly string[]) =>
+const items = Batcher.make(
+  (ids: readonly string[]) =>
     Task.Result.tryCatch(
       async () => {
         const found = new Map<string, Item>();
@@ -65,7 +65,7 @@ const items = Batcher.make({
       },
       { onError: (error) => String(error) },
     ),
-});
+);
 
 const outcomes = await items.loadMany(["pencil", "pencil", "missing"]);
 const descriptions = outcomes.map((outcome) =>
@@ -87,7 +87,7 @@ const descriptions = outcomes.map((outcome) =>
 
 | Signature                         | What it does                                         | Result                                          |
 | :-------------------------------- | :--------------------------------------------------- | :---------------------------------------------- |
-| `Batcher.make(options)`           | Creates a batcher around a bulk `fetch`.             | A batcher with `load`, `loadMany`, and `flush`. |
+| `Batcher.make(fetch, options?)`   | Creates a batcher around a bulk `fetch`.             | A batcher with `load`, `loadMany`, and `flush`. |
 | `batcher.load(key, signal?)`      | Queues a single key.                                 | `Deferred` of that key's outcome.               |
 | `batcher.loadMany(keys, signal?)` | Queues multiple keys.                                | Outcomes in the input order.                    |
 | `batcher.flush()`                 | Dispatches queued keys and waits for pending chunks. | `Deferred<void>`.                               |
@@ -114,9 +114,9 @@ the bulk fetch receives the first key in each group.
 A missing key and a failed fetch are separate outcomes. When a batch completes, `loadMany` preserves
 input order, including positions that requested the same key.
 
-A synchronous exception while creating or starting the fetch is returned as `BatcherErr` with an
-`Unexpected` error. Aborting a caller returns a `BatcherAborted` error containing the signal's
-reason; it does not cancel the shared bulk fetch.
+The fetch factory and its task must not throw or reject; represent expected fetch failures with
+`Task.Result`. Aborting a caller returns a `BatcherAborted` error containing the signal's reason; it
+does not cancel the shared bulk fetch.
 
 `serializeKey` controls grouping, but the returned map is looked up using the first original key for
 each group. For object keys, the fetch must return map entries keyed by those original objects.

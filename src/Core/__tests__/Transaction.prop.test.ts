@@ -1,6 +1,5 @@
 import fc from "fast-check";
 import { expect, test } from "vitest";
-import { pipe } from "../../Composition/pipe.ts";
 import { Result } from "../Result.ts";
 import { Task } from "../Task.ts";
 import { Transaction } from "../Transaction.ts";
@@ -12,30 +11,28 @@ test("rollback: executes in strict LIFO order for any failure index", async () =
 			const executedForward: number[] = [];
 			const executedUndo: number[] = [];
 
-			let tx: Transaction<void, any, any, any> = Transaction.make();
+			const steps: Transaction.AnyStep<void>[] = [];
 
 			for (let i = 0; i < stepCount; i++) {
 				const idx = i;
-				tx = pipe(
-					tx,
-					Transaction.step({
-						id: `s_${idx}`,
-						run: () => {
-							executedForward.push(idx);
-							if (idx === failIndex) {
-								return Task.Result.make.err(`fail_${idx}`);
-							}
-							return Task.Result.make.ok(`val_${idx}`);
-						},
-						undo: () => {
-							executedUndo.push(idx);
-							return Task.Result.make.ok(undefined);
-						},
-					}),
-				);
+				steps.push(Transaction.step({
+					id: `s_${idx}`,
+					run: () => () => {
+						executedForward.push(idx);
+						if (idx === failIndex) {
+							return Task.Result.make.err(`fail_${idx}`);
+						}
+						return Task.Result.make.ok(`val_${idx}`);
+					},
+					undo: () => {
+						executedUndo.push(idx);
+						return Task.Result.make.ok(undefined);
+					},
+				}));
 			}
 
-			const outcome = await pipe(tx, Transaction.run())();
+			const tx = Transaction.make(...steps);
+			const outcome = await Transaction.run(tx);
 
 			expect(outcome).toStrictEqual(
 				Result.make.err({
@@ -75,7 +72,7 @@ test("run: preserves all-or-nothing conservation law", async () => {
 				}
 
 				let undoCount = 0;
-				let tx: Transaction<void, any, any, any> = Transaction.make();
+				const steps: Transaction.AnyStep<void>[] = [];
 				const expectedAcc: Record<string, number> = {};
 
 				const makeStepUndo = () => () => {
@@ -86,10 +83,13 @@ test("run: preserves all-or-nothing conservation law", async () => {
 				for (let i = 0; i < uniqueSteps.length; i++) {
 					const step = uniqueSteps[i];
 					expectedAcc[step.id] = step.val;
-					tx = pipe(tx, Transaction.step({ id: step.id, run: () => Task.Result.make.ok(step.val), undo: makeStepUndo() }));
+					steps.push(
+						Transaction.step({ id: step.id, run: () => () => Task.Result.make.ok(step.val), undo: makeStepUndo() }),
+					);
 				}
 
-				const outcome = await pipe(tx, Transaction.run())();
+				const tx = Transaction.make(...steps);
+				const outcome = await Transaction.run(tx);
 
 				expect(outcome).toStrictEqual(Result.make.ok(expectedAcc));
 				expect(undoCount).toBe(0);
@@ -105,35 +105,33 @@ test("rollback: best-effort drain guarantees every completed undo runs despite i
 			const failIndex = stepCount - 1;
 			const undosAttempted: number[] = [];
 
-			let tx: Transaction<void, any, any, any> = Transaction.make();
+			const steps: Transaction.AnyStep<void>[] = [];
 
 			for (let i = 0; i < stepCount; i++) {
 				const idx = i;
-				tx = pipe(
-					tx,
-					Transaction.step({
-						id: `step_${idx}`,
-						run: () => {
-							if (idx === failIndex) {
-								return Task.Result.make.err("final_step_failed");
-							}
-							return Task.Result.make.ok(idx);
-						},
-						undo: () => {
-							undosAttempted.push(idx);
-							if (idx % 3 === 0) {
-								throw new Error(`thrown_undo_${idx}`);
-							}
-							if (idx % 3 === 1) {
-								return Task.Result.make.err(`err_undo_${idx}`);
-							}
-							return Task.Result.make.ok(undefined);
-						},
-					}),
-				);
+				steps.push(Transaction.step({
+					id: `step_${idx}`,
+					run: () => () => {
+						if (idx === failIndex) {
+							return Task.Result.make.err("final_step_failed");
+						}
+						return Task.Result.make.ok(idx);
+					},
+					undo: () => {
+						undosAttempted.push(idx);
+						if (idx % 3 === 0) {
+							return Task.Result.make.err(`err_undo_${idx}`);
+						}
+						if (idx % 3 === 1) {
+							return Task.Result.make.err(`err_undo_${idx}`);
+						}
+						return Task.Result.make.ok(undefined);
+					},
+				}));
 			}
 
-			const outcome = await pipe(tx, Transaction.run())();
+			const tx = Transaction.make(...steps);
+			const outcome = await Transaction.run(tx);
 
 			expect(Result.is.err(outcome)).toBe(true);
 			expect(undosAttempted).toHaveLength(failIndex);

@@ -5,20 +5,20 @@ description: Run dependent asynchronous steps and compensate completed steps aft
 
 <!-- BUNDLE_SIZE:START -->
 
-> 5.92 kB minified + gzipped
+> 5.21 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
 ## Core Behavior
 
-`Transaction` runs a sequence of `Task.Result` steps. Each successful step adds its output to the
-context available to later steps.
+`Transaction` runs a sequence of `Task.Result` steps. A step declares which earlier outputs it
+needs, and each run can supply its own input.
 
 - A step can provide an `undo` action. If a later step fails, completed steps with undo actions are
   compensated in reverse order.
 - The failure includes the failing step ID, its error, and any errors from undo actions. A failed
   undo does not prevent earlier undo actions from running.
-- `Transaction.run` creates a lazy task; the steps start when that task is called.
+- `Transaction.run` starts the steps and returns a deferred result.
 
 ## Example: Publishing a Document
 
@@ -45,7 +45,7 @@ This runnable example uses in-memory sets to represent the storage and catalog s
 notification fails, so the first two steps are undone:
 
 ```ts
-import { Task, Transaction, pipe } from "@pplnd/core";
+import { Task, Transaction } from "@pplnd/core";
 
 const storage = new Set<string>();
 const catalog = new Set<string>();
@@ -68,26 +68,24 @@ const removeIndex = (name: string): Task.Result<string, void> => Task.Result.try
   { onError: String },
 );
 
-const publish = pipe(
-  Transaction.make(),
-  Transaction.step({
-    id: "upload",
-    run: () => upload("report.pdf"),
-    undo: (name: string) => removeUpload(name),
-  }),
-  Transaction.step({
-    id: "index",
-    run: ({ upload }: { upload: string }) => index(upload),
-    undo: (name: string) => removeIndex(name),
-  }),
-  Transaction.step({
-    id: "notify",
-    run: (_context: { upload: string; index: string }) =>
-      Task.Result.make.err("Notification unavailable"),
-  }),
-);
+const uploadStep = Transaction.step({
+  id: "upload",
+  run: () => (name: string) => upload(name),
+  undo: (name) => removeUpload(name),
+});
+const indexStep = Transaction.step({
+  id: "index",
+  deps: { upload: uploadStep },
+  run: ({ upload }) => () => index(upload),
+  undo: (name) => removeIndex(name),
+});
+const notifyStep = Transaction.step({
+  id: "notify",
+  run: () => () => Task.Result.make.err("Notification unavailable"),
+});
+const publish = Transaction.make(uploadStep, indexStep, notifyStep);
 
-const result = await pipe(publish, Transaction.run())();
+const result = await Transaction.run(publish, { input: "report.pdf" });
 // Err: stepId "notify", error "Notification unavailable", undoErrors []
 // events: ["uploaded", "indexed", "removed index", "deleted upload"]
 ```
@@ -97,14 +95,20 @@ abort signal so they can attempt cleanup after cancellation.
 
 ## Core Operations
 
-| Signature                         | What it does                                             | Result or behavior                             |
-| :-------------------------------- | :------------------------------------------------------- | :--------------------------------------------- |
-| `Transaction.make<Input>()`       | Creates an empty transaction for an optional input type. | A transaction plan.                            |
-| `Transaction.step(config)`        | Adds a step with `id`, `run`, and optional `undo`.       | Later steps can read successful outputs by ID. |
-| `Transaction.run(input, options)` | Creates a task that executes the steps.                  | `Task.Result` of outputs or failure details.   |
+| Signature                               | What it does                                    | Result or behavior                              |
+| :-------------------------------------- | :---------------------------------------------- | :---------------------------------------------- |
+| `Transaction.step(config)`              | Defines a step and its named dependencies.      | A reusable step definition.                     |
+| `Transaction.make(...steps)`            | Assembles steps in execution order.             | Rejects duplicate or out-of-order dependencies. |
+| `Transaction.run(transaction, options)` | Starts the steps with optional input and hooks. | Deferred result of outputs or failure details.  |
 
-A step can also specify a retry policy and timeout. Run options accept an `AbortSignal` and
-`onStepSuccess`, `onStepFailure`, and `onUndo` callbacks.
+A step's `run` receives dependency outputs, then per-run input; when the input is unused, write
+`run: () => () => task`. A step can also specify a retry policy and timeout. Run options accept an
+`AbortSignal` and `onStepSuccess`, `onStepFailure`, and `onUndo` callbacks.
+
+`make` checks that each dependency is the same step object supplied earlier in the sequence. Literal
+step IDs catch many ordering errors in TypeScript; dynamic or broadly typed references are checked
+when the transaction is constructed. Undefined dependency entries are treated as absent; their
+corresponding values are `undefined` in the step callback.
 
 ## Failure Behavior and Edge Cases
 
@@ -115,7 +119,5 @@ are listed in `undoErrors`; the original forward error remains in `error`.
 Cancellation is checked before each step and the signal is passed to active work. In-flight work
 must respond to the signal; cancellation does not forcibly interrupt an operation that ignores it.
 When cancellation prevents a step from starting, `error` is `Transaction.Aborted` with the signal's
-reason. A thrown step or undo callback is reported as `Unexpected` with its cause; undo exceptions
-appear in `undoErrors`. A thrown timeout handler also produces `Unexpected`. Telemetry callback
-errors are ignored so they do not stop execution or rollback. Step IDs must be unique and cannot be
-`initial`.
+reason. Step and undo tasks report expected failures through `Task.Result`. Step factories, timeout
+handlers, and telemetry callbacks must not throw. Step IDs must be unique and cannot be `initial`.

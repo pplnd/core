@@ -4,14 +4,15 @@ import type { RetryPolicy } from "../Types/RetryPolicy.ts";
 import { Deferred } from "./Deferred.ts";
 import { Result } from "./Result.ts";
 import { Task } from "./Task.ts";
-import { Unexpected } from "./Unexpected.ts";
 
 // =============================================================================
 // Phantom Brand & Internal Symbols
 // =============================================================================
 
 declare const _transactionBrand: unique symbol;
+declare const _stepBrand: unique symbol;
 const _internalTransaction = Symbol("Transaction.internalTransaction");
+const _internalStep = Symbol("Transaction.internalStep");
 
 // =============================================================================
 // Prototype Pollution Shield
@@ -33,8 +34,8 @@ const setProperty = <T extends Record<string, unknown>>(target: T, key: string, 
  * An immutable, transactional workflow descriptor coordinating a linear sequence of
  * asynchronous steps with automatic reverse (LIFO) rollback upon failure.
  *
- * Each step receives the accumulated outputs of all preceding successful steps, and can
- * optionally register an `undo` action. If any step fails or times out, all previously
+ * Each step receives its declared dependencies and can optionally register an `undo` action.
+ * If any step fails or times out, all previously
  * completed steps are undone in strict reverse order to maintain consistency across external services.
  *
  * @template In - The initial input payload supplied to the transaction on execution.
@@ -44,25 +45,20 @@ const setProperty = <T extends Record<string, unknown>>(target: T, key: string, 
  *
  * @example
  * ```ts
- * const checkout = pipe(
- *   Transaction.make<OrderInput>(),
- *   Transaction.step({
- *     id: "reservation",
- *     run: ({ initial }) => inventoryApi.reserve(initial.sku, initial.qty),
- *     undo: (res) => inventoryApi.release(res.id),
- *   }),
- *   Transaction.step({
- *     id: "payment",
- *     run: ({ initial, reservation }) => stripeApi.charge(initial.customerId, reservation.totalCents),
- *     undo: (pay) => stripeApi.refund(pay.chargeId),
- *   }),
- *   Transaction.step({
- *     id: "shipment",
- *     run: ({ initial, reservation, payment }) => shippingApi.dispatch(initial.address, reservation.id, payment.chargeId),
- *   }),
- * );
+ * const reservation = Transaction.step({
+ *   id: "reservation",
+ *   run: () => (order: OrderInput) => inventoryApi.reserve(order.sku, order.qty),
+ *   undo: (res) => inventoryApi.release(res.id),
+ * });
+ * const payment = Transaction.step({
+ *   id: "payment",
+ *   deps: { reservation },
+ *   run: ({ reservation }) => (order: OrderInput) => stripeApi.charge(order.customerId, reservation.totalCents),
+ *   undo: (pay) => stripeApi.refund(pay.chargeId),
+ * });
+ * const checkout = Transaction.make(reservation, payment);
  *
- * const outcome = await pipe(checkout, Transaction.run(orderInput))();
+ * const outcome = await Transaction.run(checkout, { input: orderInput });
  * ```
  */
 export type Transaction<
@@ -122,53 +118,52 @@ export namespace Transaction {
 		readonly undoErrors: readonly UndoFailure<EUndo>[];
 	};
 
-	/**
-	 * Contextual dictionary received by forward `run` and rollback `undo` step handlers.
-	 *
-	 * If the transaction defines an initial input `In`, it is accessible under `context.initial`.
-	 * All previously completed step outputs are accessible under their declared step `id` keys.
-	 */
-	export type StepContext<In, Acc> = [In] extends [void] ? Acc : { readonly initial: In; } & Acc;
+	/** A reusable step definition. The input is supplied separately for each transaction run. */
+	export type Step<Id extends string, Input, E, Out, EUndo, Deps> = WithKind<"TransactionStep"> & {
+		readonly id: Id;
+		readonly [_stepBrand]: {
+			readonly input: (input: Input) => void;
+			readonly error: () => E;
+			readonly output: () => Out;
+			readonly undo: () => EUndo;
+			readonly deps: () => Deps;
+		};
+	};
 
-	/**
-	 * Configuration options for an individual step within a Transaction.
-	 */
+	/** A step that either needs the given input or does not use input. */
+	export type AnyStep<Input> =
+		| Step<string, Input, unknown, unknown, unknown, unknown>
+		| Step<string, void, unknown, unknown, unknown, unknown>;
+
+	/** The output value produced by a step. */
+	export type OutputOf<S> = S extends Step<string, never, unknown, infer Out, unknown, unknown> ? Out : never;
+
+	/** The output values of the named dependencies supplied to a step. */
+	export type DependencyOutputs<D extends Record<string, AnyStepInternal | undefined>> = {
+		readonly [K in keyof D]: undefined extends D[K] ? OutputOf<Exclude<D[K], undefined>> | undefined : OutputOf<D[K]>;
+	};
+
+	/** Settings for a step, including its named dependencies and optional compensation. */
 	export type StepConfig<
-		In,
-		Acc extends Record<string, unknown>,
 		Id extends string,
-		Out,
+		D extends Record<string, AnyStepInternal | undefined>,
+		Input,
 		E,
+		Out,
 		EUndo = never,
 		ETimeout = never,
 	> = {
-		/**
-		 * Unique string identifier for the step within the transaction.
-		 * Cannot duplicate an existing step ID or use the reserved key "initial".
-		 */
-		readonly id: 0 extends 1 & Id ? Id
-			: string extends keyof Acc ? ([Id] extends ["initial"] ? never : Id)
-			: ([Id] extends [keyof Acc | "initial"] ? never : Id);
-
-		/**
-		 * Forward asynchronous operation evaluating to a fallible `Task.Result`.
-		 */
-		readonly run: (context: StepContext<In, Acc>) => Task.Result<E, Out>;
-
-		/**
-		 * Optional compensating rollback action executed in LIFO reverse order
-		 * if this or any subsequent step fails.
-		 */
-		readonly undo?: (output: Out, context: StepContext<In, Acc>) => Task.Result<EUndo, unknown>;
-
-		/**
-		 * Optional retry policy applied to the forward `run` action before failing the step.
-		 */
+		/** Unique identifier for this step within the transaction. */
+		readonly id: Id extends "initial" ? never : Id;
+		/** Earlier steps whose output values are needed by this step. */
+		readonly deps?: D;
+		/** Creates the task to run with these dependency outputs and execution input. */
+		readonly run: (dependencies: DependencyOutputs<D>) => (input: Input) => Task.Result<E, Out>;
+		/** Compensates a completed step if a later step fails. */
+		readonly undo?: (output: Out, dependencies: DependencyOutputs<D>, input: Input) => Task.Result<EUndo, unknown>;
+		/** Retry policy for the forward task. */
 		readonly retry?: RetryPolicy<any>;
-
-		/**
-		 * Optional execution timeout for the forward `run` action.
-		 */
+		/** Deadline and error for the forward task. */
 		readonly timeout?: { readonly duration: Duration; readonly onTimeout: () => ETimeout; };
 	};
 
@@ -205,11 +200,50 @@ export namespace Transaction {
 
 type InternalStep = {
 	readonly id: string;
-	readonly run: (context: any) => Task.Result<any, any>;
-	readonly undo?: (output: any, context: any) => Task.Result<any, any>;
+	readonly deps: Readonly<Record<string, AnyStepInternal | undefined>>;
+	readonly run: (dependencies: any) => (input: any) => Task.Result<any, any>;
+	readonly undo?: (output: any, dependencies: any, input: any) => Task.Result<any, any>;
 	readonly retry?: RetryPolicy<any>;
 	readonly timeout?: { readonly duration: Duration; readonly onTimeout: () => any; };
 };
+
+type AnyStepInternal = Transaction.Step<string, never, unknown, unknown, unknown, unknown>;
+type InputOf<S> = S extends Transaction.Step<string, infer Input, unknown, unknown, unknown, unknown> ? Input : never;
+type ErrorOf<S> = S extends Transaction.Step<string, never, infer E, unknown, unknown, unknown> ? E : never;
+type UndoErrorOf<S> = S extends Transaction.Step<string, never, unknown, unknown, infer E, unknown> ? E : never;
+type DependenciesOf<S> = S extends Transaction.Step<string, never, unknown, unknown, unknown, infer D> ? D : never;
+type InputFunction<S> = S extends AnyStepInternal ? (input: [InputOf<S>] extends [void] ? unknown : InputOf<S>) => void
+	: never;
+type CombinedInput<S extends readonly AnyStepInternal[]> = [S[number]] extends [never] ? void
+	: InputFunction<S[number]> extends (input: infer Input) => void ? unknown extends Input ? void : Input
+	: void;
+type StepOutputs<S extends readonly AnyStepInternal[]> = {
+	readonly [Step in S[number] as Step["id"]]: Transaction.OutputOf<Step>;
+};
+type KnownDuplicate<Id extends string, Ids extends string> = string extends Id ? false
+	: string extends Ids ? false : Id extends Ids ? true
+	: false;
+type MissingDependencies<D, Ids extends string> = D extends Record<string, AnyStepInternal | undefined>
+	? {
+		[K in keyof D]-?: undefined extends D[K] ? never
+			: string extends NonNullable<D[K]>["id"] ? never : string extends Ids ? never
+			: [Extract<NonNullable<D[K]>["id"], Ids>] extends [never] ? K
+			: never;
+	}[keyof D]
+	: never;
+type InvalidDependencyVariant<D, Ids extends string> = D extends unknown
+	? [MissingDependencies<D, Ids>] extends [never] ? false : true
+	: never;
+type ValidSequence<S extends readonly AnyStepInternal[], Ids extends string = never> = S extends
+	readonly [infer Head extends AnyStepInternal, ...infer Tail extends readonly AnyStepInternal[]]
+	? Head["id"] extends "initial" ? false
+	: KnownDuplicate<Head["id"], Ids> extends true ? false
+	: false extends InvalidDependencyVariant<DependenciesOf<Head>, Ids> ? ValidSequence<Tail, Ids | Head["id"]>
+	: false
+	: true;
+
+type InternalStepValue = AnyStepInternal & { readonly [_internalStep]: InternalStep; };
+const toInternalStep = (step: AnyStepInternal): InternalStepValue => step as InternalStepValue;
 
 type InternalTransactionState = { readonly steps: readonly InternalStep[]; };
 
@@ -227,73 +261,28 @@ const toInternal = <In, Acc extends Record<string, unknown>, E, EUndo>(
 
 type UndoItem = {
 	readonly id: string;
-	readonly undo: (output: unknown, context: unknown) => Task.Result<unknown, unknown>;
+	readonly undo: (output: unknown, dependencies: any, input: any) => Task.Result<unknown, unknown>;
 	readonly output: unknown;
-	readonly context: Record<string, unknown>;
+	readonly dependencies: Readonly<Record<string, unknown>>;
 };
-
-const unexpectedMarker = Symbol("Transaction.unexpected");
-type InternalUnexpected = { readonly [unexpectedMarker]: true; readonly cause: unknown; };
-const internalUnexpected = (cause: unknown): InternalUnexpected => ({ [unexpectedMarker]: true, cause });
-const isInternalUnexpected = (value: unknown): value is InternalUnexpected =>
-	typeof value === "object" && value !== null && unexpectedMarker in value;
 
 const drainUndoStack = async (
 	undoStack: readonly UndoItem[],
 	options: Transaction.RunOptions | undefined,
+	input: unknown,
 ): Promise<readonly Transaction.UndoFailure[]> => {
 	const undoErrors: Transaction.UndoFailure[] = [];
 
 	for (let j = undoStack.length - 1; j >= 0; j--) {
 		const item = undoStack[j];
-		try {
-			// Compensations run uncancelled to guarantee side-effect rollback:
-			let undoTask: Task.Result<unknown, unknown>;
-			try {
-				undoTask = item.undo(item.output, item.context);
-			} catch (thrown) {
-				undoTask = () =>
-					Deferred.from.Promise(
-						globalThis.Promise.resolve(
-							Result.make.err(
-								Unexpected.make.execution({ source: "Transaction", phase: "execution", cause: thrown, stepId: item.id }),
-							),
-						),
-					);
-			}
-
-			const undoOutcome = await Deferred.to.Promise(undoTask(undefined));
-
-			if (Result.is.err(undoOutcome)) {
-				const errRecord = { stepId: item.id, error: undoOutcome.error };
-				undoErrors.push(errRecord);
-				if (options?.onUndo) {
-					try {
-						options.onUndo(errRecord);
-					} catch {
-						// Telemetry errors must never disrupt rollback sequence
-					}
-				}
-			} else if (options?.onUndo) {
-				try {
-					options.onUndo({ stepId: item.id });
-				} catch {
-					// Telemetry errors must never disrupt rollback sequence
-				}
-			}
-		} catch (thrown) {
-			const errRecord = {
-				stepId: item.id,
-				error: Unexpected.make.execution({ source: "Transaction", phase: "execution", cause: thrown, stepId: item.id }),
-			};
+		const undoTask = item.undo(item.output, item.dependencies, input);
+		const undoOutcome = await Deferred.to.Promise(undoTask(undefined));
+		if (Result.is.err(undoOutcome)) {
+			const errRecord = { stepId: item.id, error: undoOutcome.error };
 			undoErrors.push(errRecord);
-			if (options?.onUndo) {
-				try {
-					options.onUndo(errRecord);
-				} catch {
-					// Telemetry errors must never disrupt rollback sequence
-				}
-			}
+			options?.onUndo?.(errRecord);
+		} else {
+			options?.onUndo?.({ stepId: item.id });
 		}
 	}
 
@@ -304,327 +293,174 @@ const drainUndoStack = async (
 // Public Constructors & Combinators
 // =============================================================================
 
-/**
- * Creates an empty, initialized `Transaction` ready to accumulate steps.
- *
- * @template In - The initial payload supplied to `Transaction.run`. Defaults to `void`.
- *
- * @see {@link Transaction.step} for appending sequential steps to the transaction.
- *
- * @example
- * ```ts
- * // Zero-argument transaction:
- * const pingTransaction = Transaction.make();
- *
- * // Parameterized transaction:
- * const orderTransaction = Transaction.make<OrderInput>();
- * ```
- */
-const makeTransaction = <In = void>(): Transaction<In, Record<never, never>, never, never> => {
-	const tx = { kind: "Transaction" as const, [_internalTransaction]: { steps: Object.freeze([]) } };
-	return tx as unknown as Transaction<In, Record<never, never>, never, never>;
-};
-
-/**
- * Appends a step to a `Transaction`.
- *
- * The step receives an accumulated context containing the initial input and all outputs
- * from preceding steps. An optional compensating `undo` action can be defined to reverse
- * any external mutations if this or any subsequent step fails.
- *
- * Supports optional `retry` and `timeout` resilience policies on forward execution.
- *
- * @see {@link Transaction.run} for executing the compiled transaction.
- *
- * @example
- * ```ts
- * const transaction = pipe(
- *   Transaction.make<OrderInput>(),
- *   Transaction.step({
- *     id: "inventory",
- *     run: ({ initial }) => reserveInventory(initial.sku),
- *     undo: (reservation) => releaseInventory(reservation.id),
- *   }),
- * );
- * ```
- */
-const step =
-	<
-		In = void,
-		Acc extends Record<string, unknown> = Record<never, never>,
-		Id extends string = string,
-		Out = unknown,
-		E2 = never,
-		EUndo2 = never,
-		ETimeout = never,
-	>(config: Transaction.StepConfig<In, Acc, Id, Out, E2, EUndo2, ETimeout>) =>
-	<E1 = never, EUndo1 = never>(
-		transaction: Transaction<In, Acc, E1, EUndo1>,
-	): Transaction<In, Acc & { readonly [K in Id]: Out; }, E1 | E2 | ETimeout, EUndo1 | EUndo2> => {
-		if (!transaction || (transaction as { readonly kind?: unknown; }).kind !== "Transaction") {
-			throw new TypeError("[Transaction.step] Expected a valid Transaction instance.");
-		}
-
-		if (!config || typeof config.id !== "string" || config.id.length === 0) {
-			throw new TypeError("[Transaction.step] A non-empty string 'id' is required.");
-		}
-
-		if (config.id === "initial") {
-			throw new TypeError("[Transaction.step] Step id cannot be 'initial' as it is a reserved context key.");
-		}
-
-		if (typeof config.run !== "function") {
-			throw new TypeError(`[Transaction.step] Step '${config.id}' requires a 'run' function.`);
-		}
-
-		if (config.undo !== undefined && typeof config.undo !== "function") {
-			throw new TypeError(`[Transaction.step] Step '${config.id}' 'undo' must be a function if provided.`);
-		}
-
-		const internal = toInternal(transaction)[_internalTransaction];
-		for (let i = 0; i < internal.steps.length; i++) {
-			if (internal.steps[i].id === config.id) {
-				throw new Error(
-					`[Transaction.step] Duplicate step id '${config.id}' detected. Every step in a Transaction must have a unique id.`,
-				);
-			}
-		}
-
-		const newSteps = internal.steps.concat({
+/** Creates a reusable step with named dependencies and optional compensation. */
+const step = <
+	const Id extends string,
+	const D extends Record<string, AnyStepInternal | undefined> = Record<never, never>,
+	Input = void,
+	E = never,
+	Out = never,
+	EUndo = never,
+	ETimeout = never,
+>(
+	config: Transaction.StepConfig<Id, D, Input, E, Out, EUndo, ETimeout>,
+): Transaction.Step<Id, Input, E | ETimeout, Out, EUndo, D> => {
+	if (config.id.length === 0) {
+		throw new TypeError("[Transaction.step] A non-empty string 'id' is required.");
+	}
+	if (config.id === "initial") {
+		throw new TypeError("[Transaction.step] Step id cannot be 'initial' as it is a reserved context key.");
+	}
+	const value = {
+		kind: "TransactionStep" as const,
+		id: config.id,
+		[_internalStep]: {
 			id: config.id,
+			deps: Object.freeze({ ...config.deps }),
 			run: config.run,
 			undo: config.undo,
 			retry: config.retry,
 			timeout: config.timeout,
-		});
-
-		const nextTx = { kind: "Transaction" as const, [_internalTransaction]: { steps: Object.freeze(newSteps) } };
-
-		return nextTx as unknown as Transaction<In, Acc & { readonly [K in Id]: Out; }, E1 | E2 | ETimeout, EUndo1 | EUndo2>;
+		},
 	};
+	return value as unknown as Transaction.Step<Id, Input, E | ETimeout, Out, EUndo, D>;
+};
 
-const isRunOptions = (value: unknown): value is Transaction.RunOptions => {
-	if (typeof value !== "object" || value === null || Array.isArray(value)) {
-		return false;
-	}
-
-	const keys = Object.keys(value);
-	if (keys.length === 0) {
-		return false;
-	}
-
-	for (let i = 0; i < keys.length; i++) {
-		const key = keys[i];
-		if (key !== "signal" && key !== "onStepSuccess" && key !== "onStepFailure" && key !== "onUndo") {
-			return false;
+/** Assembles steps in execution order and validates their dependencies. */
+const makeTransaction = <const S extends readonly AnyStepInternal[]>(
+	...steps: S & (ValidSequence<S> extends true ? unknown : never)
+): Transaction<CombinedInput<S>, StepOutputs<S>, ErrorOf<S[number]>, UndoErrorOf<S[number]>> => {
+	const seen = new Set<AnyStepInternal>();
+	const ids = new Set<string>();
+	const compiled: InternalStep[] = [];
+	for (const value of steps) {
+		const current = toInternalStep(value)[_internalStep];
+		if (ids.has(current.id)) {
+			throw new Error(`[Transaction.make] Duplicate step id '${current.id}'. Every step must have a unique id.`);
 		}
+		for (const dependency of Object.values(current.deps)) {
+			if (dependency !== undefined && !seen.has(dependency)) {
+				throw new Error(`[Transaction.make] Dependency '${dependency.id}' must precede step '${current.id}'.`);
+			}
+		}
+		ids.add(current.id);
+		seen.add(value);
+		compiled.push(current);
 	}
-
-	const record = value as Record<string, unknown>;
-
-	if (
-		"signal" in record && (typeof record.signal !== "object" || record.signal === null || !("aborted" in record.signal))
-	) {
-		return false;
-	}
-	if ("onStepSuccess" in record && typeof record.onStepSuccess !== "function") {
-		return false;
-	}
-	if ("onStepFailure" in record && typeof record.onStepFailure !== "function") {
-		return false;
-	}
-	if ("onUndo" in record && typeof record.onUndo !== "function") {
-		return false;
-	}
-
-	return true;
+	const tx = { kind: "Transaction" as const, [_internalTransaction]: { steps: Object.freeze(compiled) } };
+	return tx as unknown as Transaction<CombinedInput<S>, StepOutputs<S>, ErrorOf<S[number]>, UndoErrorOf<S[number]>>;
 };
 
 /**
- * Executes a Transaction, returning an infallible lazy `Task.Result`.
+ * Starts a Transaction and returns a deferred result.
  *
  * Steps run sequentially. If all steps succeed, returns `Ok(Acc)` containing all step outputs.
- * If any step fails, throws, or is aborted, completed steps are undone in reverse (LIFO) order
+ * If any step returns an error or is aborted, completed steps are undone in reverse (LIFO) order
  * and returns `Err(Transaction.Failure)`.
  *
  * @see {@link Transaction.step} for configuring transactional steps with compensating undo actions.
  *
  * @example
  * ```ts
- * const outcome = await pipe(
- *   checkoutTransaction,
- *   Transaction.run(orderInput, { signal }),
- * )();
+ * const outcome = await Transaction.run(checkoutTransaction, { input: orderInput, signal });
  * ```
  */
 /**
  * Executes a zero-input Transaction with optional run options.
  */
-function runTransaction(
-	options?: Transaction.RunOptions,
-): <Acc extends Record<string, unknown> = Record<never, never>, E = never, EUndo = never>(
+function runTransaction<Acc extends Record<string, unknown>, E, EUndo>(
 	transaction: Transaction<void, Acc, E, EUndo>,
-) => Task.Result<Transaction.Failure<E | Transaction.Aborted | Unexpected, EUndo | Unexpected>, Acc>;
+	options?: Transaction.RunOptions & { readonly input?: never; },
+): Deferred<Result<Transaction.Failure<E | Transaction.Aborted, EUndo>, Acc>>;
 
 /**
  * Executes a parameterized Transaction with input and optional run options.
  */
-function runTransaction<In>(
-	input: In,
-	options?: Transaction.RunOptions,
-): <Acc extends Record<string, unknown> = Record<never, never>, E = never, EUndo = never>(
-	transaction: Transaction<[In] extends [undefined] ? void : In, Acc, E, EUndo>,
-) => Task.Result<Transaction.Failure<E | Transaction.Aborted | Unexpected, EUndo | Unexpected>, Acc>;
+function runTransaction<In, Acc extends Record<string, unknown>, E, EUndo>(
+	transaction: Transaction<In, Acc, E, EUndo>,
+	options: Transaction.RunOptions & { readonly input: NoInfer<In>; },
+): Deferred<Result<Transaction.Failure<E | Transaction.Aborted, EUndo>, Acc>>;
 
-function runTransaction(
-	inputOrOptions?: unknown,
-	maybeOptions?: Transaction.RunOptions,
-): (transaction: Transaction<any, any, any, any>) => Task.Result<any, any> {
-	let input: unknown;
-	let options: Transaction.RunOptions | undefined;
+function runTransaction<In, Acc extends Record<string, unknown>, E, EUndo>(
+	transaction: Transaction<In, Acc, E, EUndo>,
+	options?: Transaction.RunOptions & { readonly input?: In; },
+): Deferred<Result<Transaction.Failure<E | Transaction.Aborted, EUndo>, Acc>> {
+	return Deferred.from.Promise((async () => {
+		const input = options?.input;
+		const internal = toInternal(transaction)[_internalTransaction];
 
-	if (maybeOptions !== undefined) {
-		input = inputOrOptions;
-		options = maybeOptions;
-	} else if (isRunOptions(inputOrOptions)) {
-		input = undefined;
-		options = inputOrOptions;
-	} else {
-		input = inputOrOptions;
-		options = undefined;
-	}
+		const activeSignal = options?.signal;
 
-	return <Acc extends Record<string, unknown>, E, EUndo>(
-		transaction: Transaction<any, Acc, E, EUndo>,
-	): Task.Result<Transaction.Failure<E | Transaction.Aborted | Unexpected, EUndo | Unexpected>, Acc> =>
-	(callerSignal) =>
-		Deferred.from.Promise((async () => {
-			if (!transaction || (transaction as { readonly kind?: unknown; }).kind !== "Transaction") {
-				return Result.make.err({
-					kind: "TransactionFailure" as const,
-					stepId: "initial",
-					error: Unexpected.make.execution({
-						source: "Transaction",
-						phase: "execution",
-						cause: new TypeError("[Transaction.run] Expected a valid Transaction instance."),
-					}),
-					undoErrors: [],
-				});
-			}
+		if (activeSignal?.aborted) {
+			return Result.make.err({
+				kind: "TransactionFailure" as const,
+				stepId: internal.steps[0]?.id ?? "initial",
+				error: { kind: "TransactionAborted" as const, reason: activeSignal.reason },
+				undoErrors: [],
+			});
+		}
 
-			const internal = toInternal(transaction)[_internalTransaction];
+		const acc: Record<string, unknown> = {};
+		const undoStack: UndoItem[] = [];
 
-			// Active cancellation combines caller signal and explicit option signal:
-			const activeSignal = callerSignal && options?.signal
-				? AbortSignal.any([callerSignal, options.signal])
-				: (callerSignal ?? options?.signal);
+		for (let i = 0; i < internal.steps.length; i++) {
+			const stepDef = internal.steps[i];
 
 			if (activeSignal?.aborted) {
+				const undoErrors = await drainUndoStack(undoStack, options, input);
 				return Result.make.err({
 					kind: "TransactionFailure" as const,
-					stepId: internal.steps[0]?.id ?? "initial",
+					stepId: stepDef.id,
 					error: { kind: "TransactionAborted" as const, reason: activeSignal.reason },
-					undoErrors: [],
+					undoErrors: undoErrors as readonly Transaction.UndoFailure<EUndo>[],
 				});
 			}
 
-			const context: Record<string, unknown> = {};
-			if (input !== undefined) {
-				setProperty(context, "initial", input);
-			}
-
-			const acc: Record<string, unknown> = {};
-			const undoStack: UndoItem[] = [];
-
-			for (let i = 0; i < internal.steps.length; i++) {
-				const stepDef = internal.steps[i];
-
-				if (activeSignal?.aborted) {
-					const undoErrors = await drainUndoStack(undoStack, options);
-					return Result.make.err({
-						kind: "TransactionFailure" as const,
-						stepId: stepDef.id,
-						error: { kind: "TransactionAborted" as const, reason: activeSignal.reason },
-						undoErrors: undoErrors as readonly Transaction.UndoFailure<EUndo | Unexpected>[],
-					});
-				}
-
-				// Wrap step execution in a lazy task to ensure re-invocation on retry
-				// and guarantee that synchronous throws are captured safely:
-				const stepTask: Task.Result<unknown, unknown> = (signal) => {
-					try {
-						const task = stepDef.run(context);
-						return task(signal);
-					} catch (thrown) {
-						return Deferred.from.Promise(globalThis.Promise.resolve(Result.make.err(internalUnexpected(thrown))));
-					}
-				};
-
-				let effectiveTask = stepTask;
-
-				if (stepDef.retry) {
-					const { retry } = stepDef;
-					effectiveTask = Task.Result.retry({
-						...retry,
-						when: (error: unknown) => !isInternalUnexpected(error) && (retry.when?.(error) ?? true),
-					})(effectiveTask);
-				}
-				if (stepDef.timeout) {
-					effectiveTask = Task.Result.timeout(stepDef.timeout)(effectiveTask);
-				}
-
-				let stepOutcome: Result<unknown, unknown>;
-				try {
-					stepOutcome = await Deferred.to.Promise(effectiveTask(activeSignal));
-				} catch (thrown) {
-					stepOutcome = Result.make.err(internalUnexpected(thrown));
-				}
-
-				if (Result.is.err(stepOutcome)) {
-					const error = isInternalUnexpected(stepOutcome.error)
-						? Unexpected.make.execution({
-							source: "Transaction",
-							phase: "execution",
-							cause: stepOutcome.error.cause,
-							stepId: stepDef.id,
-						})
-						: stepOutcome.error;
-					if (options?.onStepFailure) {
-						try {
-							options.onStepFailure({ stepId: stepDef.id, error });
-						} catch {
-							// Telemetry errors must never disrupt rollback sequence
-						}
-					}
-
-					const undoErrors = await drainUndoStack(undoStack, options);
-					return Result.make.err({
-						kind: "TransactionFailure" as const,
-						stepId: stepDef.id,
-						error: error as E | Unexpected,
-						undoErrors: undoErrors as readonly Transaction.UndoFailure<EUndo | Unexpected>[],
-					});
-				}
-
-				const out = stepOutcome.value;
-				if (options?.onStepSuccess) {
-					try {
-						options.onStepSuccess({ stepId: stepDef.id, output: out });
-					} catch {
-						// Telemetry errors must never disrupt forward progression
-					}
-				}
-
-				setProperty(acc, stepDef.id, out);
-				setProperty(context, stepDef.id, out);
-
-				if (stepDef.undo) {
-					undoStack.push({ id: stepDef.id, undo: stepDef.undo, output: out, context: Object.freeze({ ...context }) });
+			const dependencies: Record<string, unknown> = {};
+			for (const [name, dependency] of Object.entries(stepDef.deps)) {
+				if (dependency !== undefined) {
+					setProperty(dependencies, name, acc[dependency.id]);
 				}
 			}
+			const stepTask: Task.Result<unknown, unknown> = (signal) => stepDef.run(dependencies)(input)(signal);
+			let effectiveTask = stepTask;
+			if (stepDef.retry) {
+				effectiveTask = Task.Result.retry(stepDef.retry)(effectiveTask);
+			}
+			if (stepDef.timeout) {
+				effectiveTask = Task.Result.timeout(stepDef.timeout)(effectiveTask);
+			}
 
-			return Result.make.ok(acc as Acc);
-		})());
+			const stepOutcome = await Deferred.to.Promise(effectiveTask(activeSignal));
+			if (Result.is.err(stepOutcome)) {
+				const { error } = stepOutcome;
+				options?.onStepFailure?.({ stepId: stepDef.id, error });
+
+				const undoErrors = await drainUndoStack(undoStack, options, input);
+				return Result.make.err({
+					kind: "TransactionFailure" as const,
+					stepId: stepDef.id,
+					error: error as E,
+					undoErrors: undoErrors as readonly Transaction.UndoFailure<EUndo>[],
+				});
+			}
+
+			const out = stepOutcome.value;
+			options?.onStepSuccess?.({ stepId: stepDef.id, output: out });
+
+			setProperty(acc, stepDef.id, out);
+			if (stepDef.undo) {
+				undoStack.push({
+					id: stepDef.id,
+					undo: stepDef.undo,
+					output: out,
+					dependencies: Object.freeze({ ...dependencies }),
+				});
+			}
+		}
+
+		return Result.make.ok(acc as Acc);
+	})());
 }
 
 // =============================================================================
@@ -633,42 +469,38 @@ function runTransaction(
 
 export const Transaction = {
 	/**
-	 * Creates an empty, initialized `Transaction` ready to accumulate steps.
+	 * Assembles step definitions in execution order and validates their dependencies.
 	 *
-	 * @see {@link Transaction.step} for appending sequential steps to the transaction.
+	 * @see {@link Transaction.step} for defining reusable steps.
 	 *
 	 * @example
 	 * ```ts
-	 * const checkout = Transaction.make<OrderInput>();
+	 * const checkout = Transaction.make(reservation, payment);
 	 * ```
 	 */
 	make: makeTransaction,
 
 	/**
-	 * Appends a step to a `Transaction` with an optional compensating `undo` action.
+	 * Defines a reusable step with optional named dependencies and compensation.
 	 *
-	 * The step receives an accumulated context containing the initial input and all outputs
-	 * from preceding steps. An optional compensating `undo` action can be defined to reverse
-	 * external mutations if this or any subsequent step fails.
+	 * The step receives the outputs of declared dependencies, then the input for each run.
+	 * An optional `undo` action can reverse external mutations if a later step fails.
 	 *
 	 * @see {@link Transaction.run} for executing the compiled transaction.
 	 *
 	 * @example
 	 * ```ts
-	 * const withStep = pipe(
-	 *   transaction,
-	 *   Transaction.step({
-	 *     id: "inventory",
-	 *     run: ({ initial }) => reserveInventory(initial.sku),
-	 *     undo: (res) => releaseInventory(res.id),
-	 *   }),
-	 * );
+	 * const reserve = Transaction.step({
+	 *   id: "inventory",
+	 *   run: () => (order: OrderInput) => reserveInventory(order.sku),
+	 *   undo: (res) => releaseInventory(res.id),
+	 * });
 	 * ```
 	 */
 	step,
 
 	/**
-	 * Executes a `Transaction`, returning an infallible lazy `Task.Result`.
+	 * Starts a `Transaction` and returns a deferred result.
 	 *
 	 * Steps run sequentially. If all steps succeed, returns `Ok(Acc)` containing all step outputs.
 	 * If any step fails, times out, or is aborted, completed steps are undone in reverse (LIFO) order
@@ -678,10 +510,7 @@ export const Transaction = {
 	 *
 	 * @example
 	 * ```ts
-	 * const outcome = await pipe(
-	 *   checkout,
-	 *   Transaction.run(orderInput, { signal }),
-	 * )();
+	 * const outcome = await Transaction.run(checkout, { input: orderInput, signal });
 	 * ```
 	 */
 	run: runTransaction,

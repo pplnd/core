@@ -45,7 +45,8 @@ type TargetsOf<S> = S extends { readonly [_targetsBrand]?: (target: infer T) => 
  * with {@link EventBus.Message}.
  */
 type MachineEventMessage<Events extends Record<string, unknown>> = {
-	[K in keyof Events & string]: [Events[K]] extends [void | undefined] ? WithKind<K> & { readonly value?: void; }
+	[K in keyof Events & string]: undefined extends Events[K] ? WithKind<K> & { readonly value?: Events[K]; }
+		: [Events[K]] extends [void] ? WithKind<K> & { readonly value?: void; }
 		: WithKind<K> & WithValue<Events[K]>;
 }[keyof Events & string];
 
@@ -150,7 +151,13 @@ type MachineActor<States extends AnyMachineState, Events extends Record<string, 
 /**
  * Options for configuring {@link Machine.interpret}.
  */
-type MachineInterpretOptions<States extends AnyMachineState, Events extends Record<string, unknown>> = {
+type MachineInterpretOptions<
+	States extends AnyMachineState,
+	Events extends Record<string, unknown>,
+	BusEvents extends Record<string, unknown> = Events,
+> = {
+	/** Initial state for this actor. */
+	readonly initial: States;
 	/**
 	 * An optional diagnostic identifier for this running actor instance.
 	 */
@@ -160,7 +167,7 @@ type MachineInterpretOptions<States extends AnyMachineState, Events extends Reco
 	 * An optional {@link EventBus} to synchronize with.
 	 * All messages emitted on the bus will be forwarded to the actor.
 	 */
-	readonly bus?: EventBus<Events>;
+	readonly bus?: EventBus<BusEvents>;
 
 	/**
 	 * Error handler for exceptions thrown inside entry, exit, transition, or subscriber callbacks.
@@ -175,13 +182,19 @@ type MachineInterpretOptions<States extends AnyMachineState, Events extends Reco
 	) => void;
 };
 
+type CompatibleBus<Events extends Record<string, unknown>, BusEvents extends Record<string, unknown>> =
+	[keyof Events & keyof BusEvents & string] extends [never] ? never
+		: {
+			[K in keyof Events & keyof BusEvents & string]: [BusEvents[K]] extends [Events[K]] ? never : K;
+		}[keyof Events & keyof BusEvents & string] extends never ? unknown
+		: never;
+
 /**
  * A typed statechart and finite state machine specification.
  */
 export type Machine<States extends AnyMachineState, Events extends Record<string, unknown>> = {
 	readonly id?: string;
 	readonly [Symbol.toStringTag]?: string;
-	readonly initial: States;
 	readonly states: Machine.TransitionTable<States, Events>;
 };
 
@@ -228,8 +241,8 @@ export namespace Machine {
 	>;
 
 	export type InterpretOptions<
-		Events extends Record<string, unknown>,
 		States extends AnyMachineState = AnyMachineState,
+		Events extends Record<string, unknown> = Record<string, unknown>,
 	> = MachineInterpretOptions<States, Events>;
 }
 
@@ -254,7 +267,6 @@ export const Machine = {
 	 *
 	 * const authMachine = Machine.make<AuthState, AuthEvents>({
 	 *   id: "auth",
-	 *   initial: Machine.state("loggedOut"),
 	 *   states: {
 	 *     loggedOut: {
 	 *       on: {
@@ -283,11 +295,10 @@ export const Machine = {
 	 * ```
 	 */
 	make: <States extends AnyMachineState, Events extends Record<string, unknown>>(
-		config: { readonly id?: string; readonly initial: States; readonly states: MachineTransitionTable<States, Events>; },
+		config: { readonly id?: string; readonly states: MachineTransitionTable<States, Events>; },
 	): Machine<States, Events> => ({
 		...(config.id !== undefined ? { id: config.id } : {}),
 		[Symbol.toStringTag]: config.id !== undefined ? `Machine(${config.id})` : "Machine",
-		initial: config.initial,
 		states: { ...config.states },
 	}),
 
@@ -362,10 +373,12 @@ export const Machine = {
 			event: MachineEventMessage<Events>,
 		) =>
 		(state: States): States => {
+			if (!Object.hasOwn(machine.states, state.kind)) { return state; }
 			const config = machine.states[state.kind as States["kind"]];
 			if (!config || !config.on) {
 				return state;
 			}
+			if (!Object.hasOwn(config.on, event.kind)) { return state; }
 			const handler = config.on[event.kind as keyof Events & string];
 			if (!handler) {
 				return state;
@@ -379,10 +392,7 @@ export const Machine = {
 	to: {
 		/**
 		 * Converts a state machine into an uncurried reducer function `(state, event) => nextState`
-		 * directly compatible with React `useReducer` and Redux.
-		 *
-		 * If `state` is `undefined` (such as during Redux store initialization),
-		 * defaults to `machine.initial`.
+		 * directly compatible with React `useReducer`.
 		 *
 		 * @see {@link Machine.transition} for pure, curried data-last pipeline transitions.
 		 *
@@ -391,19 +401,14 @@ export const Machine = {
 		 * // In React:
 		 * const [state, dispatch] = useReducer(
 		 *   Machine.to.reducer(checkoutMachine),
-		 *   checkoutMachine.initial,
+		 *   Machine.state("cart"),
 		 * );
 		 *
-		 * // In Redux:
-		 * const store = createStore(Machine.to.reducer(checkoutMachine));
 		 * ```
 		 */
 		reducer:
 			<States extends AnyMachineState, Events extends Record<string, unknown>>(machine: Machine<States, Events>) =>
-			(state: States | undefined, event: MachineEventMessage<Events>): States => {
-				const current = state === undefined ? machine.initial : state;
-				return Machine.transition(machine, event)(current);
-			},
+			(state: States, event: MachineEventMessage<Events>): States => Machine.transition(machine, event)(state),
 	},
 
 	/**
@@ -420,7 +425,7 @@ export const Machine = {
 	 *
 	 * @example
 	 * ```ts
-	 * const actor = Machine.interpret(authMachine);
+	 * const actor = Machine.interpret(authMachine, { initial: Machine.state("loggedOut") });
 	 *
 	 * const unsubscribe = actor.subscribe((state) => {
 	 *   console.log("Current state:", state.kind);
@@ -429,46 +434,70 @@ export const Machine = {
 	 * actor.send({ kind: "SUBMIT", value: { email: "dev@example.com" } });
 	 * ```
 	 */
-	interpret: <States extends AnyMachineState, Events extends Record<string, unknown>>(
+	interpret: <
+		States extends AnyMachineState,
+		Events extends Record<string, unknown>,
+		BusEvents extends Record<string, unknown> = Events,
+	>(
 		machine: Machine<States, Events>,
-		options?: MachineInterpretOptions<States, Events>,
+		options: MachineInterpretOptions<States, Events, BusEvents> & CompatibleBus<Events, BusEvents>,
 	): MachineActor<States, Events> => {
 		const actorId = options?.id;
-		let currentState: States = machine.initial;
+		let currentState: States = options.initial;
 		let isRunning = true;
 		let generation = 0;
 		let currentAbortController: AbortController | null = null;
 		let currentCleanup: (() => void) | null = null;
+		let stateEntered = false;
 		let isProcessing = false;
 		let busDisposer: (() => void) | null = null;
 
 		const listeners = new Set<(state: States) => void>();
 		const queue: MachineEventMessage<Events>[] = [];
+		let pendingError: unknown;
+		let hasPendingError = false;
 
 		const reportError = (error: unknown, phase: "entry" | "exit" | "listener" | "transition", state: States): void => {
 			if (options?.onError) {
 				try {
 					options.onError(error, { ...(actorId !== undefined ? { actorId } : {}), state, phase });
-				} catch {
-					// Guard against re-entrant throw in user error handler
+				} catch (handlerError) {
+					if (!hasPendingError) {
+						pendingError = handlerError;
+						hasPendingError = true;
+					}
 				}
+			} else if (!hasPendingError) {
+				pendingError = error;
+				hasPendingError = true;
+			}
+		};
+
+		const flushPendingError = (): void => {
+			if (hasPendingError) {
+				const error = pendingError;
+				pendingError = undefined;
+				hasPendingError = false;
+				throw error;
 			}
 		};
 
 		const exitState = (state: States): void => {
-			if (currentAbortController) {
-				currentAbortController.abort();
-				currentAbortController = null;
-			}
-			if (currentCleanup) {
+			if (!stateEntered) { return; }
+			stateEntered = false;
+			const controller = currentAbortController;
+			const cleanup = currentCleanup;
+			currentAbortController = null;
+			currentCleanup = null;
+			controller?.abort();
+			if (cleanup) {
 				try {
-					currentCleanup();
+					cleanup();
 				} catch (error) {
 					reportError(error, "exit", state);
 				}
-				currentCleanup = null;
 			}
-			const config = machine.states[state.kind as States["kind"]];
+			const config = Object.hasOwn(machine.states, state.kind) ? machine.states[state.kind as States["kind"]] : undefined;
 			if (config?.exit) {
 				try {
 					config.exit(state as any);
@@ -485,8 +514,9 @@ export const Machine = {
 		): void => {
 			const controller = new AbortController();
 			currentAbortController = controller;
+			stateEntered = true;
 
-			const config = machine.states[state.kind as States["kind"]];
+			const config = Object.hasOwn(machine.states, state.kind) ? machine.states[state.kind as States["kind"]] : undefined;
 			if (!config?.entry) {
 				return;
 			}
@@ -502,7 +532,6 @@ export const Machine = {
 				const cleanup = config.entry(state as any, { send: guardedSend, signal: controller.signal });
 				if (typeof cleanup === "function") {
 					if (!isRunning || currentGen !== generation || controller.signal.aborted) {
-						// Already transitioned while entry ran synchronously
 						try {
 							cleanup();
 						} catch (error) {
@@ -517,12 +546,7 @@ export const Machine = {
 			}
 		};
 
-		const send = (event: MachineEventMessage<Events>): States => {
-			if (!isRunning) {
-				return currentState;
-			}
-
-			queue.push(event);
+		const drain = (dispatch: (event: MachineEventMessage<Events>) => States): States => {
 			if (isProcessing) {
 				return currentState;
 			}
@@ -538,29 +562,47 @@ export const Machine = {
 					} catch (error) {
 						reportError(error, "transition", prevState);
 					}
+					if (!isRunning) {
+						flushPendingError();
+						break;
+					}
 
 					if (nextState !== null && nextState !== prevState) {
 						exitState(prevState);
+						if (!isRunning) {
+							flushPendingError();
+							break;
+						}
 						currentState = nextState;
 						generation++;
 						const currentGen = generation;
 
-						for (const listener of listeners) {
-							try {
-								listener(nextState);
-							} catch (error) {
-								reportError(error, "listener", nextState);
+						for (const listener of [...listeners]) {
+							if (!isRunning) { break; }
+							if (listeners.has(listener)) {
+								try {
+									listener(nextState);
+								} catch (error) {
+									reportError(error, "listener", nextState);
+								}
 							}
 						}
 
-						enterState(nextState, currentGen, send);
+						if (isRunning) { enterState(nextState, currentGen, dispatch); }
 					}
+
+					flushPendingError();
 				}
 			} finally {
 				isProcessing = false;
 			}
 
 			return currentState;
+		};
+		const send = (event: MachineEventMessage<Events>): States => {
+			if (!isRunning) { return currentState; }
+			queue.push(event);
+			return drain(send);
 		};
 
 		// If an EventBus is provided, subscribe to incoming events
@@ -571,7 +613,14 @@ export const Machine = {
 		}
 
 		// Run initial state entry effect
-		enterState(currentState, generation, send);
+		isProcessing = true;
+		try {
+			enterState(currentState, generation, send);
+		} finally {
+			isProcessing = false;
+		}
+		flushPendingError();
+		drain(send);
 
 		return {
 			...(actorId !== undefined ? { id: actorId } : {}),
@@ -599,6 +648,7 @@ export const Machine = {
 					busDisposer();
 					busDisposer = null;
 				}
+				flushPendingError();
 			},
 			isRunning: () => isRunning,
 		};

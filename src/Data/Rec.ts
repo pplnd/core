@@ -132,19 +132,9 @@ const map =
 	<A, B>(transform: (value: A) => B) => <K extends string>(record: Readonly<Record<K, A>>): Readonly<Record<K, B>> => {
 		const recordKeys = Object.keys(record);
 		const recordValues = Object.values(record) as readonly A[];
-		const result: Record<string, B> = Object.create(Object.getPrototypeOf(record));
+		const result: Record<string, B> = {};
 		for (let i = 0; i < recordKeys.length; i++) {
-			const key = recordKeys[i];
-			if (key === "__proto__") {
-				Object.defineProperty(result, "__proto__", {
-					value: transform(recordValues[i]),
-					writable: true,
-					enumerable: true,
-					configurable: true,
-				});
-			} else {
-				result[key] = transform(recordValues[i]);
-			}
+			_setKey(result, recordKeys[i], transform(recordValues[i]));
 		}
 		return result as unknown as Readonly<Record<K, B>>;
 	};
@@ -168,7 +158,7 @@ const filterMap =
 	): Readonly<Record<string, B>> => {
 		const recordKeys = Object.keys(record);
 		const recordValues = Object.values(record);
-		const result: Record<string, B> = Object.create(Object.getPrototypeOf(record));
+		const result: Record<string, B> = {};
 		for (let i = 0; i < recordKeys.length; i++) {
 			const maybeVal = transform(recordValues[i]);
 			if (maybeVal.kind === "Some") {
@@ -194,7 +184,7 @@ const mapWithKey =
 	<K extends string>(record: Readonly<Record<K, A>>): Readonly<Record<K, B>> => {
 		const recordKeys = Object.keys(record);
 		const recordValues = Object.values(record) as readonly A[];
-		const result: Record<string, B> = Object.create(Object.getPrototypeOf(record));
+		const result: Record<string, B> = {};
 		for (let i = 0; i < recordKeys.length; i++) {
 			const key = recordKeys[i];
 			_setKey(result, key, transform(key, recordValues[i]));
@@ -217,7 +207,7 @@ const filter =
 	<A>(predicate: (value: A) => boolean) => (record: Readonly<Record<string, A>>): Readonly<Record<string, A>> => {
 		const recordKeys = Object.keys(record);
 		const recordValues = Object.values(record);
-		const result: Record<string, A> = Object.create(Object.getPrototypeOf(record));
+		const result: Record<string, A> = {};
 		for (let i = 0; i < recordKeys.length; i++) {
 			if (predicate(recordValues[i])) {
 				_setKey(result, recordKeys[i], recordValues[i]);
@@ -241,7 +231,7 @@ const filterWithKey =
 	<A>(predicate: (key: string, value: A) => boolean) =>
 	(record: Readonly<Record<string, A>>): Readonly<Record<string, A>> => {
 		const recordKeys = Object.keys(record);
-		const result: Record<string, A> = Object.create(Object.getPrototypeOf(record));
+		const result: Record<string, A> = {};
 		for (let i = 0; i < recordKeys.length; i++) {
 			const k = recordKeys[i];
 			const v = record[k];

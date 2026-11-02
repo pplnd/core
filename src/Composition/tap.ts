@@ -122,7 +122,8 @@ export const tapInspect = <A>(options?: tapInspect.Options) => (a: A): A => {
 /**
  * Triggers a fire-and-forget asynchronous side effect in the background,
  * returning the piped value immediately and synchronously.
- * Any errors thrown by the async function are caught and forwarded to `onError`.
+ * Calls the function immediately. Synchronous throws and promise rejections are forwarded to
+ * `onError`, which defaults to `console.error` and must not throw.
  *
  * @example
  * ```ts
@@ -140,9 +141,11 @@ export const tapInspect = <A>(options?: tapInspect.Options) => (a: A): A => {
  */
 export const tapAsync = <A>(fn: (a: A) => Thenable<unknown>, options?: tapAsync.Options) => (a: A): A => {
 	const onError = options?.onError ?? console.error;
-	Promise.resolve(fn(a)).catch((err) => {
-		onError(err);
-	});
+	try {
+		Promise.resolve(fn(a)).catch(onError);
+	} catch (error) {
+		onError(error);
+	}
 	return a;
 };
 

@@ -2,7 +2,6 @@ import { WithKind } from "../internal/InternalTypes";
 import { Deferred } from "./Deferred.ts";
 import { Result } from "./Result.ts";
 import { type Task } from "./Task.ts";
-import { Unexpected } from "./Unexpected.ts";
 
 /**
  * A Resource encapsulates an async acquisition step paired with a guaranteed cleanup step.
@@ -14,7 +13,7 @@ import { Unexpected } from "./Unexpected.ts";
  * completion or failure of `Resource.use`. If an acquisition step fails midway during multi-resource
  * setup, already-acquired resources are immediately rolled back.
  *
- * Build a Resource with `Resource.make`, `Resource.from.Task`, or `Resource.all`, compose
+ * Build a Resource with `Resource.make` or `Resource.all`, compose
  * dependencies with `Resource.chain` and `Resource.map`, and run the lifecycle with `Resource.use`.
  *
  * @example
@@ -24,11 +23,10 @@ import { Unexpected } from "./Unexpected.ts";
  *   (conn) => Task.tryCatch(() => conn.close(), { onError: () => {} }),
  * );
  *
- * const result = await pipe(
- *   dbResource,
- *   Resource.use((conn) => queryUser(conn, userId)),
- * )();
- * // conn.close() is guaranteed to run whether queryUser succeeds, fails, or throws
+ * const result = await Resource.use(dbResource, {
+ *   run: (conn) => queryUser(conn, userId),
+ * });
+ * // conn.close() runs after queryUser succeeds or returns an error
  * ```
  */
 declare const _resourceBrand: unique symbol;
@@ -43,7 +41,7 @@ type Finalizer = (signal?: AbortSignal) => Deferred<unknown>;
 
 type Scope = {
 	readonly addFinalizer: (finalizer: Finalizer) => void;
-	readonly close: (signal?: AbortSignal) => Promise<readonly unknown[]>;
+	readonly close: (signal?: AbortSignal) => Promise<void>;
 };
 
 type InternalResource<E, A> = Resource<E, A> & {
@@ -77,15 +75,9 @@ const createScope = (): Scope => {
 			finalizers.push(finalizer);
 		},
 		close: async (signal) => {
-			const errors: unknown[] = [];
 			for (let i = finalizers.length - 1; i >= 0; i--) {
-				try {
-					await Deferred.to.Promise(finalizers[i](signal));
-				} catch (error) {
-					errors.push(error);
-				}
+				await Deferred.to.Promise(finalizers[i](signal));
 			}
-			return errors;
 		},
 	};
 };
@@ -100,42 +92,18 @@ const makeResource = <E, A>(acquire: Task.Result<E, A>, release: (value: A) => T
 		return acquired;
 	});
 
-const makeTask = <A, E = never>(acquire: Task<A>, release: (value: A) => Task<unknown>): Resource<E, A> =>
-	makeInternalResource(async (scope, signal) => {
-		const value = await Deferred.to.Promise(acquire(signal));
-		scope.addFinalizer((sig) => release(value)(sig));
-		return Result.make.ok(value);
-	});
-
-const use =
-	<A, E2, B>(consume: (value: A) => Task.Result<E2, B>) =>
-	<E1 = never>(
-		resource: Resource<E1, A>,
-	): Task.Result<E1 | E2 | Unexpected<Result<E1 | E2 | Unexpected.Execution, B>>, B> =>
-	(signal) =>
-		Deferred.from.Promise((async () => {
-			const scope = createScope();
-			let phase: "acquire" | "use" = "acquire";
-			let outcome: Result<E1 | E2 | Unexpected.Execution, B>;
-			try {
-				const acquired = await toInternal(resource)[_allocate](scope, signal);
-				if (Result.is.err(acquired)) {
-					outcome = acquired;
-				} else {
-					phase = "use";
-					outcome = await Deferred.to.Promise(consume(acquired.value)(signal));
-				}
-			} catch (cause) {
-				outcome = Result.make.err(Unexpected.make.execution({ source: "Resource", phase, cause }));
-			}
-			const cleanupErrors = await scope.close(signal);
-			if (cleanupErrors.length > 0) {
-				return Result.make.err(
-					Unexpected.make.release({ cause: cleanupErrors[0], previous: outcome, additionalErrors: cleanupErrors.slice(1) }),
-				);
-			}
-			return outcome;
-		})());
+const use = <E1, A, E2, B>(
+	resource: Resource<E1, A>,
+	options: { readonly run: (value: A) => Task.Result<E2, B>; readonly signal?: AbortSignal; },
+): Deferred<Result<E1 | E2, B>> =>
+	Deferred.from.Promise((async () => {
+		const { signal } = options;
+		const scope = createScope();
+		const acquired = await toInternal(resource)[_allocate](scope, signal);
+		const outcome = Result.is.err(acquired) ? acquired : await Deferred.to.Promise(options.run(acquired.value)(signal));
+		await scope.close(signal);
+		return outcome;
+	})());
 
 const map = <A, B>(transform: (value: A) => B) => <E = never>(resource: Resource<E, A>): Resource<E, B> =>
 	makeInternalResource(async (scope, signal) => {
@@ -202,7 +170,7 @@ export const Resource = {
 	/**
 	 * Creates a Resource from an acquire operation that may fail and a release finalizer.
 	 *
-	 * @see {@link Resource.from.Task} for creating resources with infallible acquisition.
+	 * Convert an infallible acquisition with `Task.Result.from.Task` before passing it here.
 	 * @example
 	 * ```ts
 	 * const fileResource = Resource.make(
@@ -213,41 +181,19 @@ export const Resource = {
 	 */
 	make: makeResource,
 
-	// --- from ---
-	from: {
-		/**
-		 * Creates a Resource from an acquire operation that cannot fail.
-		 * Use this when opening the resource is guaranteed to succeed, such as
-		 * in-memory locks, counters, or timers.
-		 *
-		 * @see {@link Resource.make} for creating resources with fallible acquisition.
-		 * @example
-		 * ```ts
-		 * const timerResource = Resource.from.Task(
-		 *   Task.tryCatch(() => Promise.resolve(startTimer()), { onError: () => defaultTimer }),
-		 *   (timer) => Task.tryCatch(() => Promise.resolve(timer.stop()), { onError: () => {} }),
-		 * );
-		 * ```
-		 */
-		Task: makeTask,
-	},
-
 	/**
-	 * Acquires the resource, runs `consume` with it, then releases it.
+	 * Acquires the resource, runs the supplied work, then releases it.
 	 *
-	 * Release runs even when acquisition or work throws. Unexpected exceptions are returned
-	 * as `Unexpected`, identifying the phase and retaining the original cause.
-	 * Cleanup runs in reverse order even if a release throws. If cleanup fails, the error
-	 * includes the preceding outcome and any additional cleanup exceptions.
-	 * If acquisition returns an error, work and the failed resource's release are skipped.
+	 * Successfully acquired resources are released in reverse order when acquisition or work
+	 * returns an error. If acquisition returns an error, work and its release are skipped.
+	 * Release tasks and callbacks must not throw or reject.
 	 *
 	 * @example
 	 * ```ts
-	 * const rows = await pipe(
-	 *   dbResource,
-	 *   Resource.use((conn) => runQuery(conn, "SELECT * FROM users")),
-	 * )();
-	 * // conn is closed whether the query succeeds, fails, or throws
+	 * const rows = await Resource.use(dbResource, {
+	 *   run: (conn) => runQuery(conn, "SELECT * FROM users"),
+	 * });
+	 * // conn is closed whether the query succeeds or returns an error
 	 * ```
 	 */
 	use,
@@ -255,8 +201,7 @@ export const Resource = {
 	/**
 	 * Transforms the value of an acquired resource while retaining guaranteed cleanup of the original asset.
 	 *
-	 * If `transform` throws, `Resource.use` releases the acquired resource and returns an
-	 * `Unexpected` error.
+	 * The transform must not throw.
 	 *
 	 * @see {@link Resource.chain} for sequencing dependent resource acquisitions.
 	 * @example
@@ -272,7 +217,7 @@ export const Resource = {
 	/**
 	 * Sequentially acquires a second resource that depends on the value of the first.
 	 *
-	 * If acquiring the second resource fails or throws, `Resource.use` releases the first resource before returning
+	 * If acquiring the second resource returns an error, `Resource.use` releases the first resource before returning
 	 * the error. When `Resource.use` completes, both resources are released in reverse (LIFO) order: the second is
 	 * released before the first.
 	 *
@@ -296,7 +241,7 @@ export const Resource = {
 	 * Acquires two resources in sequence and presents them as a tuple.
 	 *
 	 * Resources are released in reverse order: the second is released before the first.
-	 * If the second resource fails to acquire or throws, the first is released before
+	 * If the second resource fails to acquire, the first is released before
 	 * `Resource.use` returns the error.
 	 *
 	 * @see {@link Resource.all} for acquiring arbitrary tuples or named records of resources.
@@ -304,10 +249,9 @@ export const Resource = {
 	 * ```ts
 	 * const combined = Resource.combine(dbResource, cacheResource);
 	 *
-	 * const result = await pipe(
-	 *   combined,
-	 *   Resource.use(([conn, cache]) => lookupWithFallback(conn, cache, userId)),
-	 * )();
+	 * const result = await Resource.use(combined, {
+	 *   run: ([conn, cache]) => lookupWithFallback(conn, cache, userId),
+	 * });
 	 * ```
 	 */
 	combine,
@@ -316,7 +260,7 @@ export const Resource = {
 	 * Sequentially acquires an array/tuple or named record of resources.
 	 *
 	 * All resources are released in strict reverse (LIFO) order upon completion.
-	 * If the K-th resource fails to acquire or throws, all already-acquired resources (K-1 ... 0)
+	 * If the K-th resource fails to acquire, all already-acquired resources (K-1 ... 0)
 	 * are released in reverse order before `Resource.use` returns the error.
 	 *
 	 * @see {@link Resource.combine} for binary resource pairing.
@@ -332,10 +276,9 @@ export const Resource = {
 	 *   s3: createTempBucket(s3Config),
 	 * });
 	 *
-	 * const result = await pipe(
-	 *   appInfra,
-	 *   Resource.use(({ db, redis, s3 }) => runMigration(db, redis, s3)),
-	 * )();
+	 * const result = await Resource.use(appInfra, {
+	 *   run: ({ db, redis, s3 }) => runMigration(db, redis, s3),
+	 * });
 	 * ```
 	 */
 	all,

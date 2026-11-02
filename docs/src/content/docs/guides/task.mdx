@@ -4,7 +4,7 @@ description: Compose asynchronous work that starts when you run it and handle fa
 ---
 {/* BUNDLE_SIZE:START */}
 
-> 4.68 kB minified + gzipped
+> 4.37 kB minified + gzipped
 
 {/* BUNDLE_SIZE:END */}
 
@@ -143,6 +143,9 @@ errors. `Task.race([])` never resolves. `memoize` shares the first invocation, i
 used by that invocation; later callers do not start new work with their own signals.
 
 `Task.all` treats a non-integer or nonpositive `concurrency` as unbounded.
+`Task.repeat` rounds finite `times` down to an integer and returns an empty array for a non-finite
+or nonpositive count. `Task.poll` rounds finite `attempts` down and uses one attempt for values
+below one or non-finite values; omitting `attempts` leaves polling unlimited.
 
 A base `Task` assumes its work and callbacks do not throw or reject. Use `Task.Result.tryCatch`
 at a fallible boundary. Cancellation is cooperative: `abortable`, `race`, and `timeout` signal the
@@ -154,5 +157,4 @@ forwards the abort signal to every task, including tasks scheduled after the sig
 fallible async workflows where cancellation must prevent queued work from starting and short-circuit
 on the first error, use `Task.Result.all` or `Task.Result.sequential`.
 
-If either timeout's `onTimeout` callback throws, the result contains an `Unexpected`
-error (`Unexpected.Execution` with `source: "Task"`) retaining the thrown value in `cause`.
+Timeout callbacks must not throw. Handle expected failures before constructing a timeout error.

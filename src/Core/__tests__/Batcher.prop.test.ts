@@ -12,12 +12,10 @@ test("property: fetch receives strictly unique keys under concurrent load", asyn
 				const uniqueSet = new Set(keys);
 				let dispatchedKeys: readonly string[] = [];
 
-				const batcher = Batcher.make({
-					fetch: (batchKeys: readonly string[]) => () => {
-						dispatchedKeys = batchKeys;
-						const map = new Map(batchKeys.map((k) => [k, `val_${k}`]));
-						return Deferred.from.Promise(Promise.resolve(Result.make.ok(map)));
-					},
+				const batcher = Batcher.make((batchKeys: readonly string[]) => () => {
+					dispatchedKeys = batchKeys;
+					const map = new Map(batchKeys.map((k) => [k, `val_${k}`]));
+					return Deferred.from.Promise(Promise.resolve(Result.make.ok(map)));
 				});
 
 				const results = await Promise.all(keys.map((k) => batcher.load(k)));
@@ -39,14 +37,11 @@ test("property: chunks are strictly bounded by maxBatchSize", async () => {
 				const keys = Array.from(new Set(rawKeys));
 				const chunks: (readonly number[])[] = [];
 
-				const batcher = Batcher.make({
-					fetch: (batchKeys: readonly number[]) => () => {
-						chunks.push(batchKeys);
-						const map = new Map(batchKeys.map((k) => [k, k * 2]));
-						return Deferred.from.Promise(Promise.resolve(Result.make.ok(map)));
-					},
-					maxBatchSize,
-				});
+				const batcher = Batcher.make((batchKeys: readonly number[]) => () => {
+					chunks.push(batchKeys);
+					const map = new Map(batchKeys.map((k) => [k, k * 2]));
+					return Deferred.from.Promise(Promise.resolve(Result.make.ok(map)));
+				}, { maxBatchSize });
 
 				await Promise.all(keys.map((k) => batcher.load(k)));
 
@@ -67,16 +62,14 @@ test("property: outcomes correspond strictly to dictionary presence vs absence",
 			async (availableMap, lookupKeys) => {
 				const available = new Map(Object.entries(availableMap));
 
-				const batcher = Batcher.make({
-					fetch: (keys: readonly string[]) => () => {
-						const map = new Map<string, number>();
-						for (let i = 0; i < keys.length; i++) {
-							if (available.has(keys[i])) {
-								map.set(keys[i], available.get(keys[i])!);
-							}
+				const batcher = Batcher.make((keys: readonly string[]) => () => {
+					const map = new Map<string, number>();
+					for (let i = 0; i < keys.length; i++) {
+						if (available.has(keys[i])) {
+							map.set(keys[i], available.get(keys[i])!);
 						}
-						return Deferred.from.Promise(Promise.resolve(Result.make.ok(map)));
-					},
+					}
+					return Deferred.from.Promise(Promise.resolve(Result.make.ok(map)));
 				});
 
 				const outcomes = await Promise.all(lookupKeys.map((k) => batcher.load(k)));
@@ -99,17 +92,15 @@ test("property: loadMany preserves exact input order and discrete per-key outcom
 			fc.array(fc.string({ minLength: 1, maxLength: 4 }), { minLength: 0, maxLength: 10 }),
 			async (keys, availableKeys) => {
 				const available = new Set(availableKeys);
-				const batcher = Batcher.make({
-					fetch: (batchKeys: readonly string[]) => () => {
-						const map = new Map<string, string>();
-						for (let i = 0; i < batchKeys.length; i++) {
-							const k = batchKeys[i];
-							if (available.has(k)) {
-								map.set(k, `val_${k}`);
-							}
+				const batcher = Batcher.make((batchKeys: readonly string[]) => () => {
+					const map = new Map<string, string>();
+					for (let i = 0; i < batchKeys.length; i++) {
+						const k = batchKeys[i];
+						if (available.has(k)) {
+							map.set(k, `val_${k}`);
 						}
-						return Deferred.from.Promise(Promise.resolve(Result.make.ok(map)));
-					},
+					}
+					return Deferred.from.Promise(Promise.resolve(Result.make.ok(map)));
 				});
 
 				const outcomes = await batcher.loadMany(keys);
@@ -135,14 +126,11 @@ test("property: non-integer or non-positive maxBatchSize safely defaults to Infi
 				const keys = Array.from(new Set(rawKeys));
 				const chunks: (readonly number[])[] = [];
 
-				const batcher = Batcher.make({
-					fetch: (batchKeys: readonly number[]) => () => {
-						chunks.push(batchKeys);
-						const map = new Map(batchKeys.map((k) => [k, k]));
-						return Deferred.from.Promise(Promise.resolve(Result.make.ok(map)));
-					},
-					maxBatchSize: invalidMaxBatchSize,
-				});
+				const batcher = Batcher.make((batchKeys: readonly number[]) => () => {
+					chunks.push(batchKeys);
+					const map = new Map(batchKeys.map((k) => [k, k]));
+					return Deferred.from.Promise(Promise.resolve(Result.make.ok(map)));
+				}, { maxBatchSize: invalidMaxBatchSize });
 
 				await Promise.all(keys.map((k) => batcher.load(k)));
 

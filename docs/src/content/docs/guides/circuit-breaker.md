@@ -5,7 +5,7 @@ description: Pause calls to a failing dependency and allow controlled recovery p
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.85 kB minified + gzipped
+> 2.74 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -118,6 +118,5 @@ await registry.protect(Task.Result.make.err("package not found"))();
 A concurrent call during an active probe receives `CircuitBreaker.OpenError` with `retryAfterMs` of
 zero. `state()` can report `HalfOpen` after the cooldown even before a call starts a probe.
 
-If a protected task throws when invoked, the caller receives `Unexpected` with the original cause
-(`phase: "execution"`, `source: "CircuitBreaker"`). The exception counts as a failure and can become
-the `lastError` in open state; an already-aborted call does not count toward the failure threshold.
+Protected tasks must not throw or reject. Use `Task.Result.tryCatch` to map expected failures before
+passing a task to the breaker. An already-aborted call does not count toward the failure threshold.

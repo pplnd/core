@@ -1031,3 +1031,65 @@ test("composition: integrates with pipe to process messages", () => {
 	expect(states).toStrictEqual([10, 30, 60]);
 	sub.unsubscribe();
 });
+
+// ---------------------------------------------------------------------------
+// Open Findings Regression Suite ([EVENTBUS-001], [EVENTBUS-002])
+// ---------------------------------------------------------------------------
+
+test("emit: does not invoke subscriber that was unsubscribed by an earlier subscriber during the same emission ([EVENTBUS-001])", () => {
+	const s = EventBus.make<TestSchema>();
+	let sub2Calls = 0;
+	const holder: { unsub2?: () => void; } = {};
+
+	EventBus.subscribe(s, "A").tap(() => {
+		holder.unsub2?.();
+	});
+
+	holder.unsub2 = EventBus.subscribe(s, "A").tap(() => {
+		sub2Calls++;
+	});
+
+	EventBus.emit(s, { kind: "A", value: { value: 1 } });
+	expect(sub2Calls).toBe(0);
+});
+
+test("subscribe: restarts ordered sequence when unexpected event matches after leading optional step ([EVENTBUS-002])", () => {
+	const s = EventBus.make<TestSchema>();
+	let tapCount = 0;
+	const collected: Array<EventBus.CollectedPayloads<TestSchema, "A" | "B" | "C", "A">> = [];
+
+	EventBus.subscribe(s, ["A", "B", "C"], { ordered: true, optional: ["A"] }).tap(() => {
+		tapCount++;
+	});
+	EventBus.subscribe(s, ["A", "B", "C"], { ordered: true, optional: ["A"] }).collect((payloads) => {
+		collected.push(payloads);
+	});
+
+	// Emit A -> B -> B -> C (where A is optional, so the second B should restart sequence at step B)
+	EventBus.emit(s, { kind: "A", value: { value: 1 } });
+	EventBus.emit(s, { kind: "B", value: { text: "first" } });
+	EventBus.emit(s, { kind: "B", value: { text: "restarted" } });
+	EventBus.emit(s, { kind: "C", value: { flag: true } });
+
+	expect(tapCount).toBe(1);
+	expect(collected).toStrictEqual([{ B: { text: "restarted" }, C: { flag: true } }]);
+});
+
+test("subscribe: defensively clones events array so external mutation does not corrupt active subscription ([EVENTBUS-002])", () => {
+	const s = EventBus.make<TestSchema>();
+	const events: Array<"A" | "B"> = ["A", "B"];
+	let fired = 0;
+
+	EventBus.subscribe(s, events, { ordered: true }).tap(() => {
+		fired++;
+	});
+
+	// Mutating the caller's array must not shorten the subscribed sequence
+	events.pop();
+
+	EventBus.emit(s, { kind: "A", value: { value: 1 } });
+	expect(fired).toBe(0);
+
+	EventBus.emit(s, { kind: "B", value: { text: "done" } });
+	expect(fired).toBe(1);
+});

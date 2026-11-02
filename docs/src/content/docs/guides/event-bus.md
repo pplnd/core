@@ -5,7 +5,7 @@ description: Publish typed events, observe them, and match sequences within an a
 
 <!-- BUNDLE_SIZE:START -->
 
-> 1.17 kB minified + gzipped
+> 1.21 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -103,8 +103,12 @@ completes and receive its final message; `collect` receives the gathered payload
 ## Failure Behavior and Edge Cases
 
 Without `onError`, a subscriber exception escapes `EventBus.emit` and stops the remaining delivery.
-When `onError` is provided and returns normally, the bus reports the exception and continues to the
-next subscriber. If `onError` itself throws, that exception escapes too.
+When `onError` returns normally, the bus reports the exception and continues to the next subscriber.
+If the error handler throws, its exception propagates to the emitter.
+
+Unsubscribing takes effect immediately: a subscriber removed before its turn does not receive the
+current message. A callback already running finishes normally. Subscriptions added during delivery
+start with the next message.
 
 An ordered optional step is skipped when a later expected event arrives. A trailing optional step
 has no later step to trigger that skip, so the sequence waits for it. In unordered `collect`, each

@@ -2,6 +2,7 @@
 // Imports
 // =============================================================================
 import type { Thenable } from "../internal/InternalTypes";
+import { waitForDelay } from "../internal/waitForDelay.ts";
 import { Duration } from "../Types/Duration.ts";
 import { Deferred } from "./Deferred.ts";
 import { Maybe as CoreMaybe } from "./Maybe.ts";
@@ -9,7 +10,6 @@ import { Result as CoreResult } from "./Result.ts";
 import { TaskMaybe } from "./TaskMaybe.ts";
 import { TaskResult } from "./TaskResult.ts";
 import { TaskValidation } from "./TaskValidation.ts";
-import { Unexpected } from "./Unexpected.ts";
 import { Validation as CoreValidation } from "./Validation.ts";
 
 // =============================================================================
@@ -363,25 +363,11 @@ export const Task = {
 	 */
 	repeat: (options: { times: number; delay?: Duration; }) => <A>(task: Task<A>): Task<readonly A[]> =>
 		fromPromise((signal) => {
-			const { times, delay: delayDuration } = options;
+			const { delay: delayDuration } = options;
+			const times = Number.isFinite(options.times) ? Math.floor(options.times) : 0;
 			if (times <= 0) { return Promise.resolve([]); }
 			const results: A[] = [];
-			const wait = (): Promise<void> =>
-				new Promise((r) => {
-					// oxlint-disable-next-line prefer-const
-					let timerId: ReturnType<typeof setTimeout> | undefined;
-					const onAbort = () => {
-						clearTimeout(timerId);
-						r();
-					};
-					if (signal) {
-						signal.addEventListener("abort", onAbort, { once: true });
-					}
-					timerId = setTimeout(() => {
-						signal?.removeEventListener("abort", onAbort);
-						r();
-					}, delayDuration ? getMs(delayDuration) : 0);
-				});
+			const wait = (): Promise<void> => waitForDelay(delayDuration ? getMs(delayDuration) : 0, signal);
 			const run = (left: number): Promise<A[]> => {
 				if (signal?.aborted) {
 					return Promise.resolve(results);
@@ -414,34 +400,20 @@ export const Task = {
 	poll:
 		<A>(options: { until: (value: A) => boolean; delay?: Duration; attempts?: number; }) => (task: Task<A>): Task<A> =>
 			fromPromise((signal) => {
-				const { until: predicate, delay: delayDuration, attempts } = options;
-				const wait = (): Promise<void> =>
-					new Promise((r) => {
-						// oxlint-disable-next-line prefer-const
-						let timerId: ReturnType<typeof setTimeout> | undefined;
-						const onAbort = () => {
-							clearTimeout(timerId);
-							r();
-						};
-						if (signal) {
-							signal.addEventListener("abort", onAbort, { once: true });
-						}
-						timerId = setTimeout(() => {
-							signal?.removeEventListener("abort", onAbort);
-							r();
-						}, delayDuration ? getMs(delayDuration) : 0);
-					});
-				const run = (attempt: number, lastValue?: A): Promise<A> => {
-					if (signal?.aborted && lastValue !== undefined) {
-						return Promise.resolve(lastValue);
-					}
-					return toPromise(task, signal).then((a) => {
+				const { until: predicate, delay: delayDuration } = options;
+				const attempts = options.attempts === undefined
+					? undefined
+					: Number.isFinite(options.attempts)
+					? Math.max(1, Math.floor(options.attempts))
+					: 1;
+				const wait = (): Promise<void> => waitForDelay(delayDuration ? getMs(delayDuration) : 0, signal);
+				const run = (attempt: number): Promise<A> =>
+					toPromise(task, signal).then((a) => {
 						if (predicate(a)) { return a; }
 						if (attempts !== undefined && attempt >= attempts) { return a; }
 						if (signal?.aborted) { return a; }
-						return wait().then(() => run(attempt + 1, a));
+						return wait().then(() => signal?.aborted ? a : run(attempt + 1));
 					});
-				};
 				return run(1);
 			}),
 
@@ -503,49 +475,43 @@ export const Task = {
 	 * );
 	 * ```
 	 */
-	timeout:
-		<E>(options: { duration: Duration; onTimeout: () => E; }) =>
-		<A>(task: Task<A>): Task<CoreResult<E | Unexpected, A>> =>
-			fromPromise((outerSignal) => {
-				const { duration, onTimeout } = options;
-				const controller = new AbortController();
-				let timerId: ReturnType<typeof setTimeout> | undefined;
+	timeout: <E>(options: { duration: Duration; onTimeout: () => E; }) => <A>(task: Task<A>): Task<CoreResult<E, A>> =>
+		fromPromise((outerSignal) => {
+			const { duration, onTimeout } = options;
+			const controller = new AbortController();
+			let timerId: ReturnType<typeof setTimeout> | undefined;
 
-				const onOuterAbort = () => {
+			const onOuterAbort = () => {
+				controller.abort();
+			};
+
+			const cleanUp = () => {
+				clearTimeout(timerId);
+				outerSignal?.removeEventListener("abort", onOuterAbort);
+			};
+
+			if (outerSignal) {
+				if (outerSignal.aborted) {
 					controller.abort();
-				};
-
-				const cleanUp = () => {
-					clearTimeout(timerId);
-					outerSignal?.removeEventListener("abort", onOuterAbort);
-				};
-
-				if (outerSignal) {
-					if (outerSignal.aborted) {
-						controller.abort();
-					} else {
-						outerSignal.addEventListener("abort", onOuterAbort, { once: true });
-					}
+				} else {
+					outerSignal.addEventListener("abort", onOuterAbort, { once: true });
 				}
+			}
 
-				return Promise.race([
-					toPromise(task, controller.signal).then((a): CoreResult<E, A> => {
+			return Promise.race([
+				toPromise(task, controller.signal).then((a): CoreResult<E, A> => {
+					cleanUp();
+					return CoreResult.make.ok(a);
+				}),
+				new Promise<CoreResult<E, A>>((res) => {
+					timerId = setTimeout(() => {
 						cleanUp();
-						return CoreResult.make.ok(a);
-					}),
-					new Promise<CoreResult<E | Unexpected, A>>((res) => {
-						timerId = setTimeout(() => {
-							cleanUp();
-							try {
-								res(CoreResult.make.err(onTimeout()));
-							} catch (cause) {
-								res(CoreResult.make.err(Unexpected.make.execution({ source: "Task", phase: "execution", cause })));
-							}
-							controller.abort();
-						}, getMs(duration));
-					}),
-				]);
-			}),
+						res(CoreResult.make.err(onTimeout()));
+						controller.abort();
+					}, getMs(duration));
+				}),
+			]);
+		}),
 
 	/**
 	 * Creates a Task paired with an `abort` handle. Calling `abort()` cancels the
@@ -570,11 +536,13 @@ export const Task = {
 	 */
 	abortable: <A>(factory: (signal: AbortSignal) => Thenable<A>): { task: Task<A>; abort: () => void; } => {
 		let currentController: AbortController | null = null;
+		let clearOuterListener: (() => void) | null = null;
 
 		const abort = () => currentController?.abort();
 
 		const task: Task<A> = (outerSignal?: AbortSignal) => {
 			// Cancel any previous in-flight call before starting a new one.
+			clearOuterListener?.();
 			currentController?.abort();
 			currentController = new AbortController();
 			const controller = currentController;
@@ -583,11 +551,25 @@ export const Task = {
 				if (outerSignal.aborted) {
 					controller.abort(outerSignal.reason);
 				} else {
-					outerSignal.addEventListener("abort", () => controller.abort(outerSignal.reason), { once: true });
+					const onOuterAbort = () => controller.abort(outerSignal.reason);
+					outerSignal.addEventListener("abort", onOuterAbort, { once: true });
+					clearOuterListener = () => outerSignal.removeEventListener("abort", onOuterAbort);
 				}
 			}
 
-			return Deferred.from.Promise(factory(controller.signal));
+			const cleanup = () => {
+				if (currentController === controller) {
+					clearOuterListener?.();
+					clearOuterListener = null;
+					currentController = null;
+				}
+			};
+			try {
+				return Deferred.from.Promise(Promise.resolve(factory(controller.signal)).finally(cleanup));
+			} catch (error) {
+				cleanup();
+				throw error;
+			}
 		};
 
 		return { task, abort };

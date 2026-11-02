@@ -6,7 +6,6 @@
 import { Deferred } from "../Core/Deferred.ts";
 import type { Op } from "../Core/Op.ts";
 import { Result } from "../Core/Result.ts";
-import { Unexpected } from "../Core/Unexpected.ts";
 import { Duration } from "../Types/Duration.ts";
 import type { RetryPolicy } from "../Types/RetryPolicy.ts";
 
@@ -22,13 +21,6 @@ const _idle: Op.Idle = { kind: "Idle" };
 const _pending: Op.Pending = { kind: "Pending" };
 const ok = <A>(value: A): Op.Ok<A> => ({ kind: "OpOk", value });
 const err = <E>(error: E): Op.Err<E> => ({ kind: "OpErr", error });
-
-const unexpectedMarker = Symbol("Op.unexpected");
-export type InternalUnexpected = { readonly [unexpectedMarker]: true; readonly cause: unknown; };
-export const internalUnexpected = (cause: unknown): InternalUnexpected => ({ [unexpectedMarker]: true, cause });
-const isInternalUnexpected = (value: unknown): value is InternalUnexpected =>
-	typeof value === "object" && value !== null && unexpectedMarker in value;
-const publicUnexpected = (cause: unknown): Unexpected => Unexpected.make.execution({ source: "Op", cause });
 
 const getMs = (duration: Duration): number => Duration.to.milliseconds(duration);
 
@@ -96,29 +88,17 @@ export const runWithRetry = <Args extends readonly unknown[], E, A>(
 	const rawAttempts = policy.attempts;
 	const attempts = Number.isInteger(rawAttempts) && rawAttempts > 0 ? rawAttempts : 1;
 	const { when: shouldRetry, onRetry } = policy;
-	const getDelay = (n: number): Duration | undefined => {
-		try {
-			return policy.getDelay(n);
-		} catch {
-			return undefined;
-		}
-	};
 
 	const attempt = async (left: number): Promise<Result<E, A> | null> => {
 		const result = await Deferred.to.Promise(toInternalOp(op)[OP_FACTORY](args, signal));
 		if (result === null || signal.aborted) { return null; }
 		if (result.kind === "Ok") { return result; }
-		if (isInternalUnexpected(result.error)) { return result; }
 		if (!Number.isFinite(left) || left <= 1) { return result; }
 		if (shouldRetry !== undefined) {
-			try {
-				if (!shouldRetry(result.error)) { return result; }
-			} catch (whenError) {
-				return Result.make.err(internalUnexpected(whenError) as E);
-			}
+			if (!shouldRetry(result.error)) { return result; }
 		}
 		const attemptNumber = attempts - left + 1;
-		const delayDuration = getDelay(attemptNumber) ?? Duration.milliseconds(0);
+		const delayDuration = policy.getDelay(attemptNumber);
 		const ms = getMs(delayDuration);
 		onRetrying({
 			kind: "Retrying",
@@ -126,13 +106,7 @@ export const runWithRetry = <Args extends readonly unknown[], E, A>(
 			lastError: result.error,
 			...(ms > 0 ? { nextRetryIn: ms } : {}),
 		});
-		if (onRetry !== undefined) {
-			try {
-				onRetry({ attempt: attemptNumber, error: result.error, delay: delayDuration });
-			} catch {
-				// Defensive callback shielding
-			}
-		}
+		onRetry?.({ attempt: attemptNumber, error: result.error, delay: delayDuration });
 		if (ms > 0) {
 			await cancellableWait(delayDuration, signal);
 		}
@@ -164,11 +138,7 @@ export const execute = <Args extends readonly unknown[], E, A>(
 	const { signal } = controller;
 
 	const toOutcome = (r: Result<E, A> | null): Op.Outcome<E, A> =>
-		r === null
-			? _abortedNil
-			: (r.kind === "Ok"
-				? ok(r.value)
-				: err(isInternalUnexpected(r.error) ? publicUnexpected(r.error.cause) as E : r.error));
+		r === null ? _abortedNil : (r.kind === "Ok" ? ok(r.value) : err(r.error));
 
 	const runPromise: Promise<Op.Outcome<E, A>> = retryOptions !== undefined && onRetrying !== undefined
 		? runWithRetry(op, args, signal, retryOptions, onRetrying).then(toOutcome)
@@ -178,10 +148,8 @@ export const execute = <Args extends readonly unknown[], E, A>(
 
 	let timerId: ReturnType<typeof setTimeout> | undefined;
 	const onAbort = () => {
-		if (timerId !== undefined) {
-			clearTimeout(timerId);
-			timerId = undefined;
-		}
+		clearTimeout(timerId);
+		timerId = undefined;
 	};
 	signal.addEventListener("abort", onAbort, { once: true });
 
@@ -199,11 +167,7 @@ export const execute = <Args extends readonly unknown[], E, A>(
 				signal.removeEventListener("abort", onAbort);
 				timerId = undefined;
 				controller.abort();
-				try {
-					resolve(err(timeoutOptions.onTimeout()));
-				} catch (timeoutHandlerError) {
-					resolve(err(publicUnexpected(timeoutHandlerError) as E));
-				}
+				resolve(err(timeoutOptions.onTimeout()));
 			}, getMs(timeoutOptions.duration));
 		}),
 	]));
@@ -230,11 +194,7 @@ export const makeRestartable = <Args extends readonly unknown[], E, A>(
 	const emit = (state: Op.State<E, A>): void => {
 		currentState = state;
 		for (const cb of subscribers) {
-			try {
-				cb(state);
-			} catch {
-				// Defensive subscriber shielding: subscriber exceptions must not strand callers
-			}
+			cb(state);
 		}
 	};
 
@@ -309,11 +269,7 @@ export const makeRestartable = <Args extends readonly unknown[], E, A>(
 			subscribe: (cb) => {
 				subscribers.add(cb);
 				if (currentState.kind !== "Idle") {
-					try {
-						cb(currentState);
-					} catch {
-						// Defensive callback shielding
-					}
+					cb(currentState);
 				}
 				return () => subscribers.delete(cb);
 			},
@@ -354,11 +310,7 @@ export const makeExclusive = <Args extends readonly unknown[], E, A>(
 	const emit = (state: Op.State<E, A>): void => {
 		currentState = state;
 		for (const cb of subscribers) {
-			try {
-				cb(state);
-			} catch {
-				// Defensive subscriber shielding
-			}
+			cb(state);
 		}
 	};
 
@@ -423,11 +375,7 @@ export const makeExclusive = <Args extends readonly unknown[], E, A>(
 			subscribe: (cb) => {
 				subscribers.add(cb);
 				if (currentState.kind !== "Idle") {
-					try {
-						cb(currentState);
-					} catch {
-						// Defensive callback shielding
-					}
+					cb(currentState);
 				}
 				return () => subscribers.delete(cb);
 			},
@@ -465,6 +413,7 @@ export const makeQueue = <Args extends readonly unknown[], E, A>(
 	id?: string,
 ): Op.Manager<Args, E, A, Op.State<E, A>> => {
 	const maxConcurrency = concurrency !== undefined && Number.isInteger(concurrency) && concurrency > 0 ? concurrency : 1;
+	const maxQueueSize = maxSize === undefined ? undefined : Number.isInteger(maxSize) && maxSize > 0 ? maxSize : 1;
 	let currentState: Op.State<E, A> = _idle;
 	let generation = 0;
 	let inFlight = 0;
@@ -476,11 +425,7 @@ export const makeQueue = <Args extends readonly unknown[], E, A>(
 	const emit = (state: Op.State<E, A>): void => {
 		currentState = state;
 		for (const cb of subscribers) {
-			try {
-				cb(state);
-			} catch {
-				// Defensive subscriber shielding: subscriber exceptions must not strand callers
-			}
+			cb(state);
 		}
 	};
 
@@ -525,13 +470,7 @@ export const makeQueue = <Args extends readonly unknown[], E, A>(
 
 		// Dedupe: scan queue for a matching item — drop the duplicate, new item takes its place.
 		if (dedupe !== undefined) {
-			const idx = queue.findIndex((item) => {
-				try {
-					return dedupe(args, item.input);
-				} catch {
-					return false;
-				}
-			});
+			const idx = queue.findIndex((item) => dedupe(args, item.input));
 			if (idx !== -1) {
 				// oxlint-disable-next-line prefer-destructuring
 				const dup = queue.splice(idx, 1)[0];
@@ -540,7 +479,7 @@ export const makeQueue = <Args extends readonly unknown[], E, A>(
 		}
 
 		// Slot available — start immediately.
-		if (inFlight < maxConcurrency) {
+		if (inFlight < maxConcurrency && queue.length === 0) {
 			return Deferred.from.Promise(
 				new Promise<Op.Outcome<E, A>>((resolve) => {
 					startOne(args, resolve, myGeneration);
@@ -549,7 +488,7 @@ export const makeQueue = <Args extends readonly unknown[], E, A>(
 		}
 
 		// Queue has capacity (unbounded when maxSize is undefined).
-		if (maxSize === undefined || queue.length < maxSize) {
+		if (maxQueueSize === undefined || queue.length < maxQueueSize) {
 			return Deferred.from.Promise(
 				new Promise<Op.Outcome<E, A>>((resolve) => {
 					queue.push({ input: args, resolve });
@@ -562,14 +501,10 @@ export const makeQueue = <Args extends readonly unknown[], E, A>(
 		if (overflow === "replace-last") {
 			return Deferred.from.Promise(
 				new Promise<Op.Outcome<E, A>>((resolve) => {
-					if (queue.length > 0) {
-						const tail = queue.pop()!;
-						tail.resolve(_evictedNil);
-						queue.push({ input: args, resolve });
-						emit({ kind: "Queued", position: queue.length - 1 });
-					} else {
-						resolve(_droppedNil);
-					}
+					const tail = queue.pop()!;
+					tail.resolve(_evictedNil);
+					queue.push({ input: args, resolve });
+					emit({ kind: "Queued", position: queue.length - 1 });
 				}),
 			);
 		}
@@ -607,11 +542,7 @@ export const makeQueue = <Args extends readonly unknown[], E, A>(
 			subscribe: (cb) => {
 				subscribers.add(cb);
 				if (currentState.kind !== "Idle") {
-					try {
-						cb(currentState);
-					} catch {
-						// Defensive callback shielding
-					}
+					cb(currentState);
 				}
 				return () => subscribers.delete(cb);
 			},
@@ -655,16 +586,13 @@ export const makeBuffered = <Args extends readonly unknown[], E, A>(
 	let currentController: AbortController | undefined;
 	let currentResolve: ((o: Op.Outcome<E, A>) => void) | undefined;
 	const buffer: Array<{ input: Args; resolve: (o: Op.Outcome<E, A>) => void; }> = [];
+	let reserved: { input: Args; resolve: (o: Op.Outcome<E, A>) => void; } | undefined;
 	const subscribers = new Set<(state: Op.State<E, A>) => void>();
 
 	const emit = (state: Op.State<E, A>): void => {
 		currentState = state;
 		for (const cb of subscribers) {
-			try {
-				cb(state);
-			} catch {
-				// Defensive subscriber shielding: subscriber exceptions must not strand callers
-			}
+			cb(state);
 		}
 	};
 
@@ -684,10 +612,12 @@ export const makeBuffered = <Args extends readonly unknown[], E, A>(
 			const r = currentResolve;
 			currentResolve = undefined;
 			currentController = undefined;
+			reserved = buffer.shift();
 			r?.(outcome);
 			emit(outcome);
-			if (currentController === undefined && buffer.length > 0) {
-				const next = buffer.shift()!;
+			if (reserved !== undefined) {
+				const next = reserved;
+				reserved = undefined;
 				startRun(next.input, next.resolve);
 			}
 		});
@@ -696,31 +626,31 @@ export const makeBuffered = <Args extends readonly unknown[], E, A>(
 	const run = (...args: Args): Deferred<Op.Outcome<E, A>> =>
 		Deferred.from.Promise(
 			new Promise<Op.Outcome<E, A>>((resolve) => {
-				if (currentController === undefined && buffer.length === 0) {
+				if (currentController === undefined && reserved === undefined && buffer.length === 0) {
 					startRun(args, resolve);
 				} else if (buffer.length < bufferSize) {
 					// Buffer has capacity — enqueue.
 					buffer.push({ input: args, resolve });
 					emit({ kind: "Queued", position: buffer.length - 1 });
-				} else if (buffer.length > 0) {
+				} else {
 					// Buffer full — evict oldest (head) and enqueue new item.
 					const evicted = buffer.shift()!;
 					evicted.resolve(_evictedNil);
 					buffer.push({ input: args, resolve });
 					emit({ kind: "Queued", position: buffer.length - 1 });
-				} else {
-					resolve(_droppedNil);
 				}
 			}),
 		);
 
 	const abort = (): void => {
-		const hadWork = currentController !== undefined || buffer.length > 0;
+		const hadWork = currentController !== undefined || reserved !== undefined || buffer.length > 0;
 		currentController?.abort();
 		currentController = undefined;
 		const cr = currentResolve;
 		currentResolve = undefined;
 		cr?.(_abortedNil);
+		reserved?.resolve(_abortedNil);
+		reserved = undefined;
 		for (const item of buffer) {
 			item.resolve(_abortedNil);
 		}
@@ -738,11 +668,7 @@ export const makeBuffered = <Args extends readonly unknown[], E, A>(
 			subscribe: (cb) => {
 				subscribers.add(cb);
 				if (currentState.kind !== "Idle") {
-					try {
-						cb(currentState);
-					} catch {
-						// Defensive callback shielding
-					}
+					cb(currentState);
 				}
 				return () => subscribers.delete(cb);
 			},
@@ -751,12 +677,14 @@ export const makeBuffered = <Args extends readonly unknown[], E, A>(
 				currentController = undefined;
 				const cr = currentResolve;
 				currentResolve = undefined;
+				reserved?.resolve(_abortedNil);
+				reserved = undefined;
 				for (const item of buffer) {
 					item.resolve(_abortedNil);
 				}
 				buffer.length = 0;
-				emit(_idle);
 				cr?.(_abortedNil);
+				emit(_idle);
 			},
 			poll: ({ interval }: { interval: Duration; }) => (...args: Args) => {
 				void run(...args);
@@ -796,11 +724,7 @@ export const makeDebounced = <Args extends readonly unknown[], E, A>(
 	const emit = (state: Op.State<E, A>): void => {
 		currentState = state;
 		for (const cb of subscribers) {
-			try {
-				cb(state);
-			} catch {
-				// Defensive subscriber shielding: subscriber exceptions must not strand callers
-			}
+			cb(state);
 		}
 	};
 
@@ -887,8 +811,9 @@ export const makeDebounced = <Args extends readonly unknown[], E, A>(
 					// Fresh start.
 					firstCallAt = Date.now();
 					if (leading) {
+						const epoch = executionEpoch;
 						fireLeading(args, resolve);
-						scheduleTrailing(); // start timer to track debounce window
+						if (executionEpoch === epoch + 1 && leadingController !== undefined) { scheduleTrailing(); }
 					} else {
 						pendingInput = args;
 						pendingResolve = resolve;
@@ -896,6 +821,7 @@ export const makeDebounced = <Args extends readonly unknown[], E, A>(
 					}
 				} else {
 					// In debounce window — replace pending trailing call.
+					if (firstCallAt === 0) { firstCallAt = Date.now(); }
 					const prev = pendingResolve;
 					pendingInput = args;
 					pendingResolve = resolve;
@@ -940,11 +866,7 @@ export const makeDebounced = <Args extends readonly unknown[], E, A>(
 			subscribe: (cb) => {
 				subscribers.add(cb);
 				if (currentState.kind !== "Idle") {
-					try {
-						cb(currentState);
-					} catch {
-						// Defensive callback shielding
-					}
+					cb(currentState);
 				}
 				return () => subscribers.delete(cb);
 			},
@@ -1002,11 +924,7 @@ export const makeThrottled = <Args extends readonly unknown[], E, A>(
 	const emit = (state: Op.State<E, A>): void => {
 		currentState = state;
 		for (const cb of subscribers) {
-			try {
-				cb(state);
-			} catch {
-				// Defensive subscriber shielding: subscriber exceptions must not strand callers
-			}
+			cb(state);
 		}
 	};
 
@@ -1045,8 +963,8 @@ export const makeThrottled = <Args extends readonly unknown[], E, A>(
 				const resolve = pendingResolve!;
 				pendingInput = undefined;
 				pendingResolve = undefined;
-				fireOp(toRun, resolve);
 				startCooldown(); // trailing fire holds its own cooldown window
+				fireOp(toRun, resolve);
 			}
 		}, getMs(duration));
 	};
@@ -1067,8 +985,8 @@ export const makeThrottled = <Args extends readonly unknown[], E, A>(
 		}
 		return Deferred.from.Promise(
 			new Promise<Op.Outcome<E, A>>((resolve) => {
-				fireOp(args, resolve);
 				startCooldown();
+				fireOp(args, resolve);
 			}),
 		);
 	};
@@ -1102,11 +1020,7 @@ export const makeThrottled = <Args extends readonly unknown[], E, A>(
 			subscribe: (cb) => {
 				subscribers.add(cb);
 				if (currentState.kind !== "Idle") {
-					try {
-						cb(currentState);
-					} catch {
-						// Defensive callback shielding
-					}
+					cb(currentState);
 				}
 				return () => subscribers.delete(cb);
 			},
@@ -1146,6 +1060,7 @@ export const makeConcurrent = <Args extends readonly unknown[], E, A>(
 	timeoutOptions?: Op.TimeoutOptions<any>,
 	id?: string,
 ): Op.Manager<Args, E, A, Op.State<E, A>> => {
+	const maxConcurrency = Number.isInteger(n) && n > 0 ? n : 1;
 	let currentState: Op.State<E, A> = _idle;
 	let inflight = 0;
 	let generation = 0;
@@ -1157,11 +1072,7 @@ export const makeConcurrent = <Args extends readonly unknown[], E, A>(
 	const emit = (state: Op.State<E, A>): void => {
 		currentState = state;
 		for (const cb of subscribers) {
-			try {
-				cb(state);
-			} catch {
-				// Defensive subscriber shielding: subscriber exceptions must not strand callers
-			}
+			cb(state);
 		}
 	};
 
@@ -1194,7 +1105,7 @@ export const makeConcurrent = <Args extends readonly unknown[], E, A>(
 			emit(outcome);
 
 			// oxlint-disable-next-line no-unmodified-loop-condition
-			while (inflight < n && overflowQueue.length > 0) {
+			while (inflight < maxConcurrency && overflowQueue.length > 0) {
 				const next = overflowQueue.shift()!;
 				startOne(next.input, next.resolve, generation);
 			}
@@ -1204,7 +1115,7 @@ export const makeConcurrent = <Args extends readonly unknown[], E, A>(
 	const run = (...args: Args): Deferred<Op.Outcome<E, A>> => {
 		const myGeneration = generation;
 
-		if (inflight < n) {
+		if (inflight < maxConcurrency && overflowQueue.length === 0) {
 			return Deferred.from.Promise(
 				new Promise<Op.Outcome<E, A>>((resolve) => {
 					startOne(args, resolve, myGeneration);
@@ -1253,11 +1164,7 @@ export const makeConcurrent = <Args extends readonly unknown[], E, A>(
 			subscribe: (cb) => {
 				subscribers.add(cb);
 				if (currentState.kind !== "Idle") {
-					try {
-						cb(currentState);
-					} catch {
-						// Defensive callback shielding
-					}
+					cb(currentState);
 				}
 				return () => subscribers.delete(cb);
 			},
@@ -1304,21 +1211,12 @@ export const makeKeyed = <Args extends readonly unknown[], K, E, A>(
 	const emitSnapshot = (): void => {
 		const snapshot = new Map(stateMap) as ReadonlyMap<K, PerKeyS>;
 		for (const cb of subscribers) {
-			try {
-				cb(snapshot);
-			} catch {
-				// Defensive subscriber shielding: subscriber exceptions must not strand callers
-			}
+			cb(snapshot);
 		}
 	};
 
 	const run = (...args: Args): Deferred<Op.Outcome<E, A>> => {
-		let k: K;
-		try {
-			k = keyFn(...args);
-		} catch (keyError) {
-			return Deferred.from.Promise(Promise.resolve(err(publicUnexpected(keyError) as E)));
-		}
+		const k = keyFn(...args);
 
 		if (slots.has(k)) {
 			if (perKey === "exclusive") {
@@ -1396,11 +1294,7 @@ export const makeKeyed = <Args extends readonly unknown[], K, E, A>(
 			subscribe: (cb) => {
 				subscribers.add(cb);
 				if (stateMap.size > 0) {
-					try {
-						cb(new Map(stateMap) as ReadonlyMap<K, PerKeyS>);
-					} catch {
-						// Defensive callback shielding
-					}
+					cb(new Map(stateMap) as ReadonlyMap<K, PerKeyS>);
 				}
 				return () => subscribers.delete(cb);
 			},
@@ -1438,11 +1332,7 @@ export const makeOnce = <Args extends readonly unknown[], E, A>(
 	const emit = (state: Op.State<E, A>): void => {
 		currentState = state;
 		for (const cb of subscribers) {
-			try {
-				cb(state);
-			} catch {
-				// Defensive subscriber shielding: subscriber exceptions must not strand callers
-			}
+			cb(state);
 		}
 	};
 
@@ -1495,11 +1385,7 @@ export const makeOnce = <Args extends readonly unknown[], E, A>(
 			subscribe: (cb) => {
 				subscribers.add(cb);
 				if (currentState.kind !== "Idle") {
-					try {
-						cb(currentState);
-					} catch {
-						// Defensive callback shielding
-					}
+					cb(currentState);
 				}
 				return () => subscribers.delete(cb);
 			},
@@ -1508,8 +1394,8 @@ export const makeOnce = <Args extends readonly unknown[], E, A>(
 				currentController = undefined;
 				const r = currentResolve;
 				currentResolve = undefined;
-				emit(_idle);
 				r?.(_abortedNil);
+				emit(_idle);
 			},
 			poll: ({ interval }: { interval: Duration; }) => (...args: Args) => {
 				void run(...args);

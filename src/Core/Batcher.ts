@@ -4,7 +4,6 @@ import { Deferred } from "./Deferred.ts";
 import { Maybe } from "./Maybe.ts";
 import { Result } from "./Result.ts";
 import type { Task } from "./Task.ts";
-import type { Unexpected } from "./Unexpected.ts";
 
 /**
  * A microtask-coalescing request demultiplexer that batches concurrent single-key lookups
@@ -17,14 +16,10 @@ import type { Unexpected } from "./Unexpected.ts";
  *
  * @example
  * ```ts
- * const userBatcher = Batcher.make({
- *   fetch: (ids: readonly string[]) =>
- *     pipe(
- *       db.users.findMany({ where: { id: { in: ids } } }),
- *       Task.Result.map(Arr.indexBy((u) => u.id)),
- *     ),
- *   maxBatchSize: 100,
- * });
+ * const userBatcher = Batcher.make(
+ *   (ids: readonly string[]) => userStore.findByIds(ids),
+ *   { maxBatchSize: 100 },
+ * );
  *
  * // Resolves to a first-class tri-state outcome:
  * const outcome = await userBatcher.load("u_1");
@@ -40,7 +35,7 @@ export type Batcher<K, E, V> = {
 	 * @param signal - Optional AbortSignal to cancel this individual caller's lookup.
 	 * @see {@link Batcher.loadMany} to coalesce multiple keys in a single call.
 	 */
-	readonly load: (key: K, signal?: AbortSignal) => Deferred<Batcher.Outcome<E | Batcher.Aborted | Unexpected, V, K>>;
+	readonly load: (key: K, signal?: AbortSignal) => Deferred<Batcher.Outcome<E | Batcher.Aborted, V, K>>;
 
 	/**
 	 * Immediately coalesces multiple keys into the batch window and returns their resolved
@@ -56,7 +51,7 @@ export type Batcher<K, E, V> = {
 	readonly loadMany: (
 		keys: readonly K[],
 		signal?: AbortSignal,
-	) => Deferred<readonly Batcher.Outcome<E | Batcher.Aborted | Unexpected, V, K>[]>;
+	) => Deferred<readonly Batcher.Outcome<E | Batcher.Aborted, V, K>[]>;
 
 	/**
 	 * Immediately flushes and settles all currently queued batches without waiting
@@ -105,13 +100,7 @@ export namespace Batcher {
 	/**
 	 * Configuration options for constructing a `Batcher`.
 	 */
-	export type Options<K, E, V> = {
-		/**
-		 * Executes the batched query for all collected unique keys.
-		 * Must return a `ReadonlyMap` associating each found key to its value.
-		 */
-		readonly fetch: (keys: readonly K[]) => Task.Result<E, ReadonlyMap<K, V>>;
-
+	export type Options<K> = {
 		/**
 		 * Serializer used to index and deduplicate composite or structural object keys.
 		 * Unnecessary for primitive keys (`string`, `number`).
@@ -209,9 +198,12 @@ const defaultSerialize = <K>(key: K): unknown => key;
 
 const getAbortReason = (signal: AbortSignal): Batcher.Aborted => ({ kind: "BatcherAborted", reason: signal.reason });
 
-const makeBatcher = <K, E, V>(options: Batcher.Options<K, E, V>): Batcher<K, E, V> => {
+const makeBatcher = <K, E, V>(
+	fetch: (keys: readonly K[]) => Task.Result<E, ReadonlyMap<K, V>>,
+	options: Batcher.Options<K> = {},
+): Batcher<K, E, V> => {
 	type KeyHash = unknown;
-	type Failure = E | Batcher.Aborted | Unexpected;
+	type Failure = E | Batcher.Aborted;
 	type CallerEntry = { readonly resolve: (outcome: Batcher.Outcome<Failure, V, K>) => void; };
 	type PendingKeySlot = { readonly key: K; readonly callers: CallerEntry[]; };
 
@@ -251,45 +243,31 @@ const makeBatcher = <K, E, V>(options: Batcher.Options<K, E, V>): Batcher<K, E, 
 		}
 
 		return new Promise<void>((resolveDispatch) => {
-			const rejectChunk = (cause: unknown): void => {
-				const outcome = makeErr<Unexpected, V, K>({ kind: "Unexpected", source: "Batcher", phase: "execution", cause });
-				for (let i = 0; i < chunkLen; i++) {
-					const { callers } = chunk[i];
-					for (let j = 0; j < callers.length; j++) {
-						callers[j].resolve(outcome);
+			const taskDeferred = fetch(keys)();
+			taskDeferred.then((batchResult) => {
+				if (Result.is.err(batchResult)) {
+					const errOutcome = makeErr<E, V, K>(batchResult.error);
+					for (let i = 0; i < chunkLen; i++) {
+						const { callers } = chunk[i];
+						for (let j = 0; j < callers.length; j++) {
+							callers[j].resolve(errOutcome);
+						}
+					}
+				} else {
+					const resultMap = batchResult.value;
+					for (let i = 0; i < chunkLen; i++) {
+						const { key, callers } = chunk[i];
+						const outcome: Batcher.Outcome<Failure, V, K> = resultMap.has(key)
+							? makeOk(resultMap.get(key)!)
+							: makeMissing(key);
+
+						for (let j = 0; j < callers.length; j++) {
+							callers[j].resolve(outcome);
+						}
 					}
 				}
 				resolveDispatch();
-			};
-			try {
-				const taskDeferred = options.fetch(keys)();
-				taskDeferred.then((batchResult) => {
-					if (Result.is.err(batchResult)) {
-						const errOutcome = makeErr<E, V, K>(batchResult.error);
-						for (let i = 0; i < chunkLen; i++) {
-							const { callers } = chunk[i];
-							for (let j = 0; j < callers.length; j++) {
-								callers[j].resolve(errOutcome);
-							}
-						}
-					} else {
-						const resultMap = batchResult.value;
-						for (let i = 0; i < chunkLen; i++) {
-							const { key, callers } = chunk[i];
-							const outcome: Batcher.Outcome<Failure, V, K> = resultMap.has(key)
-								? makeOk(resultMap.get(key)!)
-								: makeMissing(key);
-
-							for (let j = 0; j < callers.length; j++) {
-								callers[j].resolve(outcome);
-							}
-						}
-					}
-					resolveDispatch();
-				});
-			} catch (cause) {
-				rejectChunk(cause);
-			}
+			});
 		});
 	};
 
@@ -428,18 +406,15 @@ const makeBatcher = <K, E, V>(options: Batcher.Options<K, E, V>): Batcher<K, E, 
 
 export const Batcher = {
 	/**
-	 * Creates a stateful `Batcher` with the provided configuration options.
+	 * Creates a batcher for a bulk fetch operation and optional batching settings.
+	 * The fetch operation receives unique keys and returns a map of found values.
 	 *
 	 * @example
 	 * ```ts
-	 * const userBatcher = Batcher.make({
-	 *   fetch: (ids: readonly string[]) =>
-	 *     pipe(
-	 *       db.users.findMany({ where: { id: { in: ids } } }),
-	 *       Task.Result.map(Arr.indexBy((u) => u.id)),
-	 *     ),
-	 *   maxBatchSize: 100,
-	 * });
+	 * const userBatcher = Batcher.make(
+	 *   (ids: readonly string[]) => userStore.findByIds(ids),
+	 *   { maxBatchSize: 100 },
+	 * );
 	 * ```
 	 */
 	make: makeBatcher,

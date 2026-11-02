@@ -251,3 +251,37 @@ test("forward: validates compatibility between bus schemas and filters", () => {
 	// @ts-expect-error — only filter contains event key with incompatible payload type
 	expectTypeOf(EventBus.forward({ from: authBus, to: incompatiblePayloadBus, only: ["userLoggedIn"] })).toBeFunction();
 });
+
+test("subscribe: rejects optional keys that are not part of the subscribed events array ([EVENTBUS-003])", () => {
+	const bus = EventBus.make<TestSchema>();
+
+	// @ts-expect-error — "C" is in TestSchema but not in the subscribed sequence ["A", "B"]
+	expectTypeOf(EventBus.subscribe(bus, ["A", "B"], { ordered: true, optional: ["C"] })).toBeObject();
+});
+
+test("forward: supports heterogeneous target bus arrays for shared events and dynamic only filter ([EVENTBUS-003])", () => {
+	const authBus = EventBus.make<AuthSchema>();
+	const analyticsBus = EventBus.make<AnalyticsSchema>();
+	const specificBus = EventBus.make<SpecificSchema>();
+	const busA = EventBus.make<TestSchema>();
+
+	// Broadcasting a shared event to buses with distinct schemas
+	EventBus.emit([authBus, analyticsBus], { kind: "userLoggedIn", value: { userId: "u1" } });
+	const badBus = EventBus.make<{ userLoggedIn: { userId: number; }; }>();
+	const unrelatedBus = EventBus.make<{ pageView: string; }>();
+	// @ts-expect-error — each target must accept the emitted payload
+	expectTypeOf(EventBus.emit([authBus, badBus], { kind: "userLoggedIn", value: { userId: "u1" } })).toBeVoid();
+	// @ts-expect-error — every target must support the emitted event
+	expectTypeOf(EventBus.emit([authBus, unrelatedBus], { kind: "userLoggedIn", value: { userId: "u1" } })).toBeVoid();
+	// @ts-expect-error — forwarded payloads must be valid for every target
+	expectTypeOf(EventBus.forward({ from: authBus, to: [analyticsBus, badBus], only: ["userLoggedIn"] })).toBeFunction();
+
+	// Forwarding a shared event to an array of buses with distinct schemas
+	const stopMulti = EventBus.forward({ from: authBus, to: [analyticsBus, authBus], only: ["userLoggedIn"] });
+	expectTypeOf(stopMulti).toEqualTypeOf<() => void>();
+
+	// Forwarding with a dynamic optional `only` filter when target schema is a superset of source schema
+	const dynamicOnly: ReadonlyArray<"A"> | undefined = ["A"];
+	const stopDynamic = EventBus.forward({ from: specificBus, to: busA, only: dynamicOnly });
+	expectTypeOf(stopDynamic).toEqualTypeOf<() => void>();
+});

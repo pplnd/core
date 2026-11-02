@@ -15,7 +15,6 @@ type CounterState =
 type CounterEvents = { INC: void; DEC: void; RESET: void; NOOP: void; };
 
 const counterMachine = Machine.make<CounterState, CounterEvents>({
-	initial: Machine.state("zero"),
 	states: {
 		zero: {
 			on: {
@@ -56,13 +55,13 @@ const arbEventsList = fc.array(arbEvent, { maxLength: 50 });
 test("transition: pure reducer matches actor execution for any event sequence", () => {
 	fc.assert(fc.property(arbEventsList, (events) => {
 		// 1. Compute state via pure transitions
-		let pureState: CounterState = counterMachine.initial;
+		let pureState: CounterState = Machine.state("zero");
 		for (const event of events) {
 			pureState = pipe(pureState, Machine.transition(counterMachine, event));
 		}
 
 		// 2. Compute state via stateful actor
-		const actor = Machine.interpret(counterMachine);
+		const actor = Machine.interpret(counterMachine, { initial: Machine.state("zero") });
 		for (const event of events) {
 			actor.send(event);
 		}
@@ -122,7 +121,7 @@ test("match: executes the exact case branch corresponding to the state kind", ()
 
 test("abort: repeatedly calling abort preserves state and remains stopped", () => {
 	fc.assert(fc.property(arbEventsList, fc.integer({ min: 1, max: 10 }), (events, abortCalls) => {
-		const actor = Machine.interpret(counterMachine);
+		const actor = Machine.interpret(counterMachine, { initial: Machine.state("zero") });
 		for (const event of events) {
 			actor.send(event);
 		}
@@ -153,7 +152,6 @@ test("send: evaluates all dispatched events in strict arrival order", () => {
 		type AccumulatorEvents = { ADD: { readonly amount: number; }; };
 
 		const accMachine = Machine.make<AccumulatorState, AccumulatorEvents>({
-			initial: Machine.state("active", { total: 0 }),
 			states: {
 				active: {
 					on: {
@@ -166,7 +164,7 @@ test("send: evaluates all dispatched events in strict arrival order", () => {
 			},
 		});
 
-		const actor = Machine.interpret(accMachine);
+		const actor = Machine.interpret(accMachine, { initial: Machine.state("active", { total: 0 }) });
 		for (const item of items) {
 			actor.send({ kind: "ADD", value: { amount: item } });
 		}

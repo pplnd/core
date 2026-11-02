@@ -7,16 +7,14 @@ import { Deferred } from "../Deferred.ts";
 import { Maybe } from "../Maybe.ts";
 import { Result } from "../Result.ts";
 import { Task } from "../Task.ts";
-import type { Unexpected } from "../Unexpected.ts";
 
-test("load: preserves fetch errors alongside cancellation and unexpected errors", () => {
+test("load: preserves fetch errors alongside cancellation", () => {
 	type FetchError = { readonly kind: "FetchError"; };
-	const batcher = Batcher.make({
-		fetch: (_keys: readonly string[]): Task.Result<FetchError, ReadonlyMap<string, number>> =>
-			Task.Result.make.err({ kind: "FetchError" }),
-	});
+	const batcher = Batcher.make((_keys: readonly string[]): Task.Result<FetchError, ReadonlyMap<string, number>> =>
+		Task.Result.make.err({ kind: "FetchError" })
+	);
 	expectTypeOf(batcher.load("key")).toEqualTypeOf<
-		Deferred<Batcher.Outcome<FetchError | Batcher.Aborted | Unexpected, number, string>>
+		Deferred<Batcher.Outcome<FetchError | Batcher.Aborted, number, string>>
 	>();
 });
 
@@ -24,33 +22,41 @@ test("make: infers Batcher instance types correctly", () => {
 	type Key = string;
 	type User = { readonly id: string; readonly name: string; };
 
-	const batcher = Batcher.make({
-		fetch: (_keys: readonly Key[]) => () => {
-			const map: ReadonlyMap<Key, User> = new Map<Key, User>();
-			return Task.Result.make.ok(map)();
-		},
-		maxBatchSize: 100,
-		window: Duration.milliseconds(10),
-	});
+	const batcher = Batcher.make((_keys: readonly Key[]) => () => {
+		const map: ReadonlyMap<Key, User> = new Map<Key, User>();
+		return Task.Result.make.ok(map)();
+	}, { maxBatchSize: 100, window: Duration.milliseconds(10) });
 
 	expectTypeOf(batcher).toEqualTypeOf<Batcher<Key, never, User>>();
 
 	const loadDeferred = batcher.load("u_1");
-	expectTypeOf(loadDeferred).toEqualTypeOf<Deferred<Batcher.Outcome<Batcher.Aborted | Unexpected, User, Key>>>();
+	expectTypeOf(loadDeferred).toEqualTypeOf<Deferred<Batcher.Outcome<Batcher.Aborted, User, Key>>>();
 
 	const loadManyDeferred = batcher.loadMany(["u_1", "u_2"]);
-	expectTypeOf(loadManyDeferred).toEqualTypeOf<
-		Deferred<readonly Batcher.Outcome<Batcher.Aborted | Unexpected, User, Key>[]>
-	>();
+	expectTypeOf(loadManyDeferred).toEqualTypeOf<Deferred<readonly Batcher.Outcome<Batcher.Aborted, User, Key>[]>>();
 
 	const flushDeferred = batcher.flush();
 	expectTypeOf(flushDeferred).toEqualTypeOf<Deferred<void>>();
 
 	// @ts-expect-error — fetch is required
-	Batcher.make({});
+	Batcher.make();
 
 	// @ts-expect-error — fetch must return Task.Result of ReadonlyMap
-	Batcher.make({ fetch: (keys: readonly string[]) => () => Task.make(keys)() });
+	Batcher.make((keys: readonly string[]) => () => Task.make(keys)());
+});
+
+test("make: infers serializer keys and error and value types from the fetch function", () => {
+	type ProductKey = { readonly shopId: string; readonly productId: string; };
+	type Product = { readonly name: string; };
+	type FetchError = { readonly reason: "unavailable"; };
+	const fetchProducts = (_keys: readonly ProductKey[]): Task.Result<FetchError, ReadonlyMap<ProductKey, Product>> =>
+		Task.Result.make.err({ reason: "unavailable" });
+	const products = Batcher.make(fetchProducts, { serializeKey: (key) => `${key.shopId}:${key.productId}` });
+
+	expectTypeOf(products).toEqualTypeOf<Batcher<ProductKey, FetchError, Product>>();
+	expectTypeOf(products.load({ shopId: "north", productId: "book" })).toEqualTypeOf<
+		Deferred<Batcher.Outcome<FetchError | Batcher.Aborted, Product, ProductKey>>
+	>();
 });
 
 test("Outcome: discriminated union narrowing and variant structures", () => {

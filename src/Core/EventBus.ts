@@ -150,12 +150,15 @@ export namespace EventBus {
 		K extends keyof FromSchema & string = keyof FromSchema & string,
 	> = {
 		readonly from: EventBus<FromSchema>;
-		readonly to: EventBus<ToSchema> | ReadonlyArray<EventBus<ToSchema>>;
+		readonly to: ToSchema extends { [P in K]: FromSchema[P]; } ? EventBus<ToSchema> | ReadonlyArray<EventBus<ToSchema>>
+			: never;
 		readonly only: ReadonlyArray<K>;
 	} | {
 		readonly from: EventBus<FromSchema>;
-		readonly to: EventBus<ToSchema> | ReadonlyArray<EventBus<ToSchema>>;
-		readonly only?: undefined;
+		readonly to: ToSchema extends { [P in keyof FromSchema]: FromSchema[P]; }
+			? EventBus<ToSchema> | ReadonlyArray<EventBus<ToSchema>>
+			: never;
+		readonly only?: ReadonlyArray<K>;
 	};
 
 	/**
@@ -235,16 +238,18 @@ const emitSingleBus = (
 			internal.subscriberArray ??= Array.from(internal.subscribers);
 			const subscribers = internal.subscriberArray;
 			for (let i = 0; i < subscribers.length; i++) {
-				try {
-					subscribers[i](nextMsg);
-				} catch (err) {
-					if (internal.options?.onError) {
-						internal.options.onError(err, {
-							...(internal.options.id !== undefined ? { busId: internal.options.id } : {}),
-							message: nextMsg,
-						});
-					} else {
-						throw err;
+				if (internal.subscribers.has(subscribers[i])) {
+					try {
+						subscribers[i](nextMsg);
+					} catch (err) {
+						if (internal.options?.onError) {
+							internal.options.onError(err, {
+								...(internal.options.id !== undefined ? { busId: internal.options.id } : {}),
+								message: nextMsg,
+							});
+						} else {
+							throw err;
+						}
 					}
 				}
 			}
@@ -260,10 +265,20 @@ const emitSingleBus = (
  *
  * @internal
  */
-const emitEventBus = <S extends Record<string, unknown>, K extends keyof S & string>(
+function emitEventBus<const M extends { kind: string; value: unknown; }, const B extends readonly EventBus<any>[]>(
+	target:
+		& B
+		& { [I in keyof B]: B[I] extends EventBus<infer S> ? [M] extends [EventBus.Message<S>] ? B[I] : never : never; },
+	message: M,
+): void;
+function emitEventBus<S extends Record<string, unknown>, K extends keyof S & string>(
 	target: EventBus<S> | ReadonlyArray<EventBus<S>>,
 	message: EventBus.Message<S, K>,
-): void => {
+): void;
+function emitEventBus(
+	target: EventBus<any> | ReadonlyArray<EventBus<any>>,
+	message: { kind: string; value: unknown; },
+): void {
 	const msg = message as unknown as EventBus.Message<Record<string, unknown>>;
 	if (Array.isArray(target)) {
 		for (let i = 0; i < target.length; i++) {
@@ -272,13 +287,28 @@ const emitEventBus = <S extends Record<string, unknown>, K extends keyof S & str
 	} else {
 		emitSingleBus(target as unknown as EventBus<Record<string, unknown>>, msg);
 	}
-};
+}
 
 /**
  * Connects a source `EventBus` to one or more target buses with optional event-kind filtering.
  *
  * @internal
  */
+function forwardEventBus<
+	FromSchema extends Record<string, unknown>,
+	const K extends keyof FromSchema & string,
+	const B extends readonly EventBus<any>[],
+>(
+	options: {
+		readonly from: EventBus<FromSchema>;
+		readonly to:
+			& B
+			& {
+				[I in keyof B]: B[I] extends EventBus<infer S> ? S extends { [P in K]: FromSchema[P]; } ? B[I] : never : never;
+			};
+		readonly only: ReadonlyArray<K>;
+	},
+): () => void;
 function forwardEventBus<
 	FromSchema extends Record<string, unknown>,
 	ToSchema extends { [P in K]: FromSchema[P]; },
@@ -297,7 +327,7 @@ function forwardEventBus<
 	options: {
 		readonly from: EventBus<FromSchema>;
 		readonly to: EventBus<ToSchema> | ReadonlyArray<EventBus<ToSchema>>;
-		readonly only?: undefined;
+		readonly only?: ReadonlyArray<keyof FromSchema & string>;
 	},
 ): () => void;
 function forwardEventBus(
@@ -433,7 +463,7 @@ function subscribeEventBus<S extends Record<string, unknown>>(bus: EventBus<S>):
 function subscribeEventBus<
 	S extends Record<string, unknown>,
 	K extends keyof S & string,
-	const Opt extends keyof S & string = never,
+	const Opt extends NoInfer<K> = never,
 >(
 	bus: EventBus<S>,
 	events: K | ReadonlyArray<K>,
@@ -490,7 +520,7 @@ function subscribeEventBus(
 		};
 	}
 
-	const eventList: ReadonlyArray<string> = Array.isArray(events) ? events : [events];
+	const eventList: ReadonlyArray<string> = Array.isArray(events) ? [...events] : [events];
 	const isOrdered = options?.ordered ?? false;
 	const isStrict = options?.strict ?? false;
 	const isOnce = options?.once ?? false;
@@ -500,6 +530,13 @@ function subscribeEventBus(
 	const optionalKinds = options?.optional
 		? new Set<string>(Array.isArray(options.optional) ? options.optional : [options.optional])
 		: null;
+	const restartIndex = (kind: string): number => {
+		let index = 0;
+		while (index < eventList.length && eventList[index] !== kind && optionalKinds?.has(eventList[index])) {
+			index++;
+		}
+		return eventList[index] === kind ? index + 1 : 0;
+	};
 
 	const createMatcher = (onMatch: (msg: EventBus.Message<Record<string, unknown>, string>) => void) => {
 		let sequenceIndex = 0;
@@ -542,9 +579,9 @@ function subscribeEventBus(
 					onMatch(msg);
 				}
 			} else if (isStrict) {
-				sequenceIndex = msg.kind === eventList[0] ? 1 : 0;
+				sequenceIndex = restartIndex(msg.kind);
 			} else if (eventList.includes(msg.kind)) {
-				sequenceIndex = msg.kind === eventList[0] ? 1 : 0;
+				sequenceIndex = restartIndex(msg.kind);
 			}
 		};
 	};
@@ -617,16 +654,16 @@ function subscribeEventBus(
 					effect(result);
 				}
 			} else if (isStrict) {
-				if (msg.kind === eventList[0]) {
-					sequenceIndex = 1;
+				sequenceIndex = restartIndex(msg.kind);
+				if (sequenceIndex > 0) {
 					collected = setProperty({}, msg.kind, msg.value);
 				} else {
 					sequenceIndex = 0;
 					collected = {};
 				}
 			} else if (eventList.includes(msg.kind)) {
-				if (msg.kind === eventList[0]) {
-					sequenceIndex = 1;
+				sequenceIndex = restartIndex(msg.kind);
+				if (sequenceIndex > 0) {
 					collected = setProperty({}, msg.kind, msg.value);
 				} else {
 					sequenceIndex = 0;

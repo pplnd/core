@@ -166,6 +166,50 @@ test("inspect: prepends label prefix when provided", () => {
 
 // --- tapAsync ---
 
+test("async: reports synchronous throws and returns the original value", () => {
+	const error = new Error("queue unavailable");
+	const events: string[] = [];
+	const errors: unknown[] = [];
+	const order = { id: "order-42" };
+	const result = pipe(
+		order,
+		tapAsync((value): Promise<void> => {
+			events.push(`start:${value.id}`);
+			throw error;
+		}, {
+			onError: (cause) => {
+				errors.push(cause);
+				events.push("reported");
+			},
+		}),
+		(value) => {
+			events.push("continued");
+			return value;
+		},
+	);
+
+	expect(result).toBe(order);
+	expect(events).toStrictEqual(["start:order-42", "reported", "continued"]);
+	expect(errors).toStrictEqual([error]);
+});
+
+test("async: reports synchronous throws to the default logger", () => {
+	const error = new Error("queue unavailable");
+	const logger = vi.spyOn(console, "error").mockImplementation(() => {});
+	try {
+		const result = pipe(
+			"order-42",
+			tapAsync((): Promise<void> => {
+				throw error;
+			}),
+		);
+		expect(result).toBe("order-42");
+		expect(logger).toHaveBeenCalledExactlyOnceWith(error);
+	} finally {
+		logger.mockRestore();
+	}
+});
+
 test("async: executes side effect asynchronously and returns value immediately", async () => {
 	let resolved = false;
 	const asyncSideEffect = async (_n: number) => {

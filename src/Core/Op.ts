@@ -11,7 +11,6 @@ import {
 	type WithValue,
 } from "../internal/InternalTypes.ts";
 import {
-	internalUnexpected,
 	makeBuffered,
 	makeConcurrent,
 	makeDebounced,
@@ -28,7 +27,6 @@ import type { RetryPolicy } from "../Types/RetryPolicy.ts";
 import { Deferred } from "./Deferred.ts";
 import { Maybe as CoreMaybe } from "./Maybe.ts";
 import { Result as CoreResult } from "./Result.ts";
-import { Unexpected } from "./Unexpected.ts";
 
 declare const _opBrand: unique symbol;
 
@@ -353,18 +351,28 @@ export namespace Op {
 
 // `Retrying<E>` is only added to the state union when retry options are present.
 type MaybeRetry<E, O> = O extends { retry?: infer R; }
-	? (NonNullable<R> extends RetryOptionsInternal<E> ? Op.Retrying<E> : never)
+	? ([NonNullable<R>] extends [never] ? never : NonNullable<R> extends RetryOptionsInternal<E> ? Op.Retrying<E> : never)
 	: never;
 
 type TimeoutErrorOf<O> = O extends { timeout?: infer T; }
-	? (NonNullable<T> extends { onTimeout: () => infer ET; } ? ET : never)
+	? ([NonNullable<T>] extends [never] ? never : NonNullable<T> extends { onTimeout: () => infer ET; } ? ET : never)
 	: never;
-type CombinedError<E, O> = E | TimeoutErrorOf<O> | Unexpected;
+type CombinedError<E, O> = E | TimeoutErrorOf<O>;
 
 // Extracts the key type from the `keyed` strategy's `key` function, defaulting to the first argument type.
 type KeyType<Args extends readonly unknown[], O> = O extends { key: (...args: Args) => infer K; } ? K
 	: Args extends readonly [infer First, ...unknown[]] ? First
 	: unknown;
+
+type OptionValue<O, K extends PropertyKey> = K extends keyof O ? O[K] : never;
+type QueueExtra<O> =
+	| ("replace-last" extends OptionValue<O, "overflow"> ? Op.EvictedNil : never)
+	| ([NonNullable<OptionValue<O, "dedupe">>] extends [never] ? never : Op.DroppedNil)
+	| ([Extract<OptionValue<O, "maxSize">, number>] extends [never] ? never
+		: [OptionValue<O, "overflow">] extends [never] ? Op.DroppedNil
+		: "drop" extends OptionValue<O, "overflow"> ? Op.DroppedNil
+		: undefined extends OptionValue<O, "overflow"> ? Op.DroppedNil
+		: never);
 
 type DispatchStrategy<Args extends readonly unknown[], E, A, O> = O extends { strategy: "throttled"; }
 	? boolean extends (O extends { trailing?: infer Tr; } ? Tr : false)
@@ -379,12 +387,27 @@ type DispatchStrategy<Args extends readonly unknown[], E, A, O> = O extends { st
 	: Op.Manager<Args, CombinedError<E, O>, A, Op.ThrottledState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
 	: O extends { strategy: "debounced"; }
 		? Op.Manager<Args, CombinedError<E, O>, A, Op.DebouncedState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
+	: O extends { strategy: "concurrent"; overflow: infer V; }
+		? Op.Manager<
+			Args,
+			CombinedError<E, O>,
+			A,
+			| ("queue" extends V ? Op.ConcurrentQueueState<CombinedError<E, O>, A> : never)
+			| ("drop" extends V ? Op.ConcurrentDropState<CombinedError<E, O>, A> : never)
+			| MaybeRetry<E, O>
+		>
 	: O extends { strategy: "concurrent"; overflow: "queue"; }
 		? Op.Manager<Args, CombinedError<E, O>, A, Op.ConcurrentQueueState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
 	: O extends { strategy: "concurrent"; }
 		? Op.Manager<Args, CombinedError<E, O>, A, Op.ConcurrentDropState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
-	: O extends { strategy: "keyed"; perKey: "restartable"; }
-		? Op.KeyedManager<Args, KeyType<Args, O>, CombinedError<E, O>, Op.KeyedRestartablePerKey<CombinedError<E, O>, A>>
+	: O extends { strategy: "keyed"; perKey: infer V; }
+		? Op.KeyedManager<
+			Args,
+			KeyType<Args, O>,
+			CombinedError<E, O>,
+			| ("restartable" extends V ? Op.KeyedRestartablePerKey<CombinedError<E, O>, A> : never)
+			| ("exclusive" extends V ? Op.KeyedExclusivePerKey<CombinedError<E, O>, A> : never)
+		>
 	: O extends { strategy: "keyed"; }
 		? Op.KeyedManager<Args, KeyType<Args, O>, CombinedError<E, O>, Op.KeyedExclusivePerKey<CombinedError<E, O>, A>>
 	: O extends { strategy: "once"; }
@@ -393,16 +416,8 @@ type DispatchStrategy<Args extends readonly unknown[], E, A, O> = O extends { st
 		? Op.Manager<Args, CombinedError<E, O>, A, Op.RestartableState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
 	: O extends { strategy: "exclusive"; }
 		? Op.Manager<Args, CombinedError<E, O>, A, Op.ExclusiveState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
-	: O extends { strategy: "queue"; overflow: "replace-last"; dedupe: (a: Args, b: Args) => boolean; }
-		? Op.Manager<Args, CombinedError<E, O>, A, Op.QueueDropAndReplaceState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
-	: O extends { strategy: "queue"; overflow: "replace-last"; }
-		? Op.Manager<Args, CombinedError<E, O>, A, Op.QueueReplaceState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
-	: O extends { strategy: "queue"; maxSize: number; }
-		? Op.Manager<Args, CombinedError<E, O>, A, Op.QueueDropState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
-	: O extends { strategy: "queue"; dedupe: (a: Args, b: Args) => boolean; }
-		? Op.Manager<Args, CombinedError<E, O>, A, Op.QueueDropState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
 	: O extends { strategy: "queue"; }
-		? Op.Manager<Args, CombinedError<E, O>, A, Op.QueueState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
+		? Op.Manager<Args, CombinedError<E, O>, A, Op.QueueState<CombinedError<E, O>, A> | QueueExtra<O> | MaybeRetry<E, O>>
 	: O extends { strategy: "buffered"; }
 		? Op.Manager<Args, CombinedError<E, O>, A, Op.BufferedState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
 	: never;
@@ -843,11 +858,7 @@ function makeFn(
 				})().then((value): CoreResult<unknown, unknown> => CoreResult.make.ok(value)).catch(
 					(error): CoreResult<unknown, unknown> | null => {
 						if (signal.aborted) { return null; }
-						try {
-							return CoreResult.make.err(options.onError(error));
-						} catch (handlerError) {
-							return CoreResult.make.err(internalUnexpected(handlerError));
-						}
+						return CoreResult.make.err(options.onError(error));
 					},
 				),
 			),

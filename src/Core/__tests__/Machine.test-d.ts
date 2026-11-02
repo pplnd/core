@@ -53,7 +53,6 @@ test("state: constructs states that assign cleanly to constrained unions with ze
 
 test("make: validates transition table and enforces AllowedTargets at compile time", () => {
 	const validMachine = Machine.make<AuthState, AuthEvents>({
-		initial: Machine.state("loggedOut"),
 		states: {
 			loggedOut: { on: { SUBMIT: (_state, { email }) => Machine.state("authenticating", { email }) } },
 			authenticating: {
@@ -76,18 +75,13 @@ test("make: validates transition table and enforces AllowedTargets at compile ti
 	expectTypeOf(validMachine.id).toEqualTypeOf<string | undefined>();
 	expectTypeOf(validMachine[Symbol.toStringTag]).toEqualTypeOf<string | undefined>();
 
-	const machineWithId = Machine.make<AuthState, AuthEvents>({
-		id: "auth-machine",
-		initial: Machine.state("loggedOut"),
-		states: validMachine.states,
-	});
+	const machineWithId = Machine.make<AuthState, AuthEvents>({ id: "auth-machine", states: validMachine.states });
 	expectTypeOf(machineWithId.id).toEqualTypeOf<string | undefined>();
 
 	// @ts-expect-error — id must be a string
-	Machine.make<AuthState, AuthEvents>({ id: 123, initial: Machine.state("loggedOut"), states: validMachine.states });
+	Machine.make<AuthState, AuthEvents>({ id: 123, states: validMachine.states });
 
 	Machine.make<AuthState, AuthEvents>({
-		initial: Machine.state("loggedOut"),
 		states: {
 			loggedOut: {
 				on: {
@@ -102,7 +96,6 @@ test("make: validates transition table and enforces AllowedTargets at compile ti
 	});
 
 	Machine.make<AuthState, AuthEvents>({
-		initial: Machine.state("loggedOut"),
 		// @ts-expect-error — missing state configuration: "failed" state omitted from states table
 		states: { loggedOut: {}, authenticating: {}, authenticated: {} },
 	});
@@ -155,16 +148,16 @@ test("match: enforces exhaustive branch coverage and infers return type", () => 
 
 test("transition & actor: validate event types and enforce strict payloads", () => {
 	const machine = Machine.make<AuthState, AuthEvents>({
-		initial: Machine.state("loggedOut"),
 		states: { loggedOut: {}, authenticating: {}, authenticated: {}, failed: {} },
 	});
 
-	const actor = Machine.interpret(machine);
+	const actor = Machine.interpret(machine, { initial: Machine.state("loggedOut") });
 
 	expectTypeOf(actor.id).toEqualTypeOf<string | undefined>();
 	expectTypeOf(actor[Symbol.toStringTag]).toEqualTypeOf<string | undefined>();
 
 	const actorWithOpts = Machine.interpret(machine, {
+		initial: Machine.state("loggedOut"),
 		id: "auth-actor",
 		onError: (_err, context) => {
 			expectTypeOf(context?.actorId).toEqualTypeOf<string | undefined>();
@@ -194,41 +187,80 @@ test("transition & actor: validate event types and enforce strict payloads", () 
 
 test("interpret: enforces EventBus schema compatibility", () => {
 	const machine = Machine.make<AuthState, AuthEvents>({
-		initial: Machine.state("loggedOut"),
 		states: { loggedOut: {}, authenticating: {}, authenticated: {}, failed: {} },
 	});
 
 	const compatibleBus = EventBus.make<AuthEvents>();
 	const incompatibleBus = EventBus.make<{ OTHER: { count: number; }; }>();
 
-	expectTypeOf(Machine.interpret(machine, { bus: compatibleBus })).toEqualTypeOf<Machine.Actor<AuthState, AuthEvents>>();
+	expectTypeOf(Machine.interpret(machine, { initial: Machine.state("loggedOut"), bus: compatibleBus })).toEqualTypeOf<
+		Machine.Actor<AuthState, AuthEvents>
+	>();
 
 	// @ts-expect-error — incompatible event bus schema
-	Machine.interpret(machine, { bus: incompatibleBus });
+	Machine.interpret(machine, { initial: Machine.state("loggedOut"), bus: incompatibleBus });
 });
 
 // =============================================================================
 // 7. Machine.to.reducer Type Verification
 // =============================================================================
 
-test("to.reducer: produces an uncurried reducer typed for React and Redux", () => {
+test("to.reducer: produces an uncurried reducer typed for React", () => {
 	const machine = Machine.make<AuthState, AuthEvents>({
-		initial: Machine.state("loggedOut"),
 		states: { loggedOut: {}, authenticating: {}, authenticated: {}, failed: {} },
 	});
 
 	const reducer = Machine.to.reducer(machine);
 
-	expectTypeOf(reducer).toEqualTypeOf<
-		(state: AuthState | undefined, event: Machine.EventMessage<AuthEvents>) => AuthState
-	>();
+	expectTypeOf(reducer).toEqualTypeOf<(state: AuthState, event: Machine.EventMessage<AuthEvents>) => AuthState>();
 
-	const next = reducer(undefined, { kind: "LOGOUT" });
+	const next = reducer(getAuthState(), { kind: "LOGOUT" });
 	expectTypeOf(next).toEqualTypeOf<AuthState>();
 
 	// @ts-expect-error — unlisted event rejected in reducer
-	reducer(undefined, { kind: "UNKNOWN_ACTION" });
+	reducer(getAuthState(), { kind: "UNKNOWN_ACTION" });
 
 	// @ts-expect-error — invalid payload rejected in reducer
 	reducer(undefined, { kind: "SUBMIT", value: { email: 123 } });
+});
+
+// =============================================================================
+// 8. Open Findings Regression Suite ([MACHINE-003])
+// =============================================================================
+
+test("interpret: accepts shared subset EventBus, superset EventBus, and Machine.InterpretOptions<States, Events> ([MACHINE-003])", () => {
+	const machine = Machine.make<AuthState, AuthEvents>({
+		states: { loggedOut: {}, authenticating: {}, authenticated: {}, failed: {} },
+	});
+
+	const subsetBus = EventBus.make<{ LOGOUT: void; }>();
+	const supersetBus = EventBus.make<AuthEvents & { PAGE_VIEW: { readonly url: string; }; }>();
+
+	expectTypeOf(Machine.interpret(machine, { initial: Machine.state("loggedOut"), bus: subsetBus })).toEqualTypeOf<
+		Machine.Actor<AuthState, AuthEvents>
+	>();
+	expectTypeOf(Machine.interpret(machine, { initial: Machine.state("loggedOut"), bus: supersetBus })).toEqualTypeOf<
+		Machine.Actor<AuthState, AuthEvents>
+	>();
+	const incompatibleBus = EventBus.make<{ SUBMIT: { email: number; }; }>();
+	const unrelatedBus = EventBus.make<{ OTHER: void; }>();
+	// @ts-expect-error — shared events must have compatible payloads
+	expectTypeOf(Machine.interpret(machine, { initial: Machine.state("loggedOut"), bus: incompatibleBus })).toBeObject();
+	// @ts-expect-error — a bus must share an event with the machine
+	expectTypeOf(Machine.interpret(machine, { initial: Machine.state("loggedOut"), bus: unrelatedBus })).toBeObject();
+
+	const options: Machine.InterpretOptions<AuthState, AuthEvents> = {
+		initial: Machine.state("loggedOut"),
+		id: "auth-actor",
+		onError: (_err, ctx) => {
+			expectTypeOf(ctx?.state).toEqualTypeOf<AuthState | undefined>();
+		},
+	};
+	expectTypeOf(Machine.interpret(machine, { ...options, initial: Machine.state("loggedOut") })).toEqualTypeOf<
+		Machine.Actor<AuthState, AuthEvents>
+	>();
+
+	type OptionalPayloadEvents = { RESET: { readonly reason?: string; } | undefined; };
+	const optionalMsg: Machine.EventMessage<OptionalPayloadEvents> = { kind: "RESET" };
+	expectTypeOf(optionalMsg).toMatchTypeOf<Machine.EventMessage<OptionalPayloadEvents>>();
 });

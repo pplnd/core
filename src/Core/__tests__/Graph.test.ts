@@ -5,32 +5,13 @@ import { RetryPolicy } from "../../Types/RetryPolicy.ts";
 import { Graph } from "../Graph.ts";
 import { Result } from "../Result.ts";
 import { Task } from "../Task.ts";
-import { Unexpected } from "../Unexpected.ts";
 
 // -----------------------------------------------------------------------------
 // Graph.node validation
 // -----------------------------------------------------------------------------
 
-test("node: throws TypeError if id is empty or not a string", () => {
+test("node: throws TypeError if id is empty", () => {
 	expect(() => Graph.node({ id: "", run: () => Task.Result.make.ok(1) })).toThrow(TypeError);
-	// @ts-expect-error — invalid id type
-	expect(() => Graph.node({ id: null, run: () => Task.Result.make.ok(1) })).toThrow(TypeError);
-});
-
-test("node: throws TypeError if run is not a function", () => {
-	// @ts-expect-error — invalid run callback
-	expect(() => Graph.node({ id: "a", run: null })).toThrow(TypeError);
-});
-
-test("node: throws TypeError if deps is not an object or contains invalid nodes", () => {
-	// @ts-expect-error — deps cannot be array
-	expect(() => Graph.node({ id: "a", deps: [], run: () => Task.Result.make.ok(1) })).toThrow(TypeError);
-	// @ts-expect-error — invalid dep node
-	expect(() => Graph.node({ id: "a", deps: { b: null }, run: () => Task.Result.make.ok(1) })).toThrow(TypeError);
-	// @ts-expect-error — invalid dep node structure
-	expect(() => Graph.node({ id: "a", deps: { b: { kind: "NotNode" } }, run: () => Task.Result.make.ok(1) })).toThrow(
-		TypeError,
-	);
 });
 
 test("node: supports empty deps object", async () => {
@@ -43,13 +24,6 @@ test("node: supports empty deps object", async () => {
 // -----------------------------------------------------------------------------
 // Graph.make validation
 // -----------------------------------------------------------------------------
-
-test("make: throws TypeError if target is invalid", () => {
-	// @ts-expect-error — null target
-	expect(() => Graph.make(null)).toThrow(TypeError);
-	// @ts-expect-error — invalid target kind
-	expect(() => Graph.make({ kind: "NotNode" })).toThrow(TypeError);
-});
 
 test("make: throws Error on duplicate node ids", () => {
 	const dep1 = Graph.node({ id: "sharedId", run: () => Task.Result.make.ok("a") });
@@ -193,23 +167,6 @@ test("run: short-circuits on node failure and aborts in-flight sibling tasks", a
 
 	expect(outcome).toStrictEqual(Result.make.err("network_failure"));
 	expect(siblingAborted).toBe(true);
-});
-
-test("run: catches thrown exception in node run and settles as Result.err", async () => {
-	const crashingNode = Graph.node({
-		id: "crashing",
-		run: () => {
-			throw new Error("unexpected crash");
-		},
-	});
-
-	const graph = Graph.make(crashingNode);
-	const outcome = await Graph.run(graph)();
-
-	expect(Result.is.err(outcome)).toBe(true);
-	expect(outcome).toStrictEqual(
-		Result.make.err(Unexpected.make.execution({ source: "Graph", cause: new Error("unexpected crash") })),
-	);
 });
 
 // -----------------------------------------------------------------------------
@@ -399,38 +356,6 @@ test("run: aggregates graph-level onRetry telemetry across nodes", async () => {
 	});
 });
 
-test("run: safely isolates throwing node and graph onRetry handlers", async () => {
-	let attempts = 0;
-	const node = Graph.node({
-		id: "resilient",
-		retry: RetryPolicy.constant<string>({
-			attempts: 3,
-			delay: Duration.milliseconds(1),
-			onRetry: () => {
-				throw new Error("node_hook_failed");
-			},
-		}),
-		run: () =>
-			Task.Result.tryCatch(() => {
-				attempts++;
-				if (attempts < 2) {
-					throw new Error("transient");
-				}
-				return Promise.resolve("ok");
-			}, { onError: (e) => (e instanceof Error ? e.message : String(e)) }),
-	});
-
-	const graph = Graph.make(node);
-	const outcome = await Graph.run(graph, {
-		onRetry: () => {
-			throw new Error("graph_hook_failed");
-		},
-	})();
-
-	expect(outcome).toStrictEqual(Result.make.ok("ok"));
-	expect(attempts).toBe(2);
-});
-
 test("node: applies timeout policy when execution exceeds duration", async () => {
 	const slowNode = Graph.node({
 		id: "slow",
@@ -444,45 +369,9 @@ test("node: applies timeout policy when execution exceeds duration", async () =>
 	expect(outcome).toStrictEqual(Result.make.err("timed_out"));
 });
 
-test("run: returns a typed error when the timeout callback throws", async () => {
-	const cause = new Error("timeout handler failed");
-	const node = Graph.node({
-		id: "slow-timeout",
-		timeout: {
-			duration: Duration.milliseconds(1),
-			onTimeout: () => {
-				throw cause;
-			},
-		},
-		run: () => Task.delay(Duration.milliseconds(20))(Task.Result.make.ok("finished")),
-	});
-
-	const outcome = await Graph.run(Graph.make(node))();
-	expect(outcome).toStrictEqual(Result.make.err(Unexpected.make.execution({ source: "Task", cause })));
-});
-
-test("run: wraps exceptions thrown while invoking the node task", async () => {
-	const cause = new Error("task failed");
-	const node = Graph.node({
-		id: "crash",
-		run: () => () => {
-			throw cause;
-		},
-	});
-
-	const outcome = await Graph.run(Graph.make(node))();
-	expect(outcome).toStrictEqual(Result.make.err(Unexpected.make.execution({ source: "Graph", cause })));
-});
-
 // -----------------------------------------------------------------------------
 // Pipeline Composition & Boundary Tests
 // -----------------------------------------------------------------------------
-
-test("run: returns Err if graph instance is invalid", async () => {
-	// @ts-expect-error — invalid graph instance
-	const result = await Graph.run(null)();
-	expect(Result.is.err(result)).toBe(true);
-});
 
 test("run: immediately aborts if caller signal is already aborted", async () => {
 	const controller = new AbortController();

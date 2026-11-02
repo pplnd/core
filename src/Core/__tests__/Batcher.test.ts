@@ -5,13 +5,11 @@ import { Duration } from "../../Types/Duration.ts";
 import { Batcher } from "../Batcher.ts";
 import { Deferred } from "../Deferred.ts";
 import { Result } from "../Result.ts";
-import { Unexpected } from "../Unexpected.ts";
 
 test("make: resolves single key lookups successfully as BatcherOk", async () => {
-	const batcher = Batcher.make({
-		fetch: (keys: readonly string[]) => () =>
-			Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map(keys.map((k) => [k, `user_${k}`]))))),
-	});
+	const batcher = Batcher.make((keys: readonly string[]) => () =>
+		Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map(keys.map((k) => [k, `user_${k}`])))))
+	);
 
 	const outcome = await batcher.load("1");
 	expect(outcome).toStrictEqual(Batcher.Outcome.make.ok("user_1"));
@@ -22,16 +20,14 @@ test("make: coalesces multiple concurrent calls in same microtask into a single 
 	let queryCount = 0;
 	let requestedKeys: readonly string[] = [];
 
-	const batcher = Batcher.make({
-		fetch: (keys: readonly string[]) => () => {
-			queryCount++;
-			requestedKeys = keys;
-			const map = new Map<string, number>();
-			for (let i = 0; i < keys.length; i++) {
-				map.set(keys[i], Number(keys[i]) * 10);
-			}
-			return Deferred.from.Promise(Promise.resolve(Result.make.ok(map)));
-		},
+	const batcher = Batcher.make((keys: readonly string[]) => () => {
+		queryCount++;
+		requestedKeys = keys;
+		const map = new Map<string, number>();
+		for (let i = 0; i < keys.length; i++) {
+			map.set(keys[i], Number(keys[i]) * 10);
+		}
+		return Deferred.from.Promise(Promise.resolve(Result.make.ok(map)));
 	});
 
 	const [res1, res2, res3] = await Promise.all([
@@ -51,16 +47,14 @@ test("make: deduplicates identical keys requested within the same turn", async (
 	let fetchCallCount = 0;
 	let receivedKeys: readonly string[] = [];
 
-	const batcher = Batcher.make({
-		fetch: (keys: readonly string[]) => () => {
-			fetchCallCount++;
-			receivedKeys = keys;
-			const map = new Map<string, string>();
-			for (let i = 0; i < keys.length; i++) {
-				map.set(keys[i], `value_${keys[i]}`);
-			}
-			return Deferred.from.Promise(Promise.resolve(Result.make.ok(map)));
-		},
+	const batcher = Batcher.make((keys: readonly string[]) => () => {
+		fetchCallCount++;
+		receivedKeys = keys;
+		const map = new Map<string, string>();
+		for (let i = 0; i < keys.length; i++) {
+			map.set(keys[i], `value_${keys[i]}`);
+		}
+		return Deferred.from.Promise(Promise.resolve(Result.make.ok(map)));
 	});
 
 	const [r1, r2, r3, r4] = await Promise.all([
@@ -79,10 +73,9 @@ test("make: deduplicates identical keys requested within the same turn", async (
 });
 
 test("make: missing key resolves to BatcherMissing without throwing or erroring", async () => {
-	const batcher = Batcher.make({
-		fetch: (_keys: readonly string[]) => () =>
-			Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map([["exists", 42]])))),
-	});
+	const batcher = Batcher.make((_keys: readonly string[]) => () =>
+		Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map([["exists", 42]]))))
+	);
 
 	const [found, missing] = await Promise.all([
 		Deferred.to.Promise(batcher.load("exists")),
@@ -97,10 +90,9 @@ test("make: missing key resolves to BatcherMissing without throwing or erroring"
 test("make: batch-level fetch failure fails all waiting callers with BatcherErr", async () => {
 	type NetworkError = { readonly kind: "NetworkError"; readonly code: number; };
 
-	const batcher = Batcher.make({
-		fetch: (_keys: readonly string[]) => () =>
-			Deferred.from.Promise(Promise.resolve(Result.make.err<NetworkError>({ kind: "NetworkError", code: 503 }))),
-	});
+	const batcher = Batcher.make((_keys: readonly string[]) => () =>
+		Deferred.from.Promise(Promise.resolve(Result.make.err<NetworkError>({ kind: "NetworkError", code: 503 })))
+	);
 
 	const [r1, r2] = await Promise.all([Deferred.to.Promise(batcher.load("x")), Deferred.to.Promise(batcher.load("y"))]);
 
@@ -113,17 +105,14 @@ test("make: supports structural composite keys via serializeKey", async () => {
 	type CompositeKey = { readonly orgId: string; readonly memberId: string; };
 	let dispatchedKeys: readonly CompositeKey[] = [];
 
-	const batcher = Batcher.make({
-		fetch: (keys: readonly CompositeKey[]) => () => {
-			dispatchedKeys = keys;
-			const map = new Map<CompositeKey, string>();
-			for (let i = 0; i < keys.length; i++) {
-				map.set(keys[i], `role_for_${keys[i].orgId}_${keys[i].memberId}`);
-			}
-			return Deferred.from.Promise(Promise.resolve(Result.make.ok(map)));
-		},
-		serializeKey: (k) => `${k.orgId}:${k.memberId}`,
-	});
+	const batcher = Batcher.make((keys: readonly CompositeKey[]) => () => {
+		dispatchedKeys = keys;
+		const map = new Map<CompositeKey, string>();
+		for (let i = 0; i < keys.length; i++) {
+			map.set(keys[i], `role_for_${keys[i].orgId}_${keys[i].memberId}`);
+		}
+		return Deferred.from.Promise(Promise.resolve(Result.make.ok(map)));
+	}, { serializeKey: (k) => `${k.orgId}:${k.memberId}` });
 
 	const key1a: CompositeKey = { orgId: "org1", memberId: "m1" };
 	const key1b: CompositeKey = { orgId: "org1", memberId: "m1" };
@@ -144,17 +133,14 @@ test("make: supports structural composite keys via serializeKey", async () => {
 test("make: chunks large batches when maxBatchSize is exceeded", async () => {
 	const batches: (readonly number[])[] = [];
 
-	const batcher = Batcher.make({
-		fetch: (keys: readonly number[]) => () => {
-			batches.push(keys);
-			const map = new Map<number, number>();
-			for (let i = 0; i < keys.length; i++) {
-				map.set(keys[i], keys[i] * 2);
-			}
-			return Deferred.from.Promise(Promise.resolve(Result.make.ok(map)));
-		},
-		maxBatchSize: 2,
-	});
+	const batcher = Batcher.make((keys: readonly number[]) => () => {
+		batches.push(keys);
+		const map = new Map<number, number>();
+		for (let i = 0; i < keys.length; i++) {
+			map.set(keys[i], keys[i] * 2);
+		}
+		return Deferred.from.Promise(Promise.resolve(Result.make.ok(map)));
+	}, { maxBatchSize: 2 });
 
 	const promises = [
 		Deferred.to.Promise(batcher.load(1)),
@@ -180,25 +166,21 @@ test("make: bounds concurrent chunk execution via concurrency option", async () 
 	let activeRunning = 0;
 	let peakRunning = 0;
 
-	const batcher = Batcher.make({
-		fetch: (keys: readonly number[]) => () => {
-			activeRunning++;
-			if (activeRunning > peakRunning) {
-				peakRunning = activeRunning;
-			}
-			return Deferred.from.Promise(
-				new Promise<Result<never, ReadonlyMap<number, number>>>((resolve) => {
-					setTimeout(() => {
-						activeRunning--;
-						const map = new Map(keys.map((k) => [k, k * 10]));
-						resolve(Result.make.ok(map));
-					}, 10);
-				}),
-			);
-		},
-		maxBatchSize: 2,
-		concurrency: 2,
-	});
+	const batcher = Batcher.make((keys: readonly number[]) => () => {
+		activeRunning++;
+		if (activeRunning > peakRunning) {
+			peakRunning = activeRunning;
+		}
+		return Deferred.from.Promise(
+			new Promise<Result<never, ReadonlyMap<number, number>>>((resolve) => {
+				setTimeout(() => {
+					activeRunning--;
+					const map = new Map(keys.map((k) => [k, k * 10]));
+					resolve(Result.make.ok(map));
+				}, 10);
+			}),
+		);
+	}, { maxBatchSize: 2, concurrency: 2 });
 
 	const promises = [
 		Deferred.to.Promise(batcher.load(1)),
@@ -219,13 +201,10 @@ test("make: window delays batch dispatch until Duration elapses", async () => {
 	let dispatchedAt = 0;
 	const startTime = Date.now();
 
-	const batcher = Batcher.make({
-		fetch: (keys: readonly string[]) => () => {
-			dispatchedAt = Date.now();
-			return Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map(keys.map((k) => [k, k])))));
-		},
-		window: Duration.milliseconds(25),
-	});
+	const batcher = Batcher.make((keys: readonly string[]) => () => {
+		dispatchedAt = Date.now();
+		return Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map(keys.map((k) => [k, k])))));
+	}, { window: Duration.milliseconds(25) });
 
 	const resultPromise = Deferred.to.Promise(batcher.load("delayed"));
 	await resultPromise;
@@ -236,13 +215,10 @@ test("make: window delays batch dispatch until Duration elapses", async () => {
 test("flush: forces queued batches to dispatch and settle immediately", async () => {
 	let fetched = false;
 
-	const batcher = Batcher.make({
-		fetch: (keys: readonly string[]) => () => {
-			fetched = true;
-			return Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map(keys.map((k) => [k, k.toUpperCase()])))));
-		},
-		window: Duration.seconds(10),
-	});
+	const batcher = Batcher.make((keys: readonly string[]) => () => {
+		fetched = true;
+		return Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map(keys.map((k) => [k, k.toUpperCase()])))));
+	}, { window: Duration.seconds(10) });
 
 	const loadPromise = Deferred.to.Promise(batcher.load("fast"));
 
@@ -256,16 +232,15 @@ test("flush: forces queued batches to dispatch and settle immediately", async ()
 });
 
 test("flush: is safe and idempotent when queue is empty", async () => {
-	const batcher = Batcher.make({ fetch: () => () => Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map()))) });
+	const batcher = Batcher.make(() => () => Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map()))));
 
 	await expect(Deferred.to.Promise(batcher.flush())).resolves.toBeUndefined();
 });
 
 test("loadMany: loads multiple keys and preserves discrete outcomes in input order", async () => {
-	const batcher = Batcher.make({
-		fetch: (_keys: readonly string[]) => () =>
-			Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map([["a", 10], ["c", 30]])))),
-	});
+	const batcher = Batcher.make((_keys: readonly string[]) => () =>
+		Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map([["a", 10], ["c", 30]]))))
+	);
 
 	const res = await batcher.loadMany(["a", "b", "c"]);
 	expect(res).toStrictEqual([
@@ -278,11 +253,9 @@ test("loadMany: loads multiple keys and preserves discrete outcomes in input ord
 test("loadMany: returns empty array immediately if input keys array is empty", async () => {
 	let fetchCalled = false;
 
-	const batcher = Batcher.make({
-		fetch: () => () => {
-			fetchCalled = true;
-			return Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map())));
-		},
+	const batcher = Batcher.make(() => () => {
+		fetchCalled = true;
+		return Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map())));
 	});
 
 	const res = await batcher.loadMany([]);
@@ -416,7 +389,7 @@ test("AbortSignal: immediately settles with BatcherErr if caller signal is pre-a
 	const controller = new AbortController();
 	controller.abort(new Error("PreAborted"));
 
-	const batcher = Batcher.make({ fetch: () => () => Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map()))) });
+	const batcher = Batcher.make(() => () => Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map()))));
 
 	const res = await batcher.load("k", controller.signal);
 	expect(res).toStrictEqual(Batcher.Outcome.make.err({ kind: "BatcherAborted", reason: controller.signal.reason }));
@@ -425,16 +398,15 @@ test("AbortSignal: immediately settles with BatcherErr if caller signal is pre-a
 test("AbortSignal: isolates aborted caller while sibling callers in batch settle normally", async () => {
 	const controller = new AbortController();
 
-	const batcher = Batcher.make({
-		fetch: (keys: readonly string[]) => () =>
-			Deferred.from.Promise(
-				new Promise<Result<never, ReadonlyMap<string, string>>>((resolve) => {
-					setTimeout(() => {
-						resolve(Result.make.ok(new Map(keys.map((k) => [k, `val_${k}`]))));
-					}, 15);
-				}),
-			),
-	});
+	const batcher = Batcher.make((keys: readonly string[]) => () =>
+		Deferred.from.Promise(
+			new Promise<Result<never, ReadonlyMap<string, string>>>((resolve) => {
+				setTimeout(() => {
+					resolve(Result.make.ok(new Map(keys.map((k) => [k, `val_${k}`]))));
+				}, 15);
+			}),
+		)
+	);
 
 	const caller1Promise = Deferred.to.Promise(batcher.load("k1", controller.signal));
 	const caller2Promise = Deferred.to.Promise(batcher.load("k2"));
@@ -452,13 +424,10 @@ test("AbortSignal: skips batch fetch if all callers abort before execution", asy
 	const c1 = new AbortController();
 	const c2 = new AbortController();
 
-	const batcher = Batcher.make({
-		fetch: () => () => {
-			fetchCalled = true;
-			return Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map())));
-		},
-		window: Duration.milliseconds(20),
-	});
+	const batcher = Batcher.make(() => () => {
+		fetchCalled = true;
+		return Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map())));
+	}, { window: Duration.milliseconds(20) });
 
 	const p1 = Deferred.to.Promise(batcher.load("a", c1.signal));
 	const p2 = Deferred.to.Promise(batcher.load("b", c2.signal));
@@ -476,21 +445,17 @@ test("AbortSignal: skips chunk execution if all callers in a queued chunk abort 
 	let executedChunks = 0;
 	const c = new AbortController();
 
-	const batcher = Batcher.make({
-		fetch: (keys: readonly number[]) => () => {
-			executedChunks++;
-			return Deferred.from.Promise(
-				new Promise<Result<never, ReadonlyMap<number, number>>>((resolve) => {
-					setTimeout(() => {
-						const map = new Map(keys.map((k) => [k, k]));
-						resolve(Result.make.ok(map));
-					}, 20);
-				}),
-			);
-		},
-		maxBatchSize: 1,
-		concurrency: 1,
-	});
+	const batcher = Batcher.make((keys: readonly number[]) => () => {
+		executedChunks++;
+		return Deferred.from.Promise(
+			new Promise<Result<never, ReadonlyMap<number, number>>>((resolve) => {
+				setTimeout(() => {
+					const map = new Map(keys.map((k) => [k, k]));
+					resolve(Result.make.ok(map));
+				}, 20);
+			}),
+		);
+	}, { maxBatchSize: 1, concurrency: 1 });
 
 	const p1 = batcher.load(1);
 	const p2 = batcher.load(2, c.signal);
@@ -509,14 +474,11 @@ test("real-world: relational entity workflow using Arr.indexBy", async () => {
 	type User = { readonly id: string; readonly name: string; };
 	const dbUsers: readonly User[] = [{ id: "u1", name: "Alice" }, { id: "u2", name: "Bob" }];
 
-	const userBatcher = Batcher.make({
-		fetch: (ids: readonly string[]) => () =>
-			Deferred.from.Promise(Promise.resolve(Result.make.ok(
-				Arr.indexBy((u: User) => u.id)(dbUsers.filter((u) =>
-					ids.includes(u.id)
-				)),
-			))),
-	});
+	const userBatcher = Batcher.make((ids: readonly string[]) => () =>
+		Deferred.from.Promise(
+			Promise.resolve(Result.make.ok(Arr.indexBy((u: User) => u.id)(dbUsers.filter((u) => ids.includes(u.id))))),
+		)
+	);
 
 	const [alice, missing] = await Promise.all([
 		Deferred.to.Promise(userBatcher.load("u1")),
@@ -535,14 +497,15 @@ test("real-world: one-to-many relation workflow using Dict.groupBy", async () =>
 		text: "Thanks!",
 	}, { id: "c3", postId: "p2", text: "Nice" }];
 
-	const commentsBatcher = Batcher.make({
-		fetch: (postIds: readonly string[]) => () =>
-			Deferred.from.Promise(Promise.resolve(Result.make.ok(
+	const commentsBatcher = Batcher.make((postIds: readonly string[]) => () =>
+		Deferred.from.Promise(
+			Promise.resolve(Result.make.ok(
 				Dict.groupBy((c: Comment) => c.postId)(dbComments.filter((c) =>
 					postIds.includes(c.postId)
 				)),
-			))),
-	});
+			)),
+		)
+	);
 
 	const [p1Comments, p3Comments] = await Promise.all([
 		Deferred.to.Promise(commentsBatcher.load("p1")),
@@ -561,15 +524,11 @@ test("real-world: one-to-many relation workflow using Dict.groupBy", async () =>
 
 test("boundary: maxBatchSize and concurrency handle non-integers, NaN, and negative values safely", async () => {
 	const batches: (readonly number[])[] = [];
-	const batcher = Batcher.make({
-		fetch: (keys: readonly number[]) => () => {
-			batches.push(keys);
-			const map = new Map(keys.map((k) => [k, k * 2]));
-			return Deferred.from.Promise(Promise.resolve(Result.make.ok(map)));
-		},
-		maxBatchSize: 1.5,
-		concurrency: NaN,
-	});
+	const batcher = Batcher.make((keys: readonly number[]) => () => {
+		batches.push(keys);
+		const map = new Map(keys.map((k) => [k, k * 2]));
+		return Deferred.from.Promise(Promise.resolve(Result.make.ok(map)));
+	}, { maxBatchSize: 1.5, concurrency: NaN });
 
 	await Promise.all([batcher.load(1), batcher.load(2), batcher.load(3)]);
 
@@ -577,15 +536,11 @@ test("boundary: maxBatchSize and concurrency handle non-integers, NaN, and negat
 	expect(batches[0]).toStrictEqual([1, 2, 3]);
 
 	const batches2: (readonly number[])[] = [];
-	const batcher2 = Batcher.make({
-		fetch: (keys: readonly number[]) => () => {
-			batches2.push(keys);
-			const map = new Map(keys.map((k) => [k, k * 2]));
-			return Deferred.from.Promise(Promise.resolve(Result.make.ok(map)));
-		},
-		maxBatchSize: -5,
-		concurrency: 0,
-	});
+	const batcher2 = Batcher.make((keys: readonly number[]) => () => {
+		batches2.push(keys);
+		const map = new Map(keys.map((k) => [k, k * 2]));
+		return Deferred.from.Promise(Promise.resolve(Result.make.ok(map)));
+	}, { maxBatchSize: -5, concurrency: 0 });
 
 	await Promise.all([batcher2.load(10), batcher2.load(20)]);
 
@@ -594,14 +549,12 @@ test("boundary: maxBatchSize and concurrency handle non-integers, NaN, and negat
 });
 
 test("boundary: handles falsy keys and falsy values without conflation", async () => {
-	const batcher = Batcher.make({
-		fetch: (_keys: readonly (string | number | boolean)[]) => () => {
-			const map = new Map<(string | number | boolean), (string | number | boolean)>([["", "empty_str_val"], [0, false], [
-				false,
-				0,
-			]]);
-			return Deferred.from.Promise(Promise.resolve(Result.make.ok(map)));
-		},
+	const batcher = Batcher.make((_keys: readonly (string | number | boolean)[]) => () => {
+		const map = new Map<(string | number | boolean), (string | number | boolean)>([["", "empty_str_val"], [0, false], [
+			false,
+			0,
+		]]);
+		return Deferred.from.Promise(Promise.resolve(Result.make.ok(map)));
 	});
 
 	const [emptyStr, zeroVal, falseVal, absent] = await Promise.all([
@@ -619,10 +572,9 @@ test("boundary: handles falsy keys and falsy values without conflation", async (
 
 test("AbortSignal: deduplicated key where one caller aborts in queue while sibling caller proceeds", async () => {
 	const c = new AbortController();
-	const batcher = Batcher.make({
-		fetch: (keys: readonly string[]) => () =>
-			Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map(keys.map((k) => [k, `res_${k}`]))))),
-	});
+	const batcher = Batcher.make((keys: readonly string[]) => () =>
+		Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map(keys.map((k) => [k, `res_${k}`])))))
+	);
 
 	const p1 = batcher.load("shared", c.signal);
 	const p2 = batcher.load("shared");
@@ -639,13 +591,10 @@ test("AbortSignal: deduplicated key where one caller aborts in queue while sibli
 test("AbortSignal: aborting a settled caller does not remove a newer queued lookup for the same key", async () => {
 	const controller = new AbortController();
 	const batches: string[][] = [];
-	const batcher = Batcher.make({
-		window: Duration.seconds(10),
-		fetch: (keys: readonly string[]) => () => {
-			batches.push([...keys]);
-			return Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map(keys.map((key) => [key, batches.length])))));
-		},
-	});
+	const batcher = Batcher.make((keys: readonly string[]) => () => {
+		batches.push([...keys]);
+		return Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map(keys.map((key) => [key, batches.length])))));
+	}, { window: Duration.seconds(10) });
 
 	const first = batcher.load("sku", controller.signal);
 	await batcher.flush();
@@ -662,20 +611,17 @@ test("AbortSignal: aborting an in-flight caller does not remove a newer queued l
 	const controller = new AbortController();
 	const batches: string[][] = [];
 	let finishFirst = () => {};
-	const batcher = Batcher.make({
-		window: Duration.seconds(10),
-		fetch: (keys: readonly string[]) => () => {
-			batches.push([...keys]);
-			if (batches.length === 1) {
-				return Deferred.from.Promise(
-					new Promise<Result<never, ReadonlyMap<string, number>>>((resolve) => {
-						finishFirst = () => resolve(Result.make.ok(new Map([["sku", 1]])));
-					}),
-				);
-			}
-			return Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map([["sku", 2]]))));
-		},
-	});
+	const batcher = Batcher.make((keys: readonly string[]) => () => {
+		batches.push([...keys]);
+		if (batches.length === 1) {
+			return Deferred.from.Promise(
+				new Promise<Result<never, ReadonlyMap<string, number>>>((resolve) => {
+					finishFirst = () => resolve(Result.make.ok(new Map([["sku", 1]])));
+				}),
+			);
+		}
+		return Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map([["sku", 2]]))));
+	}, { window: Duration.seconds(10) });
 
 	const first = batcher.load("sku", controller.signal);
 	const firstFlush = batcher.flush();
@@ -702,50 +648,8 @@ test("AbortSignal: handles abort with undefined reason", async () => {
 		throwIfAborted: () => {},
 	};
 
-	const batcher = Batcher.make({ fetch: () => () => Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map()))) });
+	const batcher = Batcher.make(() => () => Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map()))));
 
 	const res = await batcher.load("k", fakeSignal);
 	expect(res).toStrictEqual(Batcher.Outcome.make.err({ kind: "BatcherAborted", reason: undefined }));
-});
-
-test("load: a throwing fetch factory settles its callers and lets later chunks run", async () => {
-	const failure = new Error("catalog unavailable");
-	const batches: string[][] = [];
-	const batcher = Batcher.make({
-		maxBatchSize: 2,
-		concurrency: 1,
-		fetch: (keys: readonly string[]) => {
-			batches.push([...keys]);
-			if (keys.includes("bad")) { throw failure; }
-			return () => Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map(keys.map((key) => [key, key])))));
-		},
-	});
-
-	const first = batcher.load("bad");
-	const duplicate = batcher.load("bad");
-	const other = batcher.load("also-bad");
-	const later = batcher.load("good");
-	await batcher.flush();
-	const failed = Batcher.Outcome.make.err(Unexpected.make.execution({ source: "Batcher", cause: failure }));
-	await expect(Promise.all([first, duplicate, other, later])).resolves.toStrictEqual([
-		failed,
-		failed,
-		failed,
-		Batcher.Outcome.make.ok("good"),
-	]);
-	expect(batches).toStrictEqual([["bad", "also-bad"], ["good"]]);
-});
-
-test("load: a fetch task that throws before returning settles the caller and flush", async () => {
-	const failure = new Error("task could not start");
-	const batcher = Batcher.make({
-		fetch: (_keys: readonly string[]) => () => {
-			throw failure;
-		},
-	});
-	const outcome = batcher.load("item");
-	await batcher.flush();
-	await expect(Deferred.to.Promise(outcome)).resolves.toStrictEqual(
-		Batcher.Outcome.make.err(Unexpected.make.execution({ source: "Batcher", cause: failure })),
-	);
 });

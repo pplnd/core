@@ -4,7 +4,7 @@ description: Run asynchronous operations with observable state and a choice of c
 ---
 {/* BUNDLE_SIZE:START */}
 
-> 6.66 kB minified + gzipped
+> 6.20 kB minified + gzipped
 
 {/* BUNDLE_SIZE:END */}
 
@@ -143,6 +143,5 @@ from its configured `onTimeout`; aborting a run returns `OpNil`. Pass the suppli
 that supports cancellation. Stopping a polling interval prevents future polling calls; use `abort`
 separately if the active call should also stop.
 
-If `onError`, a retry predicate, `onTimeout`, or a keyed strategy's key function throws, the
-manager returns an `OpErr` containing `Unexpected` and the original cause. An error mapper
-exception does not enter the retry predicate.
+The error mapper, retry predicate, timeout handler, key function, and subscribers must not throw.
+Map expected operation failures with `onError` before they enter the manager.

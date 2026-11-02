@@ -1,142 +1,217 @@
+import { constTruthyBool } from "#test-utils";
 import { expectTypeOf, test } from "vitest";
-import { pipe } from "../../Composition/pipe.ts";
 import { Duration } from "../../Types/Duration.ts";
 import { RetryPolicy } from "../../Types/RetryPolicy.ts";
+import type { Deferred } from "../Deferred.ts";
+import type { Result } from "../Result.ts";
 import { Task } from "../Task.ts";
 import { Transaction } from "../Transaction.ts";
-import type { Unexpected } from "../Unexpected.ts";
 
-type OrderInput = { readonly sku: string; readonly qty: number; };
-type Reservation = { readonly resId: string; };
-type Payment = { readonly chargeId: string; };
+type Order = { readonly sku: string; readonly quantity: number; };
+type Reservation = { readonly id: string; readonly total: number; };
+type Payment = { readonly id: string; };
 
-test("make: infers empty transaction with default void or explicit input", () => {
-	const defaultTx = Transaction.make();
-	expectTypeOf(defaultTx).toEqualTypeOf<Transaction<void, Record<never, never>, never, never>>();
-
-	const inputTx = Transaction.make<OrderInput>();
-	expectTypeOf(inputTx).toEqualTypeOf<Transaction<OrderInput, Record<never, never>, never, never>>();
-});
-
-test("step & pipe: contextually accumulates step outputs and unions forward and undo errors", () => {
-	const tx = pipe(
-		Transaction.make<OrderInput>(),
-		Transaction.step({
-			id: "reservation",
-			run: (ctx) => {
-				expectTypeOf(ctx.initial).toEqualTypeOf<OrderInput>();
-				return Task.Result.make.ok<Reservation>({ resId: "r1" });
-			},
-			undo: (res, ctx) => {
-				expectTypeOf(res).toEqualTypeOf<Reservation>();
-				expectTypeOf(ctx.initial.sku).toBeString();
-				return Task.Result.make.err<"undo_res_err">("undo_res_err");
-			},
-		}),
-		Transaction.step({
-			id: "payment",
-			retry: RetryPolicy.constant({ attempts: 3, delay: Duration.milliseconds(10) }),
-			timeout: { duration: Duration.seconds(5), onTimeout: () => "payment_timeout" as const },
-			run: (ctx) => {
-				expectTypeOf(ctx.initial).toEqualTypeOf<OrderInput>();
-				expectTypeOf(ctx.reservation).toEqualTypeOf<Reservation>();
-				return Task.Result.make.ok<Payment>({ chargeId: "c1" });
-			},
-			undo: (pay, ctx) => {
-				expectTypeOf(pay).toEqualTypeOf<Payment>();
-				expectTypeOf(ctx.reservation.resId).toBeString();
-				return Task.Result.make.ok<void>(undefined);
-			},
-		}),
-		Transaction.step({
-			id: "shipment",
-			run: (ctx) => {
-				expectTypeOf(ctx.initial.sku).toBeString();
-				expectTypeOf(ctx.reservation.resId).toBeString();
-				expectTypeOf(ctx.payment.chargeId).toBeString();
-				return Task.Result.make.err<"shipment_err">("shipment_err");
-			},
-		}),
-	);
-
-	type InferredAcc = typeof tx extends Transaction<any, infer Acc, any, any> ? Acc : never;
-	expectTypeOf<InferredAcc["reservation"]>().toEqualTypeOf<Reservation>();
-	expectTypeOf<InferredAcc["payment"]>().toEqualTypeOf<Payment>();
-	expectTypeOf<InferredAcc["shipment"]>().toEqualTypeOf<never>();
-
-	type InferredE = typeof tx extends Transaction<any, any, infer E, any> ? E : never;
-	expectTypeOf<InferredE>().toEqualTypeOf<"payment_timeout" | "shipment_err">();
-
-	type InferredUndoE = typeof tx extends Transaction<any, any, any, infer EUndo> ? EUndo : never;
-	expectTypeOf<InferredUndoE>().toEqualTypeOf<"undo_res_err">();
-});
-
-test("run: returns Task.Result resolving to Result with exact Acc and Failure types", () => {
-	const tx = pipe(
-		Transaction.make<OrderInput>(),
-		Transaction.step({
-			id: "stepA",
-			run: () => Task.Result.make.ok<number>(42),
-			undo: () => Task.Result.make.err<"undo_err">("undo_err"),
-		}),
-		Transaction.step({ id: "stepB", run: () => Task.Result.make.err<"run_err">("run_err") }),
-	);
-
-	const runner = Transaction.run({ sku: "item", qty: 2 })(tx);
-	expectTypeOf(runner).toBeFunction();
-
-	type RunnerOutcome = typeof runner extends Task.Result<infer E, infer Acc> ? { E: E; Acc: Acc; } : never;
-	expectTypeOf<RunnerOutcome["E"]>().toEqualTypeOf<
-		Transaction.Failure<"run_err" | Transaction.Aborted | Unexpected, "undo_err" | Unexpected>
+test("step: infers dependencies, input, output and compensation", () => {
+	const reservation = Transaction.step({
+		id: "reservation",
+		run: () => (order: Order) =>
+			constTruthyBool()
+				? Task.Result.make.ok({ id: order.sku, total: order.quantity })
+				: Task.Result.make.err("inventory_error"),
+		undo: (value) => {
+			expectTypeOf(value).toMatchTypeOf<Reservation>();
+			return Task.Result.make.err("release_error");
+		},
+	});
+	const payment = Transaction.step({
+		id: "payment",
+		deps: { reserved: reservation },
+		retry: RetryPolicy.constant({ attempts: 2, delay: Duration.milliseconds(1) }),
+		timeout: { duration: Duration.seconds(2), onTimeout: (): "payment_timeout" => "payment_timeout" },
+		run: ({ reserved }) => (order: Order) => {
+			expectTypeOf(reserved).toMatchTypeOf<Reservation>();
+			expectTypeOf(order).toEqualTypeOf<Order>();
+			return constTruthyBool()
+				? Task.Result.make.ok({ id: `${reserved.id}:${order.sku}` })
+				: Task.Result.make.err("charge_error");
+		},
+		undo: (value, deps, input) => {
+			expectTypeOf(value).toMatchTypeOf<Payment>();
+			expectTypeOf(deps.reserved).toMatchTypeOf<Reservation>();
+			expectTypeOf(input).toEqualTypeOf<Order>();
+			return Task.Result.make.ok(undefined);
+		},
+	});
+	const tx = Transaction.make(reservation, payment);
+	const result = Transaction.run(tx, { input: { sku: "book", quantity: 2 } });
+	type Outcome = Awaited<typeof result>;
+	type Failure = Extract<Outcome, Result.Err<unknown>>["error"];
+	type Outputs = Extract<Outcome, Result.Ok<unknown>>["value"];
+	expectTypeOf<Failure>().toEqualTypeOf<
+		Transaction.Failure<"inventory_error" | "charge_error" | "payment_timeout" | Transaction.Aborted, "release_error">
 	>();
-	expectTypeOf<RunnerOutcome["Acc"]["stepA"]>().toEqualTypeOf<number>();
-	expectTypeOf<RunnerOutcome["Acc"]["stepB"]>().toEqualTypeOf<never>();
+	expectTypeOf<Outputs["reservation"]>().toEqualTypeOf<{ id: string; total: number; }>();
+	expectTypeOf<Outputs["payment"]>().toEqualTypeOf<{ id: string; }>();
+	expectTypeOf(result).toMatchTypeOf<
+		Deferred<
+			Result<
+				Transaction.Failure<"inventory_error" | "charge_error" | "payment_timeout" | Transaction.Aborted, "release_error">,
+				{ readonly reservation: Reservation; readonly payment: Payment; }
+			>
+		>
+	>();
+
+	// @ts-expect-error — a run must supply the input required by its steps
+	Transaction.run(tx);
+	// @ts-expect-error — the transaction input must satisfy the order contract
+	Transaction.run(tx, { input: { sku: "book" } });
+	// @ts-expect-error — a dependency must occur before the dependent step
+	Transaction.make(payment, reservation);
+	// @ts-expect-error — a dependency must be included in the transaction
+	Transaction.make(payment);
+	// @ts-expect-error — step IDs must be unique
+	Transaction.make(reservation, reservation);
+
+	const unrelated = Transaction.step({ id: "unrelated", run: () => () => Task.Result.make.ok("unused") });
+	const dependent = Transaction.step({
+		id: "dependent",
+		deps: { reservation, unrelated },
+		run: () => () => Task.Result.make.ok(undefined),
+	});
+	// @ts-expect-error — each dependency must appear in the transaction
+	Transaction.make(reservation, dependent);
 });
 
-test("run: void transaction allows invocation without input argument", () => {
-	const voidTx = pipe(Transaction.make(), Transaction.step({ id: "init", run: () => Task.Result.make.ok("done") }));
+test("make: no-input and dynamic step lists preserve input requirements", () => {
+	const upload = Transaction.step({ id: "upload", run: () => () => Task.Result.make.ok("file") });
+	const index = Transaction.step({
+		id: "index",
+		deps: { file: upload },
+		run: ({ file }) => () => Task.Result.make.ok(file.length),
+	});
+	const noInput = Transaction.make(upload, index);
+	expectTypeOf(Transaction.run(noInput)).toEqualTypeOf<
+		Deferred<
+			Result<Transaction.Failure<Transaction.Aborted, never>, { readonly upload: string; readonly index: number; }>
+		>
+	>();
+	// @ts-expect-error — no-input transactions do not accept an input
+	Transaction.run(noInput, { input: "unexpected" });
 
-	const runner = Transaction.run()(voidTx);
-	expectTypeOf(runner).toBeFunction();
+	const lookup = Transaction.step({ id: "lookup", run: () => (order: Order) => Task.Result.make.ok(order.sku) });
+	const steps = [upload, lookup];
+	const dynamic = Transaction.make(...steps);
+	Transaction.run(dynamic, { input: { sku: "book", quantity: 1 } });
+	// @ts-expect-error — dynamic collections retain required input types
+	Transaction.run(dynamic);
 
-	type VoidOutcome = typeof runner extends Task.Result<infer E, infer Acc> ? { E: E; Acc: Acc; } : never;
-	expectTypeOf<VoidOutcome["E"]>().toEqualTypeOf<Transaction.Failure<Transaction.Aborted | Unexpected, Unexpected>>();
-	expectTypeOf<VoidOutcome["Acc"]["init"]>().toEqualTypeOf<string>();
+	const explicitlyTyped: Transaction.AnyStep<Order>[] = [upload, lookup];
+	const typedDynamic = Transaction.make(...explicitlyTyped);
+	Transaction.run(typedDynamic, { input: { sku: "book", quantity: 1 } });
+	// @ts-expect-error — an explicitly typed dynamic collection retains its input requirement
+	Transaction.run(typedDynamic);
 });
 
-test("negative: disallows duplicate step IDs", () => {
-	const tx = pipe(
-		Transaction.make(),
-		Transaction.step({ id: "duplicateKey", run: () => Task.Result.make.ok(1) }),
-		Transaction.step({
-			// @ts-expect-error — duplicate step id is not assignable to never
-			id: "duplicateKey",
-			run: () => Task.Result.make.ok(2),
-		}),
-	);
-	expectTypeOf(tx).toBeObject();
+test("run: domain input shaped like options is passed unchanged", () => {
+	type SignalInput = { readonly signal: AbortSignal; };
+	const inspect = Transaction.step({
+		id: "inspect",
+		run: () => (input: SignalInput) => {
+			expectTypeOf(input.signal).toEqualTypeOf<AbortSignal>();
+			return Task.Result.make.ok(input.signal.aborted);
+		},
+	});
+	const tx = Transaction.make(inspect);
+	const controller = new AbortController();
+	expectTypeOf(Transaction.run(tx, { input: { signal: controller.signal } })).toEqualTypeOf<
+		Deferred<Result<Transaction.Failure<Transaction.Aborted, never>, { readonly inspect: boolean; }>>
+	>();
 });
 
-test("negative: disallows 'initial' as a step ID", () => {
-	const tx = pipe(
-		Transaction.make(),
-		Transaction.step({
-			// @ts-expect-error — 'initial' is reserved
-			id: "initial",
-			run: () => Task.Result.make.ok(1),
-		}),
-	);
-	expectTypeOf(tx).toBeObject();
+test("make: combines independent input requirements without losing either", () => {
+	const inventoryStep = Transaction.step({
+		id: "inventory",
+		run: () => (input: { readonly sku: string; }) => Task.Result.make.ok(input.sku),
+	});
+	const payment = Transaction.step({
+		id: "payment",
+		deps: { inventory: inventoryStep },
+		run: ({ inventory }) => (input: { readonly customerId: string; }) =>
+			Task.Result.make.ok(`${inventory}:${input.customerId}`),
+	});
+	const tx = Transaction.make(inventoryStep, payment);
+	expectTypeOf(Transaction.run(tx, { input: { sku: "book", customerId: "mina" } })).toBeObject();
+	// @ts-expect-error — the payment step also requires a customer ID
+	Transaction.run(tx, { input: { sku: "book" } });
 });
 
-test("negative: requires valid input when In is not void", () => {
-	const tx = Transaction.make<OrderInput>();
+test("make: accepts a dependency exposed through the supported broad step type", () => {
+	const reserve = Transaction.step({ id: "reserve", run: () => (order: Order) => Task.Result.make.ok(order.sku) });
+	const build = (dependency: Transaction.AnyStep<Order>) => {
+		const dependent = Transaction.step({
+			id: "dependent",
+			deps: { dependency },
+			run: ({ dependency: previous }) => (order: Order) => Task.Result.make.ok({ dependency: previous, sku: order.sku }),
+		});
+		return Transaction.make(reserve, dependent);
+	};
+	const tx = build(reserve);
+	expectTypeOf(Transaction.run(tx, { input: { sku: "book", quantity: 1 } })).toBeObject();
+	// @ts-expect-error — broad dependencies do not remove the transaction input requirement
+	Transaction.run(tx);
+});
 
-	// @ts-expect-error — runner expecting void transaction cannot run OrderInput transaction
-	Transaction.run()(tx);
+test("make: allows a dependency whose union type can refer to an earlier step", () => {
+	const first = Transaction.step({ id: "first", run: () => () => Task.Result.make.ok("one") });
+	const other = Transaction.step({ id: "other", run: () => () => Task.Result.make.ok("two") });
+	const dependency = constTruthyBool() ? first : other;
+	const dependent = Transaction.step({
+		id: "dependent",
+		deps: { dependency },
+		run: ({ dependency: value }) => () => Task.Result.make.ok(value.toUpperCase()),
+	});
+	const transaction = Transaction.make(first, dependent);
+	expectTypeOf(Transaction.run(transaction)).toBeObject();
+});
 
-	// @ts-expect-error — invalid input structure
-	Transaction.run({ wrongKey: "bad" })(tx);
+test("make: supports conditional dependency records and accurately types absent entries", () => {
+	const first = Transaction.step({ id: "first", run: () => () => Task.Result.make.ok("one") });
+	const other = Transaction.step({ id: "other", run: () => () => Task.Result.make.ok("two") });
+	const deps = constTruthyBool() ? { primary: first } : { alternate: other };
+	const dependent = Transaction.step({
+		id: "dependent",
+		deps,
+		run: (resolved) => () => {
+			expectTypeOf(resolved.primary).toEqualTypeOf<string | undefined>();
+			expectTypeOf(resolved.alternate).toEqualTypeOf<string | undefined>();
+			return Task.Result.make.ok(resolved.primary ?? resolved.alternate);
+		},
+	});
+	expectTypeOf(Transaction.make(first, dependent)).toBeObject();
+	const missingVariant = Transaction.step({
+		id: "missingVariant",
+		deps: constTruthyBool() ? { firstMissing: other } : { secondMissing: other },
+		run: () => () => Task.Result.make.ok(undefined),
+	});
+	// @ts-expect-error — neither dependency variant can refer to the supplied earlier step
+	Transaction.make(first, missingVariant);
 
-	expectTypeOf(tx).toBeObject();
+	const optional = Transaction.step({
+		id: "optional",
+		deps: { skipped: undefined },
+		run: (resolved) => () => {
+			expectTypeOf(resolved.skipped).toEqualTypeOf<undefined>();
+			return Task.Result.make.ok(undefined);
+		},
+	});
+	expectTypeOf(Transaction.make(optional)).toBeObject();
+});
+
+test("step: rejects reserved identifiers", () => {
+	const invalid = Transaction.step({
+		// @ts-expect-error — the reserved identifier is not available for a step
+		id: "initial",
+		run: () => () => Task.Result.make.ok(1),
+	});
+	expectTypeOf(invalid).toBeObject();
 });

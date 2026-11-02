@@ -5,15 +5,14 @@ import { Duration } from "../../Types/Duration.ts";
 import { RetryPolicy } from "../../Types/RetryPolicy.ts";
 import { type Result } from "../Result.ts";
 import { Task } from "../Task.ts";
-import type { Unexpected } from "../Unexpected.ts";
 
-test("timeout: preserves domain, timeout, and unexpected error types", () => {
+test("timeout: preserves domain and timeout error types", () => {
 	const source: Task.Result<"source", number> = Task.Result.make.err("source");
 	const timed = pipe(
 		source,
 		Task.Result.timeout({ duration: Duration.seconds(1), onTimeout: () => "deadline" as const }),
 	);
-	expectTypeOf(timed).toEqualTypeOf<Task.Result<"source" | "deadline" | Unexpected, number>>();
+	expectTypeOf(timed).toEqualTypeOf<Task.Result<"source" | "deadline", number>>();
 });
 
 test("from.Task: lifts infallible Task into Task.Result with never error", () => {
@@ -27,10 +26,10 @@ test("all & sequential: infers heterogeneous error unions and tuple value types"
 	const t2: Task.Result<"err", string> = Task.Result.make.err("err");
 
 	const allTask = Task.Result.all([t1, t2]);
-	expectTypeOf(allTask).toEqualTypeOf<Task.Result<"err" | Task.Aborted | Unexpected, [number, string]>>();
+	expectTypeOf(allTask).toEqualTypeOf<Task.Result<"err" | Task.Aborted, [number, string]>>();
 
 	const seqTask = Task.Result.sequential([t1, t2]);
-	expectTypeOf(seqTask).toEqualTypeOf<Task.Result<"err" | Task.Aborted | Unexpected, [number, string]>>();
+	expectTypeOf(seqTask).toEqualTypeOf<Task.Result<"err" | Task.Aborted, [number, string]>>();
 });
 
 test("make: infers precise variant types for Ok and Err tasks", () => {

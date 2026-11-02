@@ -4,7 +4,6 @@ import { Duration } from "../../Types/Duration.ts";
 import { Deferred } from "../Deferred.ts";
 import { Result } from "../Result.ts";
 import { Task } from "../Task.ts";
-import { Unexpected } from "../Unexpected.ts";
 
 const fromPromise = <A>(f: (signal?: AbortSignal) => Promise<A>): Task<A> => (signal?: AbortSignal) =>
 	Deferred.from.Promise(f(signal));
@@ -466,21 +465,6 @@ test("timeout: uses onTimeout return value as error", async () => {
 	expect(result).toStrictEqual({ kind: "Err", error });
 });
 
-test("timeout: returns a typed unexpected error when onTimeout throws", async () => {
-	const cause = { message: "callback failed" };
-	const task: Task<number> = () => Deferred.from.Promise(new Promise(() => {}));
-	const result = await pipe(
-		task,
-		Task.timeout({
-			duration: Duration.milliseconds(1),
-			onTimeout: () => {
-				throw cause;
-			},
-		}),
-	)();
-	expect(result).toStrictEqual(Result.make.err(Unexpected.make.execution({ source: "Task", cause })));
-});
-
 test("timeout: returns the deadline error when abort completes the inner task", async () => {
 	const task: Task<number> = (signal) =>
 		Deferred.from.Promise(
@@ -697,6 +681,18 @@ test("abortable: returns a task and an abort function", () => {
 	const { task, abort } = Task.abortable(() => Promise.resolve(42));
 	expect(task).toBeTypeOf("function");
 	expect(abort).toBeTypeOf("function");
+});
+
+test("abortable: cleans up the outer listener if the factory throws synchronously", () => {
+	const controller = new AbortController();
+	let innerSignal: AbortSignal | undefined;
+	const { task } = Task.abortable((signal) => {
+		innerSignal = signal;
+		throw new Error("factory failed");
+	});
+	expect(() => task(controller.signal)).toThrow("factory failed");
+	controller.abort();
+	expect(innerSignal?.aborted).toBe(false);
 });
 
 test("abortable: resolves normally when not aborted", async () => {
@@ -1104,4 +1100,84 @@ test("assign: safely handles __proto__ property without prototype pollution", as
 	const res = await pipe(Task.make({ a: 1 }), Task.assign("__proto__", () => Task.make({ polluted: true })))();
 	expect(Object.hasOwn(res, "__proto__")).toBe(true);
 	expect("polluted" in {}).toBe(false);
+});
+
+// ---------------------------------------------------------------------------
+// Open Findings Regression Suite ([TASK-001] - [TASK-005])
+// ---------------------------------------------------------------------------
+
+test("repeat: clamps non-finite times (NaN) to empty array and truncates positive floats ([TASK-001])", async () => {
+	const controller = new AbortController();
+	let nanCalls = 0;
+	const nanTask = fromPromise(() => {
+		nanCalls++;
+		if (nanCalls >= 5) {
+			controller.abort();
+		}
+		return Promise.resolve(nanCalls);
+	});
+
+	const nanResult = await pipe(nanTask, Task.repeat({ times: Number.NaN }))(controller.signal);
+	expect(nanCalls).toBe(0);
+	expect(nanResult).toStrictEqual([]);
+
+	let floatCalls = 0;
+	const floatTask = fromPromise(() => Promise.resolve(++floatCalls));
+	const floatResult = await pipe(floatTask, Task.repeat({ times: 2.5 }))();
+	expect(floatCalls).toBe(2);
+	expect(floatResult).toStrictEqual([1, 2]);
+});
+
+test("poll: clamps non-finite attempts (NaN) to 1 and truncates positive floats ([TASK-001])", async () => {
+	let nanCalls = 0;
+	const nanTask = fromPromise(() => Promise.resolve(++nanCalls));
+	const nanResult = await pipe(nanTask, Task.poll({ until: (n) => n >= 5, attempts: Number.NaN }))();
+	expect(nanCalls).toBe(1);
+	expect(nanResult).toBe(1);
+
+	let floatCalls = 0;
+	const floatTask = fromPromise(() => Promise.resolve(++floatCalls));
+	const floatResult = await pipe(floatTask, Task.poll({ until: () => false, attempts: 2.7 }))();
+	expect(floatCalls).toBe(2);
+	expect(floatResult).toBe(2);
+});
+
+test("abortable: removes outerSignal listener on completion and clears finished controller ([TASK-003])", async () => {
+	const outerController = new AbortController();
+	let capturedSignal: AbortSignal | undefined;
+	const { task, abort } = Task.abortable((signal) => {
+		capturedSignal = signal;
+		return Promise.resolve(42);
+	});
+
+	const value = await task(outerController.signal);
+	expect(value).toBe(42);
+	expect(capturedSignal?.aborted).toBe(false);
+
+	// Aborting after completion should not abort the already-settled inner signal
+	abort();
+	expect(capturedSignal?.aborted).toBe(false);
+
+	outerController.abort();
+	expect(capturedSignal?.aborted).toBe(false);
+});
+
+test("poll: respects signal aborted during delay even when task resolves to undefined ([TASK-005])", async () => {
+	const controller = new AbortController();
+	let calls = 0;
+	const undefinedTask: Task<undefined> = fromPromise(() => {
+		calls++;
+		if (calls === 1) {
+			setTimeout(() => controller.abort(), 5);
+		}
+		return Promise.resolve(undefined);
+	});
+
+	const result = await pipe(
+		undefinedTask,
+		Task.poll({ until: () => false, delay: Duration.milliseconds(20), attempts: 5 }),
+	)(controller.signal);
+
+	expect(result).toBeUndefined();
+	expect(calls).toBe(1);
 });

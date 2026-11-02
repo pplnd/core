@@ -4,7 +4,6 @@ import type { RetryPolicy } from "../Types/RetryPolicy.ts";
 import { Deferred } from "./Deferred.ts";
 import { Result } from "./Result.ts";
 import { Task } from "./Task.ts";
-import { Unexpected } from "./Unexpected.ts";
 
 // =============================================================================
 // Phantom Brand Symbols
@@ -205,27 +204,8 @@ const makeNode = <
 	E | ETimeout | ([Deps] extends [Record<string, Graph.AnyNode>] ? Graph.DepsErrors<Deps> : never),
 	Out
 > => {
-	if (!config || typeof config.id !== "string" || config.id.length === 0) {
+	if (config.id.length === 0) {
 		throw new TypeError("[Graph.node] A non-empty string 'id' is required.");
-	}
-
-	if (typeof config.run !== "function") {
-		throw new TypeError(`[Graph.node] Node '${config.id}' requires a 'run' function.`);
-	}
-
-	if (config.deps !== undefined) {
-		if (typeof config.deps !== "object" || config.deps === null || Array.isArray(config.deps)) {
-			throw new TypeError(`[Graph.node] Node '${config.id}' deps must be an object map of GraphNode instances.`);
-		}
-		for (const [depKey, depNode] of Object.entries(config.deps)) {
-			if (depNode === null || depNode === undefined || (depNode as { readonly kind?: unknown; }).kind !== "GraphNode") {
-				throw new TypeError(
-					`[Graph.node] Dependency '${depKey}' in node '${config.id}' is invalid. Expected a GraphNode instance, but received ${
-						String(depNode)
-					}.`,
-				);
-			}
-		}
 	}
 
 	const nodeObj = {
@@ -262,10 +242,6 @@ const makeNode = <
  * ```
  */
 const makeGraph = <Id extends string, E, Out>(target: Graph.Node<Id, E, Out>): Graph<E, Out> => {
-	if (!target || (target as { readonly kind?: unknown; }).kind !== "GraphNode") {
-		throw new TypeError("[Graph.make] Expected a valid GraphNode instance as target.");
-	}
-
 	const anyTarget = target as Graph.AnyNode;
 	const reachableSet = new Set<Graph.AnyNode>();
 	const seenIds = new Map<string, Graph.AnyNode>();
@@ -368,7 +344,7 @@ const makeGraph = <Id extends string, E, Out>(target: Graph.Node<Id, E, Out>): G
  * Executes a compiled Graph within a managed execution context, returning an infallible lazy `Task.Result`.
  *
  * Maximizes concurrency across independent branches while guaranteeing that diamond dependencies
- * execute exactly once. If any node fails or throws, all remaining in-flight sibling tasks are
+ * execute exactly once. If any node returns an error, all remaining in-flight sibling tasks are
  * immediately aborted via an internal `AbortController`.
  *
  * @see {@link Graph.make} to compile a target node into a validated graph.
@@ -380,22 +356,9 @@ const makeGraph = <Id extends string, E, Out>(target: Graph.Node<Id, E, Out>): G
  * ```
  */
 const runGraph =
-	<E, Out>(graph: Graph<E, Out>, options?: Graph.RunOptions): Task.Result<E | Graph.Aborted | Unexpected, Out> =>
-	(callerSignal) =>
+	<E, Out>(graph: Graph<E, Out>, options?: Graph.RunOptions): Task.Result<E | Graph.Aborted, Out> => (callerSignal) =>
 		Deferred.from.Promise(
-			new Promise<Result<E | Graph.Aborted | Unexpected, Out>>((resolve) => {
-				if (!graph || (graph as { readonly kind?: unknown; }).kind !== "Graph") {
-					resolve(
-						Result.make.err(
-							Unexpected.make.execution({
-								source: "Graph",
-								cause: new TypeError("[Graph.run] Expected a valid Graph instance."),
-							}),
-						),
-					);
-					return;
-				}
-
+			new Promise<Result<E | Graph.Aborted, Out>>((resolve) => {
 				const internal = toInternalGraph(graph)[_internalGraph];
 				const { target, rootNodes, dependentsMap, dependencyCountMap, depKeysMap } = internal;
 
@@ -412,7 +375,7 @@ const runGraph =
 				// oxlint-disable-next-line prefer-const
 				let onCallerAbort: () => void;
 
-				const settle = (result: Result<E | Graph.Aborted | Unexpected, Out>): void => {
+				const settle = (result: Result<E | Graph.Aborted, Out>): void => {
 					if (isSettled) {
 						return;
 					}
@@ -459,69 +422,54 @@ const runGraph =
 						}
 					}
 
-					try {
-						let task = nodeInternal.run(inputs ?? {});
+					let task = nodeInternal.run(inputs ?? {});
 
-						const retryPolicy = nodeInternal.retry;
-						if (retryPolicy) {
-							const graphOnRetry = options?.onRetry;
-							const nodeOnRetry = retryPolicy.onRetry;
+					const retryPolicy = nodeInternal.retry;
+					if (retryPolicy) {
+						const graphOnRetry = options?.onRetry;
+						const nodeOnRetry = retryPolicy.onRetry;
 
-							const policy: RetryPolicy<unknown> = graphOnRetry !== undefined
-								? {
-									...retryPolicy,
-									onRetry: (event) => {
-										if (nodeOnRetry) {
-											try {
-												nodeOnRetry(event);
-											} catch {
-												// Isolated: node-level telemetry error does not disrupt retry
-											}
-										}
-										try {
-											graphOnRetry({ ...event, nodeId: node.id });
-										} catch {
-											// Isolated: graph-level telemetry error does not disrupt retry
-										}
-									},
-								}
-								: retryPolicy;
-
-							task = Task.Result.retry(policy)(task);
-						}
-						if (nodeInternal.timeout) {
-							task = Task.Result.timeout(nodeInternal.timeout as any)(task);
-						}
-
-						const nodeOutcome = await Deferred.to.Promise(task(activeSignal));
-
-						inFlight--;
-
-						if (Result.is.ok(nodeOutcome)) {
-							results.set(node, nodeOutcome.value);
-
-							if (node === target) {
-								settle(Result.make.ok(nodeOutcome.value as Out));
-								return;
+						const policy: RetryPolicy<unknown> = graphOnRetry !== undefined
+							? {
+								...retryPolicy,
+								onRetry: (event) => {
+									nodeOnRetry?.(event);
+									graphOnRetry({ ...event, nodeId: node.id });
+								},
 							}
+							: retryPolicy;
 
-							const dependents = dependentsMap.get(node)!;
-							for (let i = 0; i < dependents.length; i++) {
-								const dep = dependents[i];
-								const rem = remainingDeps.get(dep)! - 1;
-								remainingDeps.set(dep, rem);
-								if (rem === 0) {
-									queue.push(dep);
-								}
-							}
+						task = Task.Result.retry(policy)(task);
+					}
+					if (nodeInternal.timeout) {
+						task = Task.Result.timeout(nodeInternal.timeout as any)(task);
+					}
 
-							drain();
-						} else {
-							settle(Result.make.err(nodeOutcome.error as E | Unexpected));
+					const nodeOutcome = await Deferred.to.Promise(task(activeSignal));
+
+					inFlight--;
+
+					if (Result.is.ok(nodeOutcome)) {
+						results.set(node, nodeOutcome.value);
+
+						if (node === target) {
+							settle(Result.make.ok(nodeOutcome.value as Out));
+							return;
 						}
-					} catch (thrown) {
-						inFlight--;
-						settle(Result.make.err(Unexpected.make.execution({ source: "Graph", cause: thrown })));
+
+						const dependents = dependentsMap.get(node)!;
+						for (let i = 0; i < dependents.length; i++) {
+							const dep = dependents[i];
+							const rem = remainingDeps.get(dep)! - 1;
+							remainingDeps.set(dep, rem);
+							if (rem === 0) {
+								queue.push(dep);
+							}
+						}
+
+						drain();
+					} else {
+						settle(Result.make.err(nodeOutcome.error as E));
 					}
 				};
 

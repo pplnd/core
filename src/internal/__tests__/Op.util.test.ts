@@ -122,6 +122,18 @@ test("runWithRetry: returns Ok on first success", async () => {
 	expect(retrying).toHaveLength(0);
 });
 
+test("runWithRetry: clamps invalid attempts in a custom policy", async () => {
+	let calls = 0;
+	const op = Op.make((_signal: AbortSignal) => (_input: number) => {
+		calls++;
+		return Promise.reject(new Error("offline"));
+	}, { onError: () => "offline" });
+	const policy: RetryPolicy<string> = { attempts: NaN, getDelay: () => Duration.milliseconds(0) };
+	const result = await runWithRetry(op, [1], new AbortController().signal, policy, () => {});
+	expect(result).toStrictEqual(Result.make.err("offline"));
+	expect(calls).toBe(1);
+});
+
 test("runWithRetry: retries on Err and returns Err when attempts exhausted", async () => {
 	let calls = 0;
 	const op = Op.make((_signal: AbortSignal) => (_: number) => {
@@ -251,23 +263,6 @@ test("runWithRetry: works with direct RetryPolicy object", async () => {
 	expect(events[0].error).toBe("policy_fail");
 });
 
-test("runWithRetry: isolates throwing onRetry callback and faulty getDelay", async () => {
-	const op = Op.make((_signal: AbortSignal) => (_: number) => Promise.reject(new Error("fail")), {
-		onError: (e) => (e as Error).message,
-	});
-	const faultyPolicy: RetryPolicy<string> = {
-		attempts: 2,
-		getDelay: () => {
-			throw new Error("faulty_delay");
-		},
-		onRetry: () => {
-			throw new Error("faulty_onRetry");
-		},
-	};
-	const result = await runWithRetry(op, [1], new AbortController().signal, faultyPolicy, () => {});
-	expect(result).toStrictEqual(Result.make.err("fail"));
-});
-
 // ---------------------------------------------------------------------------
 // execute
 // ---------------------------------------------------------------------------
@@ -290,6 +285,58 @@ test("execute: resolves to AbortedNil when controller is aborted before op finis
 	controller.abort();
 	const outcome = await Deferred.to.Promise(d);
 	expect(outcome).toStrictEqual({ kind: "OpNil", reason: "aborted" });
+});
+
+test("execute: clears its timeout when the controller aborts", async () => {
+	const controller = new AbortController();
+	let timedOut = false;
+	const execution = execute(successOp(100), [1], controller, undefined, {
+		duration: Duration.milliseconds(20),
+		onTimeout: () => {
+			timedOut = true;
+			return "timeout";
+		},
+	});
+	controller.abort();
+	await expect(Deferred.to.Promise(execution)).resolves.toStrictEqual({ kind: "OpNil", reason: "aborted" });
+	await new Promise((resolve) => setTimeout(resolve, 30));
+	expect(timedOut).toBe(false);
+});
+
+test("debounced: aborting from the trailing pending notification settles without starting", async () => {
+	let calls = 0;
+	const op = Op.make((_signal: AbortSignal) => (input: number) => {
+		calls++;
+		return Promise.resolve(input);
+	}, { onError: String });
+	const manager = makeDebounced(op, Duration.milliseconds(0), false);
+	manager.subscribe((state) => {
+		if (state.kind === "Pending") { manager.abort(); }
+	});
+	await expect(Deferred.to.Promise(manager.run(1))).resolves.toStrictEqual({ kind: "OpNil", reason: "aborted" });
+	expect(calls).toBe(0);
+});
+
+test("debounced: a leading retry cannot overwrite the newer trailing result", async () => {
+	const op = Op.make((_signal: AbortSignal) => (input: number) =>
+		new Promise<number>((resolve, reject) => {
+			setTimeout(() => input === 1 ? reject(new Error("offline")) : resolve(input), input === 1 ? 30 : 0);
+		}), { onError: () => "offline" });
+	const manager = makeDebounced(
+		op,
+		Duration.milliseconds(5),
+		true,
+		undefined,
+		RetryPolicy.constant({ attempts: 2, delay: Duration.milliseconds(0) }),
+	);
+	const states: string[] = [];
+	manager.subscribe((state) => states.push(state.kind));
+	const leading = Deferred.to.Promise(manager.run(1));
+	const trailing = Deferred.to.Promise(manager.run(2));
+	await expect(trailing).resolves.toStrictEqual({ kind: "OpOk", value: 2 });
+	await expect(leading).resolves.toStrictEqual({ kind: "OpErr", error: "offline" });
+	expect(states).not.toContain("Retrying");
+	expect(manager.state).toStrictEqual({ kind: "OpOk", value: 2 });
 });
 
 test("execute: calls onRetrying when retryOptions is provided", async () => {

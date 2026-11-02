@@ -5,7 +5,7 @@ description: Define state transitions and run state-scoped effects with an actor
 
 <!-- BUNDLE_SIZE:START -->
 
-> 1.88 kB minified + gzipped
+> 2.05 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -38,7 +38,9 @@ flowchart TD
 ```
 
 An entry effect gets a state-scoped signal and `send` function. After the actor leaves that state,
-the signal is aborted and that entry's `send` ignores late events.
+the signal is aborted and that entry's `send` ignores late events. Events accepted before the entry
+becomes stale remain in the actor's queue and are processed in order against the state active at
+each event's turn.
 
 ### Managing an Upload
 
@@ -62,7 +64,6 @@ type UploadEvents = {
 };
 
 const uploadMachine = Machine.make<UploadState, UploadEvents>({
-  initial: Machine.state("idle"),
   states: {
     idle: {
       on: { START: (_state, file) => Machine.state("uploading", file) },
@@ -107,6 +108,7 @@ const describe = Machine.match<UploadState, string>({
 });
 
 const actor = Machine.interpret(uploadMachine, {
+  initial: Machine.state("idle"),
   onError: (error, context) => console.error(context?.phase, error),
 });
 const unsubscribe = actor.subscribe((state) => console.log(pipe(state, describe)));
@@ -125,19 +127,19 @@ work ignores its signal. To use a machine as a reducer without entry or exit eff
 
 ### Defining and Inspecting
 
-| Signature                     | What it does                                         | Return type or behavior              |
-| :---------------------------- | :--------------------------------------------------- | :----------------------------------- |
-| `Machine.state(kind, value?)` | Creates a state, optionally with a payload.          | A state with a `kind` discriminator. |
-| `Machine.make(config)`        | Defines an initial state and state transition table. | `Machine<States, Events>`            |
-| `Machine.is(kind)`            | Checks a state's kind.                               | Type guard.                          |
-| `Machine.match(cases)`        | Handles each state kind.                             | The matching handler's result.       |
+| Signature                     | What it does                                | Return type or behavior              |
+| :---------------------------- | :------------------------------------------ | :----------------------------------- |
+| `Machine.state(kind, value?)` | Creates a state, optionally with a payload. | A state with a `kind` discriminator. |
+| `Machine.make(config)`        | Defines a state transition table.           | `Machine<States, Events>`            |
+| `Machine.is(kind)`            | Checks a state's kind.                      | Type guard.                          |
+| `Machine.match(cases)`        | Handles each state kind.                    | The matching handler's result.       |
 
 ### Transitioning and Running
 
 | Signature                             | What it does                                        | Behavior                                   |
 | :------------------------------------ | :-------------------------------------------------- | :----------------------------------------- |
 | `Machine.transition(machine, event)`  | Computes the next state from a supplied state.      | Does not run entry or exit effects.        |
-| `Machine.to.reducer(machine)`         | Creates a `(state, event) => state` reducer.        | Uses the initial state for `undefined`.    |
+| `Machine.to.reducer(machine)`         | Creates a `(state, event) => state` reducer.        | Pass the initial state to `useReducer`.    |
 | `Machine.interpret(machine, options)` | Starts a stateful actor and runs the initial entry. | Options include `onError` and an EventBus. |
 | `actor.send(event)` / `getState()`    | Sends an event / reads the current state.           | Re-entrant sends are queued.               |
 | `actor.subscribe(fn)`                 | Observes state changes.                             | Returns an unsubscribe function.           |
@@ -157,7 +159,6 @@ type UploadEvents = { SAME: void; UPDATE: void };
 let entries = 0;
 
 const machine = Machine.make<UploadState, UploadEvents>({
-  initial: Machine.state("uploading", { progress: 0 }),
   states: {
     uploading: {
       entry: () => { entries += 1; },
@@ -168,13 +169,16 @@ const machine = Machine.make<UploadState, UploadEvents>({
     },
   },
 });
-const actor = Machine.interpret(machine); // Initial entry: entries is 1.
+const actor = Machine.interpret(machine, { initial: Machine.state("uploading", { progress: 0 }) });
+// Initial entry: entries is 1.
 actor.send({ kind: "SAME" });            // entries is still 1.
 actor.send({ kind: "UPDATE" });          // New object: entries is 2.
 actor.abort();
 ```
 
-`Machine.transition` lets a transition handler's exception escape. The actor catches synchronous
-errors from transitions, entry, exit, cleanup, and listeners and reports them through `onError`;
-without a handler, they are not reported. Handle rejected promises inside an async effect, as in the
-upload example. `subscribe` reports subsequent changes; read `getState()` for the initial state.
+`Machine.transition` lets a transition handler's exception escape. In `Machine.interpret`, if an
+`onError` handler is provided, synchronous exceptions from transitions, entry, exit, cleanup, and
+listeners are reported to `onError`; if `onError` is omitted or itself throws, the exception
+propagates after completing any active state transition. Handle rejected promises inside an async
+effect, as in the upload example. `subscribe` reports subsequent changes; read `getState()` for the
+initial state.

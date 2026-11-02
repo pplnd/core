@@ -24,10 +24,14 @@ test("map: transforms value types", () => {
 	expect(result).toStrictEqual({ x: "1", y: "2" });
 });
 
-test("map: handles prototype pollution key", () => {
-	const obj: Record<string, number> = JSON.parse('{"__proto__": 123}');
-	const result = pipe(obj, Rec.map((n) => n * 2));
-	expect(result.__proto__).toBe(246);
+test("map: defines __proto__ as an own property on a plain object", () => {
+	const payload = { polluted: true };
+	const obj: Record<string, { readonly polluted: boolean; }> = JSON.parse('{"__proto__": {"polluted": false}}');
+	const result = pipe(obj, Rec.map(() => payload));
+	expect(Object.getPrototypeOf(result)).toBe(Object.prototype);
+	expect(Object.hasOwn(result, "__proto__")).toBe(true);
+	expect(result.__proto__).toStrictEqual(payload);
+	expect("polluted" in result).toBe(false);
 });
 
 test("filterMap: keeps Some values and drops None", () => {
@@ -78,10 +82,23 @@ test("mapWithKey: makes key available for transformation logic", () => {
 	expect(result).toStrictEqual({ name: "ALICE", age: "30" });
 });
 
-test("mapWithKey: handles prototype pollution key", () => {
+test("mapWithKey: defines __proto__ as an own property on a plain object", () => {
 	const obj: Record<string, number> = JSON.parse('{"__proto__": 123}');
-	const result = pipe(obj, Rec.mapWithKey((k, v) => `${k}:${v}`));
-	expect(result.__proto__).toBe("__proto__:123");
+	const result = pipe(obj, Rec.mapWithKey((k, v) => ({ key: k, val: v })));
+	expect(Object.getPrototypeOf(result)).toBe(Object.prototype);
+	expect(Object.hasOwn(result, "__proto__")).toBe(true);
+	expect(result.__proto__).toStrictEqual({ key: "__proto__", val: 123 });
+	expect("val" in result).toBe(false);
+});
+
+test("transform: map, mapWithKey, filter, filterWithKey, and filterMap return plain objects regardless of input prototype", () => {
+	const nullProtoInput = Object.assign(Object.create(null) as Record<string, number>, { a: 1, b: 2 });
+
+	expect(Object.getPrototypeOf(pipe(nullProtoInput, Rec.map((n) => n + 1)))).toBe(Object.prototype);
+	expect(Object.getPrototypeOf(pipe(nullProtoInput, Rec.mapWithKey((_k, n) => n + 1)))).toBe(Object.prototype);
+	expect(Object.getPrototypeOf(pipe(nullProtoInput, Rec.filter((n) => n > 0)))).toBe(Object.prototype);
+	expect(Object.getPrototypeOf(pipe(nullProtoInput, Rec.filterWithKey((_k, n) => n > 0)))).toBe(Object.prototype);
+	expect(Object.getPrototypeOf(pipe(nullProtoInput, Rec.filterMap((n) => Maybe.make.some(n))))).toBe(Object.prototype);
 });
 
 test("filter: keeps values satisfying predicate", () => {
