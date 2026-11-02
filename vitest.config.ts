@@ -28,7 +28,7 @@ export default defineConfig({
 				"src/**/__bench__/**",
 				"src/internal/InternalTypes.ts",
 			],
-			thresholds: { statements: 99, branches: 99, functions: 99, lines: 99 },
+			thresholds: { statements: 100, branches: 100, functions: 100, lines: 100, perFile: true },
 		},
 	},
 });
