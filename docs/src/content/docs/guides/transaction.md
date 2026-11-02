@@ -5,14 +5,16 @@ description: Run dependent asynchronous steps and compensate completed steps aft
 
 <!-- BUNDLE_SIZE:START -->
 
-> 5.21 kB minified + gzipped
+> 2.52 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
 ## Core Behavior
 
-`Transaction` runs a sequence of `Task.Result` steps. A step declares which earlier outputs it
-needs, and each run can supply its own input.
+When publishing a document involves several services, a later failure can leave an upload or catalog
+entry behind. `Transaction` runs a sequence of `Task.Result` steps and can undo completed work if a
+later step fails. A step declares which earlier outputs it needs, and each run can supply its own
+input.
 
 - A step can provide an `undo` action. If a later step fails, completed steps with undo actions are
   compensated in reverse order.
@@ -68,24 +70,22 @@ const removeIndex = (name: string): Task.Result<string, void> => Task.Result.try
   { onError: String },
 );
 
-const uploadStep = Transaction.step({
-  id: "upload",
-  run: () => (name: string) => upload(name),
-  undo: (name) => removeUpload(name),
+const step = Transaction.stepFactory<string>();
+const uploadStep = step("upload", {
+  run: ({ ctx }) => upload(ctx.input),
+  undo: ({ ctx }) => removeUpload(ctx.output),
 });
-const indexStep = Transaction.step({
-  id: "index",
+const indexStep = step("index", {
   deps: { upload: uploadStep },
-  run: ({ upload }) => () => index(upload),
-  undo: (name) => removeIndex(name),
+  run: ({ deps }) => index(deps.upload),
+  undo: ({ ctx }) => removeIndex(ctx.output),
 });
-const notifyStep = Transaction.step({
-  id: "notify",
-  run: () => () => Task.Result.make.err("Notification unavailable"),
+const notifyStep = Transaction.step("notify", {
+  run: () => Task.Result.make.err("Notification unavailable"),
 });
 const publish = Transaction.make(uploadStep, indexStep, notifyStep);
 
-const result = await Transaction.run(publish, { input: "report.pdf" });
+const result = await Transaction.run(publish, "report.pdf");
 // Err: stepId "notify", error "Notification unavailable", undoErrors []
 // events: ["uploaded", "indexed", "removed index", "deleted upload"]
 ```
@@ -95,17 +95,32 @@ abort signal so they can attempt cleanup after cancellation.
 
 ## Core Operations
 
-| Signature                               | What it does                                    | Result or behavior                              |
-| :-------------------------------------- | :---------------------------------------------- | :---------------------------------------------- |
-| `Transaction.step(config)`              | Defines a step and its named dependencies.      | A reusable step definition.                     |
-| `Transaction.make(...steps)`            | Assembles steps in execution order.             | Rejects duplicate or out-of-order dependencies. |
-| `Transaction.run(transaction, options)` | Starts the steps with optional input and hooks. | Deferred result of outputs or failure details.  |
+| Signature                                       | What it does                                      | Result or behavior                             |
+| :---------------------------------------------- | :------------------------------------------------ | :--------------------------------------------- |
+| `Transaction.stepFactory<Input>()`              | Creates a step constructor sharing an input type. | Infers each step’s dependencies and result.    |
+| `Transaction.step(id, config)`                  | Defines a step and its named dependencies.        | A reusable step definition.                    |
+| `Transaction.make(...steps)`                    | Assembles steps in execution order.               | Rejects duplicate IDs and invalid ordering.    |
+| `Transaction.run(transaction, input, options?)` | Starts the steps with input and hooks.            | Deferred result of outputs or failure details. |
 
-A step's `run` receives dependency outputs, then per-run input; when the input is unused, write
-`run: () => () => task`. A step can also specify a retry policy and timeout. Run options accept an
-`AbortSignal` and `onStepSuccess`, `onStepFailure`, and `onUndo` callbacks.
+A typed step factory lets multiple independently reusable steps share an input contract without
+repeating its type. Use `Transaction.step` directly for a step that does not need the contract.
 
-`make` checks that each dependency is the same step object supplied earlier in the sequence. Literal
+A step's `run` receives per-run input as `ctx.input` and dependency outputs under `deps`. When
+neither is used, write `run: () => task`. A transaction whose steps require input must receive it as
+`Transaction.run(transaction, input)`. If no steps require input, call
+`Transaction.run(transaction)`. Pass per-run controls as a third argument, for example
+`Transaction.run(transaction, input, { signal })`; use `undefined` for input when the transaction
+needs no input but the run needs options.
+
+An `undo` callback receives the completed step's output as `ctx.output`, the run input as
+`ctx.input`, and dependency outputs under `deps`. Apply `Task.Result.retry(policy)` or
+`Task.Result.timeout(options)` to the returned task when the work needs retries or a deadline. Run
+options accept an `AbortSignal` and `onStepSuccess`, `onStepFailure`, and `onUndo` callbacks. Use
+the signal passed to the task for cancellable work; task wrappers can provide a more specific signal
+than the transaction's run signal.
+
+`make` checks that step IDs are unique and that each dependency is the same step object supplied
+earlier in the sequence. The same earlier step can appear under multiple dependency names. Literal
 step IDs catch many ordering errors in TypeScript; dynamic or broadly typed references are checked
 when the transaction is constructed. Undefined dependency entries are treated as absent; their
 corresponding values are `undefined` in the step callback.
@@ -119,5 +134,7 @@ are listed in `undoErrors`; the original forward error remains in `error`.
 Cancellation is checked before each step and the signal is passed to active work. In-flight work
 must respond to the signal; cancellation does not forcibly interrupt an operation that ignores it.
 When cancellation prevents a step from starting, `error` is `Transaction.Aborted` with the signal's
-reason. Step and undo tasks report expected failures through `Task.Result`. Step factories, timeout
-handlers, and telemetry callbacks must not throw. Step IDs must be unique and cannot be `initial`.
+reason. If the final step succeeds after the signal is aborted, the transaction succeeds because
+there is no next step at which to observe cancellation. Step and undo tasks report expected failures
+through `Task.Result`. Step factories, timeout handlers, and telemetry callbacks must not throw.
+Step IDs must be nonempty, unique, and cannot be `initial`.

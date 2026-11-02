@@ -5,13 +5,14 @@ description: Pause calls to a failing dependency and allow controlled recovery p
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.74 kB minified + gzipped
+> 2.77 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
 ## Core Behavior
 
-`CircuitBreaker` wraps fallible tasks and temporarily blocks calls after enough qualifying failures.
+When a package registry is unavailable, repeated requests can add load while it recovers.
+`CircuitBreaker` runs fallible tasks and temporarily blocks calls after enough qualifying failures.
 A blocked call returns an error without running its task.
 
 - In `Closed`, protected tasks run and qualifying failures count toward the threshold.
@@ -61,7 +62,7 @@ const readPackage = (name: string): Task.Result<string, string> =>
   );
 
 const packageDescription = async (name: string): Promise<string> => {
-  const outcome = await pipe(readPackage(name), registry.protect)();
+  const outcome = await registry.run(readPackage(name));
   return pipe(
     outcome,
     Result.match({
@@ -81,14 +82,14 @@ console.log(await packageDescription("parser"));
 
 ### Creating and Protecting
 
-| Signature                                                 | What it does                                             | Result                                                  |
-| :-------------------------------------------------------- | :------------------------------------------------------- | :------------------------------------------------------ |
-| `CircuitBreaker.make(config)`                             | Creates a breaker with a failure threshold and cooldown. | A breaker instance.                                     |
-| `breaker.protect(task)`                                   | Wraps a `Task.Result`.                                   | A task whose error includes `CircuitBreaker.OpenError`. |
-| `breaker.state()`                                         | Reads the current state.                                 | `Closed`, `Open`, or `HalfOpen`.                        |
-| `breaker.subscribe(listener)`                             | Observes state notifications.                            | An unsubscribe function.                                |
-| `breaker.reset()`                                         | Clears the recorded failures and closes the circuit.     | `void`.                                                 |
-| `CircuitBreaker.is.openError/closed/open/halfOpen(value)` | Checks an error or state.                                | Type guard.                                             |
+| Signature                                                 | What it does                                             | Result                                                         |
+| :-------------------------------------------------------- | :------------------------------------------------------- | :------------------------------------------------------------- |
+| `CircuitBreaker.make(config)`                             | Creates a breaker with a failure threshold and cooldown. | A breaker instance.                                            |
+| `breaker.run(task, { signal })`                           | Starts a protected `Task.Result`.                        | A deferred result that can include `CircuitBreaker.OpenError`. |
+| `breaker.state()`                                         | Reads the current state.                                 | `Closed`, `Open`, or `HalfOpen`.                               |
+| `breaker.subscribe(listener)`                             | Observes state notifications.                            | An unsubscribe function.                                       |
+| `breaker.reset()`                                         | Clears the recorded failures and closes the circuit.     | `void`.                                                        |
+| `CircuitBreaker.is.openError/closed/open/halfOpen(value)` | Checks an error or state.                                | Type guard.                                                    |
 
 `failureThreshold` sets the number of failures needed to open. `resetTimeout` controls the cooldown.
 `successThreshold` sets the number of recovery probes needed to close and defaults to one.
@@ -109,14 +110,20 @@ const registry = CircuitBreaker.make<string>({
   shouldTrip: (error) => error !== "package not found",
 });
 
-await registry.protect(Task.Result.make.err("registry unavailable"))();
+await registry.run(Task.Result.make.err("registry unavailable"));
 // The cooldown has elapsed, so registry.state().kind is "HalfOpen".
-await registry.protect(Task.Result.make.err("package not found"))();
+await registry.run(Task.Result.make.err("package not found"));
 // The caller receives Err("package not found"); registry.state().kind is "Closed".
 ```
 
 A concurrent call during an active probe receives `CircuitBreaker.OpenError` with `retryAfterMs` of
 zero. `state()` can report `HalfOpen` after the cooldown even before a call starts a probe.
 
+`reset()` closes the circuit and clears its failure history. It does not cancel an in-flight probe:
+the original caller receives that task's result, but the old probe cannot change the breaker's state
+after reset. To request cancellation, pass a signal to `run` and abort its controller separately.
+
 Protected tasks must not throw or reject. Use `Task.Result.tryCatch` to map expected failures before
-passing a task to the breaker. An already-aborted call does not count toward the failure threshold.
+passing a task to the breaker. An aborted task does not count toward the failure threshold. The
+breaker forwards the signal to the task and waits for its result; the task must cooperate with
+cancellation to stop its work.

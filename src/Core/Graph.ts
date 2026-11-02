@@ -1,6 +1,4 @@
 import type { WithKind } from "../internal/InternalTypes";
-import type { Duration } from "../Types/Duration.ts";
-import type { RetryPolicy } from "../Types/RetryPolicy.ts";
 import { Deferred } from "./Deferred.ts";
 import { Result } from "./Result.ts";
 import { Task } from "./Task.ts";
@@ -19,12 +17,12 @@ const _internalGraph = Symbol("Graph.internalGraph");
 // =============================================================================
 
 /**
- * Represents a compiled, validated Directed Acyclic Graph plan rooted at a target sink node.
+ * A validated plan for running a target node and its dependencies.
  *
- * Pre-computes topological execution tiers and guarantees acyclicity.
+ * The plan checks for cycles when constructed and schedules each node after its dependencies succeed.
  */
-export type Graph<E = unknown, Out = unknown> = WithKind<"Graph"> & {
-	readonly [_graphBrand]: { readonly _error: () => E; readonly _output: () => Out; };
+export type Graph<E = unknown, Out = unknown, Input = void> = WithKind<"Graph"> & {
+	readonly [_graphBrand]: { readonly _error: () => E; readonly _output: () => Out; readonly _input: Input; };
 };
 
 export namespace Graph {
@@ -34,28 +32,27 @@ export namespace Graph {
 	/**
 	 * Represents a distinct, typed node in a Directed Acyclic Graph (DAG).
 	 *
-	 * Each node encapsulates a unique identifier, an asynchronous computation,
-	 * typed dependencies on upstream nodes, and optional resilience policies (timeout, retry).
+	 * Each node has an identifier, an asynchronous computation, and typed dependencies on other nodes.
 	 */
-	export type Node<Id extends string = string, E = unknown, Out = unknown> = WithKind<"GraphNode"> & {
+	export type Node<Id extends string = string, E = unknown, Out = unknown, Input = void> = WithKind<"GraphNode"> & {
 		readonly id: Id;
-		readonly [_nodeBrand]: { readonly _error: () => E; readonly _output: () => Out; };
+		readonly [_nodeBrand]: { readonly _error: () => E; readonly _output: () => Out; readonly _input: Input; };
 	};
 
 	/**
 	 * Matches any valid `Node` instance regardless of generic parameters.
 	 */
-	export type AnyNode = Node<string, any, any>;
+	export type AnyNode<Input = unknown> = Node<string, any, any, Input>;
 
 	/**
 	 * Extracts the successful output value type of a `Node`.
 	 */
-	export type OutputOf<N> = N extends Node<any, any, infer Out> ? Out : never;
+	export type OutputOf<N> = N extends Node<any, any, infer Out, any> ? Out : never;
 
 	/**
 	 * Extracts the error type of a `Node`.
 	 */
-	export type ErrorOf<N> = N extends Node<any, infer E, any> ? E : never;
+	export type ErrorOf<N> = N extends Node<any, infer E, any, any> ? E : never;
 
 	/**
 	 * Maps an object dictionary of dependency nodes to their resolved output value types.
@@ -65,71 +62,73 @@ export namespace Graph {
 	/**
 	 * Computes the union of error types across all dependency nodes in a dictionary.
 	 */
-	export type DepsErrors<Deps extends Record<string, AnyNode>> = Deps[keyof Deps] extends Node<any, infer E, any> ? E
+	export type DepsErrors<Deps extends Record<string, AnyNode>> = Deps[keyof Deps] extends Node<any, infer E, any, any>
+		? E
 		: never;
 
 	/**
 	 * Configuration options for constructing a DAG node.
 	 */
-	export type NodeConfig<Id extends string, Deps extends Record<string, AnyNode> | undefined, E, Out, ETimeout = never> =
-		{
-			/**
-			 * Unique string identifier for the node within the graph.
-			 */
-			readonly id: Id;
+	export type NodeConfig<Deps extends Record<string, AnyNode> | undefined, Input, E, Out> = {
+		/**
+		 * Upstream dependency nodes required to execute this step.
+		 */
+		readonly deps?: Deps;
 
-			/**
-			 * Upstream dependency nodes required to execute this step.
-			 */
-			readonly deps?: Deps;
+		/**
+		 * Execution task evaluating to a fallible `Task.Result`.
+		 */
+		readonly run: (
+			context: {
+				readonly ctx: { readonly input: NodeInput<Deps, Input>; };
+				readonly deps: Deps extends Record<string, AnyNode> ? DepsOutputs<Deps> : {};
+			},
+		) => Task.Result<E, Out>;
+	};
 
-			/**
-			 * Maximum duration permitted for execution before short-circuiting with `onTimeout`.
-			 */
-			readonly timeout?: { readonly duration: Duration; readonly onTimeout: () => ETimeout; };
-
-			/**
-			 * Retry policy governing transient failure retries before failing the node.
-			 */
-			readonly retry?: RetryPolicy<E>;
-
-			/**
-			 * Execution task evaluating to a fallible `Task.Result`.
-			 */
-			readonly run: [Deps] extends [Record<string, AnyNode>] ? (dependencies: DepsOutputs<Deps>) => Task.Result<E, Out>
-				: () => Task.Result<E, Out>;
-		};
-
-	/**
-	 * Telemetry metadata emitted when any node in the graph initiates a retry attempt.
-	 */
-	export type RunRetryMetadata = RetryPolicy.Metadata<unknown> & { readonly nodeId: string; };
+	/** Creates reusable nodes sharing an input contract. */
+	export type NodeFactory<Input> = <
+		Id extends string,
+		const Deps extends Record<string, AnyNode> | undefined = undefined,
+		E = never,
+		Out = never,
+	>(
+		id: Id,
+		config: NodeConfig<Deps, Input, E, Out> & CompatibleDependencies<Input, Deps>,
+	) => Node<Id, E | ([Deps] extends [Record<string, AnyNode>] ? DepsErrors<Deps> : never), Out, NodeInput<Deps, Input>>;
 
 	/**
-	 * Options configuring DAG execution pacing and telemetry.
+	 * Options controlling graph execution.
 	 */
-	export type RunOptions = {
+	export type MakeOptions = {
 		/**
 		 * Maximum number of asynchronous tasks permitted to execute concurrently.
-		 * Defaults to `Infinity` (unbounded concurrency across all satisfied branches).
+		 * Defaults to unbounded concurrency. Nonpositive and non-integer values are also unbounded.
 		 */
 		readonly concurrency?: number;
-
-		/**
-		 * Global hook fired whenever any node in the graph initiates a retry attempt.
-		 *
-		 * @example
-		 * ```ts
-		 * const outcome = await Graph.run(graph, {
-		 *   onRetry: ({ nodeId, attempt, error, delay }) => {
-		 *     console.warn(`[${nodeId}] attempt ${attempt} failed: ${error}`);
-		 *   },
-		 * })();
-		 * ```
-		 */
-		readonly onRetry?: (metadata: RunRetryMetadata) => void;
 	};
 }
+
+type UnionToIntersection<U> = (U extends unknown ? (value: U) => void : never) extends (value: infer I) => void ? I
+	: never;
+type InputOf<N> = N extends Graph.Node<any, any, any, infer I> ? I : never;
+type CompatibleDependencies<I, D> = D extends Record<string, Graph.AnyNode>
+	? [keyof D] extends [never] ? unknown
+	: unknown extends InputOf<D[keyof D]> ? never : [I] extends [DependencyInput<D>] ? unknown
+	: never
+	: unknown;
+type DependencyInput<D> = D extends Record<string, Graph.AnyNode>
+	? [keyof D] extends [never] ? unknown
+	: unknown extends InputOf<D[keyof D]> ? unknown
+	: UnionToIntersection<Exclude<InputOf<D[keyof D]>, void>> extends infer I ? [I] extends [never] ? unknown : I
+	: never
+	: unknown;
+type NodeInput<D, I> = D extends Record<string, Graph.AnyNode>
+	? [keyof D] extends [never] ? (unknown extends I ? void : I)
+	: unknown extends InputOf<D[keyof D]> ? unknown : unknown extends (I & DependencyInput<D>) ? void
+	: I & DependencyInput<D>
+	: unknown extends I ? void
+	: I;
 
 // =============================================================================
 // Internal Representations
@@ -138,12 +137,12 @@ export namespace Graph {
 type InternalNodeState = {
 	readonly id: string;
 	readonly deps: Readonly<Record<string, Graph.AnyNode>> | undefined;
-	readonly run: (deps: Record<string, unknown>) => Task.Result<unknown, unknown>;
-	readonly timeout?: { readonly duration: Duration; readonly onTimeout: () => unknown; };
-	readonly retry?: RetryPolicy<any>;
+	readonly run: (
+		context: { readonly ctx: { readonly input: unknown; }; readonly deps: Record<string, unknown>; },
+	) => Task.Result<unknown, unknown>;
 };
 
-type InternalNode<Id extends string, E, Out> = Graph.Node<Id, E, Out> & {
+type InternalNode<Id extends string, E, Out, Input> = Graph.Node<Id, E, Out, Input> & {
 	readonly [_internalNode]: InternalNodeState;
 };
 
@@ -154,15 +153,17 @@ type InternalGraphState = {
 	readonly dependentsMap: Map<Graph.AnyNode, Graph.AnyNode[]>;
 	readonly dependencyCountMap: Map<Graph.AnyNode, number>;
 	readonly depKeysMap: Map<Graph.AnyNode, readonly [string, Graph.AnyNode][]>;
+	readonly options?: Graph.MakeOptions;
 };
 
-type InternalGraph<E, Out> = Graph<E, Out> & { readonly [_internalGraph]: InternalGraphState; };
+type InternalGraph<E, Out, Input> = Graph<E, Out, Input> & { readonly [_internalGraph]: InternalGraphState; };
 
-const toInternalNode = <Id extends string, E, Out>(node: Graph.Node<Id, E, Out>): InternalNode<Id, E, Out> =>
-	node as unknown as InternalNode<Id, E, Out>;
+const toInternalNode = <Id extends string, E, Out, Input>(
+	node: Graph.Node<Id, E, Out, Input>,
+): InternalNode<Id, E, Out, Input> => node as unknown as InternalNode<Id, E, Out, Input>;
 
-const toInternalGraph = <E, Out>(graph: Graph<E, Out>): InternalGraph<E, Out> =>
-	graph as unknown as InternalGraph<E, Out>;
+const toInternalGraph = <E, Out, Input>(graph: Graph<E, Out, Input>): InternalGraph<E, Out, Input> =>
+	graph as unknown as InternalGraph<E, Out, Input>;
 
 // =============================================================================
 // Public Constructors & Combinators
@@ -172,66 +173,60 @@ const toInternalGraph = <E, Out>(graph: Graph<E, Out>): InternalGraph<E, Out> =>
  * Creates an individual node descriptor for inclusion in a DAG.
  *
  * Dependencies are declared as an object dictionary of upstream nodes.
- * The `run` callback contextually receives the strongly typed outputs of those dependencies.
+ * The `run` callback receives the per-run input in `ctx` and dependency outputs in `deps`.
  *
  * @see {@link Graph.make} to compile declared nodes into a validated execution graph.
  * @see {@link Graph.run} for executing compiled graphs.
  *
  * @example
  * ```ts
- * const user = Graph.node({
- *   id: "user",
+ * const user = Graph.node("user", {
  *   run: () => fetchUser("u_1"),
  * });
  *
- * const permissions = Graph.node({
- *   id: "permissions",
+ * const permissions = Graph.node("permissions", {
  *   deps: { user },
- *   run: ({ user }) => fetchPermissions(user.roleId),
+ *   run: ({ deps }) => fetchPermissions(deps.user.roleId),
  * });
  * ```
  */
 const makeNode = <
 	Id extends string,
-	const Deps extends Record<string, Graph.AnyNode> | undefined,
-	E,
-	Out,
-	ETimeout = never,
+	const Deps extends Record<string, Graph.AnyNode> | undefined = undefined,
+	Input = unknown,
+	E = never,
+	Out = never,
 >(
-	config: Graph.NodeConfig<Id, Deps, E, Out, ETimeout>,
+	id: Id,
+	config: Graph.NodeConfig<Deps, Input, E, Out>,
 ): Graph.Node<
 	Id,
-	E | ETimeout | ([Deps] extends [Record<string, Graph.AnyNode>] ? Graph.DepsErrors<Deps> : never),
-	Out
+	E | ([Deps] extends [Record<string, Graph.AnyNode>] ? Graph.DepsErrors<Deps> : never),
+	Out,
+	NodeInput<Deps, Input>
 > => {
-	if (config.id.length === 0) {
+	if (id.length === 0) {
 		throw new TypeError("[Graph.node] A non-empty string 'id' is required.");
 	}
 
 	const nodeObj = {
 		kind: "GraphNode" as const,
-		id: config.id,
-		[_internalNode]: {
-			id: config.id,
-			deps: config.deps ? Object.freeze({ ...config.deps }) : undefined,
-			run: config.run as any,
-			timeout: config.timeout,
-			retry: config.retry,
-		},
+		id,
+		[_internalNode]: { id, deps: config.deps ? Object.freeze({ ...config.deps }) : undefined, run: config.run as any },
 	};
 
 	return nodeObj as unknown as Graph.Node<
 		Id,
-		E | ETimeout | ([Deps] extends [Record<string, Graph.AnyNode>] ? Graph.DepsErrors<Deps> : never),
-		Out
+		E | ([Deps] extends [Record<string, Graph.AnyNode>] ? Graph.DepsErrors<Deps> : never),
+		Out,
+		NodeInput<Deps, Input>
 	>;
 };
 
 /**
- * Compiles a target sink node into an immutable, validated `Graph` plan.
+ * Builds a reusable execution plan for a target node and its dependencies.
  *
- * Validates acyclicity using Kahn's algorithm at compilation time and pre-computes
- * reverse-dependency adjacency lists for optimal runtime scheduling throughput.
+ * Checks for duplicate node IDs and cycles when called. Invalid graphs throw an error.
  *
  * @see {@link Graph.node} for defining upstream DAG nodes.
  * @see {@link Graph.run} for executing compiled graphs.
@@ -241,8 +236,11 @@ const makeNode = <
  * const dashboardGraph = Graph.make(summaryNode);
  * ```
  */
-const makeGraph = <Id extends string, E, Out>(target: Graph.Node<Id, E, Out>): Graph<E, Out> => {
-	const anyTarget = target as Graph.AnyNode;
+const makeGraph = <Id extends string, E, Out, Input>(
+	target: Graph.Node<Id, E, Out, Input> & (unknown extends Input ? never : unknown),
+	options?: Graph.MakeOptions,
+): Graph<E, Out, Input> => {
+	const anyTarget: Graph.AnyNode = target;
 	const reachableSet = new Set<Graph.AnyNode>();
 	const seenIds = new Map<string, Graph.AnyNode>();
 	const stack: Graph.AnyNode[] = [anyTarget];
@@ -334,169 +332,179 @@ const makeGraph = <Id extends string, E, Out>(target: Graph.Node<Id, E, Out>): G
 			dependentsMap,
 			dependencyCountMap,
 			depKeysMap,
+			options,
 		},
 	};
 
-	return graphObj as unknown as Graph<E, Out>;
+	return graphObj as unknown as Graph<E, Out, Input>;
 };
 
 /**
- * Executes a compiled Graph within a managed execution context, returning an infallible lazy `Task.Result`.
+ * Starts a compiled graph and returns a deferred result.
  *
- * Maximizes concurrency across independent branches while guaranteeing that diamond dependencies
- * execute exactly once. If any node returns an error, all remaining in-flight sibling tasks are
- * immediately aborted via an internal `AbortController`.
+ * Runs independent nodes concurrently, subject to the configured limit, and runs each shared
+ * dependency once per graph execution. If a node returns an error, the graph settles with that
+ * error and signals active tasks to abort. Tasks must respond to the signal to stop their work.
+ * A caller's abort signal settles the graph with `Graph.Aborted` even if active tasks ignore it.
  *
  * @see {@link Graph.make} to compile a target node into a validated graph.
  * @see {@link Graph.node} for defining upstream DAG nodes.
  *
  * @example
  * ```ts
- * const outcome = await Graph.run(dashboardGraph, { concurrency: 4 })();
+ * const outcome = await Graph.run(dashboardGraph, { input: reportInput, signal });
  * ```
  */
-const runGraph =
-	<E, Out>(graph: Graph<E, Out>, options?: Graph.RunOptions): Task.Result<E | Graph.Aborted, Out> => (callerSignal) =>
-		Deferred.from.Promise(
-			new Promise<Result<E | Graph.Aborted, Out>>((resolve) => {
-				const internal = toInternalGraph(graph)[_internalGraph];
-				const { target, rootNodes, dependentsMap, dependencyCountMap, depKeysMap } = internal;
+function runGraph<E, Out>(
+	graph: Graph<E, Out, void>,
+	options?: { readonly signal?: AbortSignal; },
+): Deferred<Result<E | Graph.Aborted, Out>>;
+function runGraph<E, Out, Input>(
+	graph: Graph<E, Out, Input>,
+	options: { readonly input: NoInfer<Input>; readonly signal?: AbortSignal; },
+): Deferred<Result<E | Graph.Aborted, Out>>;
+function runGraph<E, Out, Input>(
+	graph: Graph<E, Out, Input>,
+	runOptions?: { readonly input?: Input; readonly signal?: AbortSignal; },
+): Deferred<Result<E | Graph.Aborted, Out>> {
+	const callerSignal = runOptions?.signal;
+	return Deferred.from.Promise(
+		new Promise<Result<E | Graph.Aborted, Out>>((resolve) => {
+			const internal = toInternalGraph(graph)[_internalGraph];
+			const { target, rootNodes, dependentsMap, dependencyCountMap, depKeysMap, options } = internal;
 
-				const internalController = new AbortController();
-				const activeSignal = internalController.signal;
+			const internalController = new AbortController();
+			const activeSignal = internalController.signal;
 
-				const results = new Map<Graph.AnyNode, unknown>();
-				const remainingDeps = new Map<Graph.AnyNode, number>(dependencyCountMap);
-				const queue: Graph.AnyNode[] = rootNodes.slice();
-				let queueHead = 0;
-				let inFlight = 0;
-				let isSettled = false;
+			const results = new Map<Graph.AnyNode, unknown>();
+			const remainingDeps = new Map<Graph.AnyNode, number>(dependencyCountMap);
+			const queue: Graph.AnyNode[] = rootNodes.slice();
+			let queueHead = 0;
+			let inFlight = 0;
+			let isSettled = false;
 
-				// oxlint-disable-next-line prefer-const
-				let onCallerAbort: () => void;
+			// oxlint-disable-next-line prefer-const
+			let onCallerAbort: () => void;
 
-				const settle = (result: Result<E | Graph.Aborted, Out>): void => {
-					if (isSettled) {
-						return;
-					}
-					isSettled = true;
-					if (callerSignal) {
-						callerSignal.removeEventListener("abort", onCallerAbort);
-					}
-					internalController.abort();
-					resolve(result);
+			const settle = (result: Result<E | Graph.Aborted, Out>): void => {
+				if (isSettled) {
+					return;
+				}
+				isSettled = true;
+				if (callerSignal) {
+					callerSignal.removeEventListener("abort", onCallerAbort);
+				}
+				internalController.abort();
+				resolve(result);
+			};
+
+			if (callerSignal) {
+				const signal = callerSignal;
+				onCallerAbort = () => {
+					settle(Result.make.err({ kind: "GraphAborted", reason: signal.reason }));
 				};
 
-				if (callerSignal) {
-					const signal = callerSignal;
-					onCallerAbort = () => {
-						settle(Result.make.err({ kind: "GraphAborted", reason: signal.reason }));
-					};
+				if (signal.aborted) {
+					onCallerAbort();
+					return;
+				}
+				signal.addEventListener("abort", onCallerAbort, { once: true });
+			}
 
-					if (signal.aborted) {
-						onCallerAbort();
-						return;
+			const concurrency =
+				options?.concurrency !== undefined && Number.isInteger(options.concurrency) && options.concurrency > 0
+					? options.concurrency
+					: Infinity;
+
+			// oxlint-disable-next-line prefer-const
+			let drain: () => void;
+
+			const executeNode = async (node: Graph.AnyNode): Promise<void> => {
+				const nodeInternal = toInternalNode(node)[_internalNode];
+
+				// Assemble resolved inputs:
+				const depEntries = depKeysMap.get(node);
+				let inputs: Record<string, unknown> | undefined;
+				if (depEntries && depEntries.length > 0) {
+					inputs = {};
+					for (let i = 0; i < depEntries.length; i++) {
+						const [key, depNode] = depEntries[i];
+						inputs[key] = results.get(depNode);
 					}
-					signal.addEventListener("abort", onCallerAbort, { once: true });
 				}
 
-				const concurrency =
-					options?.concurrency !== undefined && Number.isInteger(options.concurrency) && options.concurrency > 0
-						? options.concurrency
-						: Infinity;
+				const task: Task.Result<unknown, unknown> = (signal) =>
+					nodeInternal.run({ ctx: { input: runOptions?.input }, deps: inputs ?? {} })(signal);
 
-				// oxlint-disable-next-line prefer-const
-				let drain: () => void;
+				const nodeOutcome = await Deferred.to.Promise(task(activeSignal));
 
-				const executeNode = async (node: Graph.AnyNode): Promise<void> => {
-					const nodeInternal = toInternalNode(node)[_internalNode];
+				inFlight--;
 
-					// Assemble resolved inputs:
-					const depEntries = depKeysMap.get(node);
-					let inputs: Record<string, unknown> | undefined;
-					if (depEntries && depEntries.length > 0) {
-						inputs = {};
-						for (let i = 0; i < depEntries.length; i++) {
-							const [key, depNode] = depEntries[i];
-							inputs[key] = results.get(depNode);
-						}
-					}
+				if (Result.is.ok(nodeOutcome)) {
+					results.set(node, nodeOutcome.value);
 
-					let task = nodeInternal.run(inputs ?? {});
-
-					const retryPolicy = nodeInternal.retry;
-					if (retryPolicy) {
-						const graphOnRetry = options?.onRetry;
-						const nodeOnRetry = retryPolicy.onRetry;
-
-						const policy: RetryPolicy<unknown> = graphOnRetry !== undefined
-							? {
-								...retryPolicy,
-								onRetry: (event) => {
-									nodeOnRetry?.(event);
-									graphOnRetry({ ...event, nodeId: node.id });
-								},
-							}
-							: retryPolicy;
-
-						task = Task.Result.retry(policy)(task);
-					}
-					if (nodeInternal.timeout) {
-						task = Task.Result.timeout(nodeInternal.timeout as any)(task);
-					}
-
-					const nodeOutcome = await Deferred.to.Promise(task(activeSignal));
-
-					inFlight--;
-
-					if (Result.is.ok(nodeOutcome)) {
-						results.set(node, nodeOutcome.value);
-
-						if (node === target) {
-							settle(Result.make.ok(nodeOutcome.value as Out));
-							return;
-						}
-
-						const dependents = dependentsMap.get(node)!;
-						for (let i = 0; i < dependents.length; i++) {
-							const dep = dependents[i];
-							const rem = remainingDeps.get(dep)! - 1;
-							remainingDeps.set(dep, rem);
-							if (rem === 0) {
-								queue.push(dep);
-							}
-						}
-
-						drain();
-					} else {
-						settle(Result.make.err(nodeOutcome.error as E));
-					}
-				};
-
-				drain = (): void => {
-					if (isSettled) {
+					if (node === target) {
+						settle(Result.make.ok(nodeOutcome.value as Out));
 						return;
 					}
 
-					while (queueHead < queue.length && inFlight < concurrency) {
-						const node = queue[queueHead++];
-						inFlight++;
-						void executeNode(node);
+					const dependents = dependentsMap.get(node)!;
+					for (let i = 0; i < dependents.length; i++) {
+						const dep = dependents[i];
+						const rem = remainingDeps.get(dep)! - 1;
+						remainingDeps.set(dep, rem);
+						if (rem === 0) {
+							queue.push(dep);
+						}
 					}
-				};
 
-				drain();
-			}),
-		);
+					drain();
+				} else {
+					settle(Result.make.err(nodeOutcome.error as E));
+				}
+			};
+
+			drain = (): void => {
+				if (isSettled) {
+					return;
+				}
+
+				// A node can synchronously abort the caller while it starts.
+				// oxlint-disable-next-line no-unmodified-loop-condition
+				while (!isSettled && queueHead < queue.length && inFlight < concurrency) {
+					const node = queue[queueHead++];
+					inFlight++;
+					void executeNode(node);
+				}
+			};
+
+			drain();
+		}),
+	);
+}
 
 // =============================================================================
 // Public Module Export
 // =============================================================================
 
 /**
- * Directed Acyclic Graph (DAG) task orchestration module.
+ * Runs asynchronous tasks after their dependencies succeed.
  *
- * Provides declarative step definition with dependency tracking, compile-time acyclicity verification,
- * automatic diamond-dependency deduplication, bounded concurrency, and immediate sibling cancellation.
+ * Shared dependencies run once per execution. Independent nodes can run concurrently, and failures
+ * signal active tasks to stop.
  */
-export const Graph = { node: makeNode, make: makeGraph, run: runGraph };
+export const Graph = {
+	/**
+	 * Creates a node constructor with a shared input type.
+	 *
+	 * @example
+	 * ```ts
+	 * const node = Graph.nodeFactory<ReportInput>();
+	 * const customer = node("customer", { run: ({ ctx }) => findCustomer(ctx.input.id) });
+	 * ```
+	 */
+	nodeFactory: <Input>(): Graph.NodeFactory<Input> => makeNode,
+	node: makeNode,
+	make: makeGraph,
+	run: runGraph,
+};

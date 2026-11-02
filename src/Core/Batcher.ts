@@ -6,13 +6,10 @@ import { Result } from "./Result.ts";
 import type { Task } from "./Task.ts";
 
 /**
- * A microtask-coalescing request demultiplexer that batches concurrent single-key lookups
- * into a single bulk query to eliminate N+1 query loops.
+ * Groups nearby key lookups into bulk requests and returns an outcome for each caller.
  *
- * Unlike traditional cache-bound loaders, `Batcher` is stateless across execution turns:
- * once a batch resolves and its callers settle, its pending queue clears. This allows
- * `Batcher` instances to live safely as long-lived application singletons without memory
- * leaks or cross-request stale state.
+ * Duplicate keys share a lookup while they are queued. Results are not cached, so a lookup after
+ * dispatch can fetch the same key again, even if the previous request is still running.
  *
  * @example
  * ```ts
@@ -21,15 +18,14 @@ import type { Task } from "./Task.ts";
  *   { maxBatchSize: 100 },
  * );
  *
- * // Resolves to a first-class tri-state outcome:
+ * // The outcome reports a found user, a missing key, or a fetch error.
  * const outcome = await userBatcher.load("u_1");
  * ```
  */
 export type Batcher<K, E, V> = {
 	/**
-	 * Immediately coalesces the given key into the active batch window and returns
-	 * an eager `Deferred` resolving to a tri-state `Batcher.Outcome`.
-	 * Cancellation and synchronous fetch exceptions have their own error variants.
+	 * Queues a key and immediately returns a `Deferred` of its lookup outcome.
+	 * An individual caller can cancel without affecting other callers in its batch.
 	 *
 	 * @param key - The key to look up.
 	 * @param signal - Optional AbortSignal to cancel this individual caller's lookup.
@@ -38,8 +34,7 @@ export type Batcher<K, E, V> = {
 	readonly load: (key: K, signal?: AbortSignal) => Deferred<Batcher.Outcome<E | Batcher.Aborted, V, K>>;
 
 	/**
-	 * Immediately coalesces multiple keys into the batch window and returns their resolved
-	 * outcomes in order.
+	 * Queues multiple keys and returns their outcomes in input order.
 	 *
 	 * Does not short-circuit: preserves discrete per-key outcomes (`Ok`, `Missing`, or `Err`)
 	 * for each requested key.
@@ -54,8 +49,8 @@ export type Batcher<K, E, V> = {
 	) => Deferred<readonly Batcher.Outcome<E | Batcher.Aborted, V, K>[]>;
 
 	/**
-	 * Immediately flushes and settles all currently queued batches without waiting
-	 * for the microtask tick or window timer to elapse.
+	 * Dispatches queued keys without waiting for the scheduled microtask or timer, then waits for
+	 * queued and in-flight batches to finish. Work queued while waiting also delays completion.
 	 *
 	 * Primarily used in unit tests or before transaction boundaries to guarantee
 	 * deterministic batch execution.
@@ -108,19 +103,20 @@ export namespace Batcher {
 		readonly serializeKey?: (key: K) => string | number;
 
 		/**
-		 * Maximum number of keys dispatched per batch query. Excess keys are chunked.
+		 * Maximum number of keys dispatched per batch query. Defaults to unbounded. Nonpositive and
+		 * non-integer values are also unbounded.
 		 */
 		readonly maxBatchSize?: number;
 
 		/**
 		 * Time window across which incoming calls are buffered before dispatch.
-		 * Defaults to 0ms (microtask turn).
+		 * When omitted, dispatch is scheduled as a microtask. An explicit zero uses a timer.
 		 */
 		readonly window?: Duration;
 
 		/**
 		 * Maximum number of chunked batch queries allowed to run concurrently in flight.
-		 * Defaults to `Infinity` (all chunks execute in parallel).
+		 * Defaults to unbounded concurrency. Nonpositive and non-integer values are also unbounded.
 		 */
 		readonly concurrency?: number;
 	};
@@ -199,13 +195,14 @@ const defaultSerialize = <K>(key: K): unknown => key;
 const getAbortReason = (signal: AbortSignal): Batcher.Aborted => ({ kind: "BatcherAborted", reason: signal.reason });
 
 const makeBatcher = <K, E, V>(
-	fetch: (keys: readonly K[]) => Task.Result<E, ReadonlyMap<K, V>>,
+	loadBatch: (keys: readonly K[]) => Task.Result<E, ReadonlyMap<K, V>>,
 	options: Batcher.Options<K> = {},
 ): Batcher<K, E, V> => {
 	type KeyHash = unknown;
 	type Failure = E | Batcher.Aborted;
 	type CallerEntry = { readonly resolve: (outcome: Batcher.Outcome<Failure, V, K>) => void; };
-	type PendingKeySlot = { readonly key: K; readonly callers: CallerEntry[]; };
+	type ActiveBatch = { readonly controller: AbortController; activeCallers: number; };
+	type PendingKeySlot = { readonly key: K; readonly callers: CallerEntry[]; batch?: ActiveBatch; };
 
 	const serialize = options.serializeKey ?? defaultSerialize;
 	const maxBatchSize =
@@ -241,9 +238,13 @@ const makeBatcher = <K, E, V>(
 		if (activeCallersCount === 0) {
 			return Promise.resolve();
 		}
+		const batch: ActiveBatch = { controller: new AbortController(), activeCallers: activeCallersCount };
+		for (let i = 0; i < chunkLen; i++) {
+			chunk[i].batch = batch;
+		}
 
 		return new Promise<void>((resolveDispatch) => {
-			const taskDeferred = fetch(keys)();
+			const taskDeferred = loadBatch(keys)(batch.controller.signal);
 			taskDeferred.then((batchResult) => {
 				if (Result.is.err(batchResult)) {
 					const errOutcome = makeErr<E, V, K>(batchResult.error);
@@ -374,8 +375,21 @@ const makeBatcher = <K, E, V>(
 					callers.splice(index, 1);
 					if (callers.length === 0 && queue.get(hash) === currentSlot) {
 						queue.delete(hash);
+						if (queue.size === 0 && timerHandle !== undefined) {
+							clearTimeout(timerHandle);
+							timerHandle = undefined;
+							scheduled = false;
+						}
+					}
+					const { batch } = currentSlot;
+					if (batch !== undefined) {
+						batch.activeCallers--;
 					}
 					entry.resolve(makeErr(getAbortReason(signal!)));
+					notifyFlushWaitersIfDone();
+					if (batch?.activeCallers === 0) {
+						batch.controller.abort();
+					}
 				};
 				slot.callers.push(entry);
 				if (signal !== undefined) {
@@ -406,8 +420,9 @@ const makeBatcher = <K, E, V>(
 
 export const Batcher = {
 	/**
-	 * Creates a batcher for a bulk fetch operation and optional batching settings.
-	 * The fetch operation receives unique keys and returns a map of found values.
+	 * Creates a batcher for a bulk load operation and optional batching settings.
+	 * The load operation receives unique keys and returns a task producing a map of found values.
+	 * The task's signal is aborted when every caller in its dispatched batch cancels.
 	 *
 	 * @example
 	 * ```ts
@@ -420,7 +435,7 @@ export const Batcher = {
 	make: makeBatcher,
 
 	/**
-	 * Synchronous elimination, type guards, and converters for `Batcher.Outcome`.
+	 * Functions for handling, checking, and converting `Batcher.Outcome` values.
 	 */
 	Outcome: {
 		/**
@@ -518,7 +533,7 @@ export const Batcher = {
 		},
 
 		/**
-		 * Eliminates a `Batcher.Outcome` by handling all three cases (`ok`, `missing`, `err`).
+		 * Handles all three outcomes (`ok`, `missing`, `err`) and returns the selected result.
 		 *
 		 * @see {@link Batcher.Outcome.getOrElse} to extract the value with a fallback.
 		 *
@@ -577,7 +592,7 @@ export const Batcher = {
 		 */
 		to: {
 			/**
-			 * Converts a `Batcher.Outcome` to a `Result`, projecting `BatcherMissing` into a domain error.
+			 * Converts a `Batcher.Outcome` to a `Result`, using a callback to turn a missing key into an error.
 			 *
 			 * @see {@link Batcher.Outcome.to.Maybe} to convert to an optional value.
 			 *

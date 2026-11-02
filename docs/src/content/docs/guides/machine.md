@@ -5,14 +5,15 @@ description: Define state transitions and run state-scoped effects with an actor
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.05 kB minified + gzipped
+> 2.06 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
 ## Core Behavior
 
-`Machine` defines named states and the events each state handles. A transition returns the next
-state; an event without a handler leaves the current state unchanged.
+An upload screen needs to ignore a late response after the user cancels the upload. `Machine`
+defines named states and the events each state handles. A transition returns the next state; an
+event without a handler leaves the current state unchanged.
 
 - `Machine.State` can specify allowed destination kinds for each state's transition handlers.
 - `Machine.transition` computes a next state. `Machine.interpret` creates an actor that holds the
@@ -181,4 +182,10 @@ actor.abort();
 listeners are reported to `onError`; if `onError` is omitted or itself throws, the exception
 propagates after completing any active state transition. Handle rejected promises inside an async
 effect, as in the upload example. `subscribe` reports subsequent changes; read `getState()` for the
-initial state.
+initial state. After `actor.abort()`, later events are ignored and `getState()` retains the last
+state.
+
+`actor.send()` normally returns the state after processing the event. If called from a transition,
+entry or exit effect, or subscriber while another event is being processed, it queues the event and
+returns the current state immediately. The queued event is processed after the current event
+finishes.

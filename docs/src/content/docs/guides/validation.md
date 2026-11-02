@@ -5,7 +5,7 @@ description: Check independent inputs and collect their errors before handling t
 
 <!-- BUNDLE_SIZE:START -->
 
-> 1.57 kB minified + gzipped
+> 1.56 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

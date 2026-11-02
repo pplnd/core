@@ -1,10 +1,11 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { Arr } from "../../Data/Arr.ts";
 import { Dict } from "../../Data/Dict.ts";
 import { Duration } from "../../Types/Duration.ts";
 import { Batcher } from "../Batcher.ts";
 import { Deferred } from "../Deferred.ts";
 import { Result } from "../Result.ts";
+import { Task } from "../Task.ts";
 
 test("make: resolves single key lookups successfully as BatcherOk", async () => {
 	const batcher = Batcher.make((keys: readonly string[]) => () =>
@@ -417,6 +418,118 @@ test("AbortSignal: isolates aborted caller while sibling callers in batch settle
 
 	expect(Batcher.Outcome.is.err(res1)).toBe(true);
 	expect(res2).toStrictEqual(Batcher.Outcome.make.ok("val_k2"));
+});
+
+test("AbortSignal: aborts an active batch only after every caller cancels", async () => {
+	const first = new AbortController();
+	const second = new AbortController();
+	const third = new AbortController();
+	let batchSignal: AbortSignal | undefined;
+	let taskAborted = false;
+	const batcher = Batcher.make((keys: readonly string[]) =>
+		Task.Result.tryCatch((signal) =>
+			new Promise<ReadonlyMap<string, string>>((_resolve, reject) => {
+				batchSignal = signal;
+				signal?.addEventListener("abort", () => {
+					taskAborted = true;
+					reject(new Error(`cancelled: ${keys.join(",")}`));
+				}, { once: true });
+			}), { onError: String })
+	);
+	const a = batcher.load("same", first.signal);
+	const b = batcher.load("same", second.signal);
+	const c = batcher.load("other", third.signal);
+	const flushed = batcher.flush();
+	await Promise.resolve();
+	expect(batchSignal?.aborted).toBe(false);
+	first.abort("first");
+	second.abort("second");
+	expect(batchSignal?.aborted).toBe(false);
+	third.abort("third");
+	expect(taskAborted).toBe(true);
+	await expect(a).resolves.toStrictEqual(Batcher.Outcome.make.err({ kind: "BatcherAborted", reason: "first" }));
+	await expect(b).resolves.toStrictEqual(Batcher.Outcome.make.err({ kind: "BatcherAborted", reason: "second" }));
+	await expect(c).resolves.toStrictEqual(Batcher.Outcome.make.err({ kind: "BatcherAborted", reason: "third" }));
+	await expect(flushed).resolves.toBeUndefined();
+});
+
+test("AbortSignal: keeps an active batch running for a remaining caller", async () => {
+	const controller = new AbortController();
+	let batchSignal: AbortSignal | undefined;
+	let finish = (): void => {};
+	const batcher = Batcher.make((keys: readonly string[]) =>
+		Task.Result.tryCatch((signal) =>
+			new Promise<ReadonlyMap<string, string>>((resolve) => {
+				batchSignal = signal;
+				finish = () => resolve(new Map(keys.map((key) => [key, `value:${key}`])));
+			}), { onError: String })
+	);
+	const cancelled = batcher.load("same", controller.signal);
+	const remaining = batcher.load("same");
+	const flushed = batcher.flush();
+	await Promise.resolve();
+	controller.abort("cancelled");
+	expect(batchSignal?.aborted).toBe(false);
+	finish();
+	await expect(cancelled).resolves.toStrictEqual(
+		Batcher.Outcome.make.err({ kind: "BatcherAborted", reason: "cancelled" }),
+	);
+	await expect(remaining).resolves.toStrictEqual(Batcher.Outcome.make.ok("value:same"));
+	await expect(flushed).resolves.toBeUndefined();
+	controller.abort("after settlement");
+	expect(batchSignal?.aborted).toBe(false);
+});
+
+test("AbortSignal: cancellation is isolated between concurrent chunks", async () => {
+	const controller = new AbortController();
+	const signals = new Map<string, AbortSignal | undefined>();
+	const finishers = new Map<string, () => void>();
+	const batcher = Batcher.make(
+		(keys: readonly string[]) =>
+			Task.Result.tryCatch((signal) =>
+				new Promise<ReadonlyMap<string, string>>((resolve, reject) => {
+					const [key] = keys;
+					signals.set(key, signal);
+					finishers.set(key, () => resolve(new Map([[key, `value:${key}`]])));
+					signal?.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
+				}), { onError: String }),
+		{ maxBatchSize: 1 },
+	);
+	const first = batcher.load("first", controller.signal);
+	const second = batcher.load("second");
+	const flushed = batcher.flush();
+	await Promise.resolve();
+	controller.abort("cancelled");
+	expect(signals.get("first")?.aborted).toBe(true);
+	expect(signals.get("second")?.aborted).toBe(false);
+	finishers.get("second")?.();
+	await expect(first).resolves.toStrictEqual(Batcher.Outcome.make.err({ kind: "BatcherAborted", reason: "cancelled" }));
+	await expect(second).resolves.toStrictEqual(Batcher.Outcome.make.ok("value:second"));
+	await expect(flushed).resolves.toBeUndefined();
+});
+
+test("AbortSignal: clears the collection timer when the last queued caller cancels", async () => {
+	vi.useFakeTimers();
+	try {
+		const controller = new AbortController();
+		const batcher = Batcher.make((_keys: readonly string[]) => Task.Result.make.ok(new Map<string, string>()), {
+			window: Duration.seconds(30),
+		});
+		const lookup = batcher.load("key", controller.signal);
+		expect(vi.getTimerCount()).toBe(1);
+		controller.abort("cancelled");
+		await expect(lookup).resolves.toStrictEqual(
+			Batcher.Outcome.make.err({ kind: "BatcherAborted", reason: "cancelled" }),
+		);
+		expect(vi.getTimerCount()).toBe(0);
+		const next = batcher.load("next");
+		expect(vi.getTimerCount()).toBe(1);
+		await expect(batcher.flush()).resolves.toBeUndefined();
+		await expect(next).resolves.toStrictEqual(Batcher.Outcome.make.missing("next"));
+		expect(vi.getTimerCount()).toBe(0);
+	} finally {
+		vi.useRealTimers();
+	}
 });
 
 test("AbortSignal: skips batch fetch if all callers abort before execution", async () => {

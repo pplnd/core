@@ -81,14 +81,10 @@ type AllInterpretOptions<Args extends readonly unknown[], E> =
 // ---------------------------------------------------------------------------
 
 /**
- * A reusable description of async work — decoupled from execution strategy and lifetime.
+ * A reusable description of asynchronous work.
  *
- * Separate concerns:
- * - **What** to do: encoded in the `Op` via `Op.make`
- * - **How** to execute: chosen at `Op.interpret` time (restartable, exclusive, queue, etc.)
- *
- * An `Op` never runs on its own. It only executes when passed to `Op.interpret`, which
- * attaches a concurrency strategy and returns a `Manager` that owns the execution.
+ * `Op.interpret` creates a manager that runs the work and controls overlapping calls. Each caller
+ * receives its own outcome, while the manager exposes its current state to subscribers.
  *
  * @example
  * ```ts
@@ -961,8 +957,8 @@ export const Op = {
 	},
 
 	/**
-	 * Creates an Op blueprint from a signal-accepting factory function that returns the async action,
-	 * along with an error mapping handler.
+	 * Describes work that receives an abort signal and maps thrown errors to a chosen error type.
+	 * Errors from work that has already been aborted are ignored.
 	 *
 	 * Arguments to the returned function can be inferred automatically or provided as explicit generics:
 	 * - `Op.make((signal) => (opts: Payload) => ...)` (inferred)
@@ -982,8 +978,7 @@ export const Op = {
 	make: makeFn,
 
 	/**
-	 * Lifts an async action into an Op blueprint without requiring explicit error transformation.
-	 * Unknown errors thrown by the async action are passed through untyped.
+	 * Describes work that receives an abort signal and keeps thrown errors as `unknown`.
 	 *
 	 * Arguments to the returned function can be inferred automatically or provided as explicit generics:
 	 * - `Op.lift((signal) => (opts: Payload) => ...)` (inferred)
@@ -1019,7 +1014,7 @@ export const Op = {
 		}),
 
 	/**
-	 * Interprets an Op blueprint with a concurrency and lifecycle strategy, returning a Manager.
+	 * Creates a manager that runs an operation using the selected concurrency strategy.
 	 *
 	 * @see {@link Op.make} to construct an Op blueprint.
 	 *

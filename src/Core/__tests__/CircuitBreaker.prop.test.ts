@@ -18,7 +18,7 @@ test("property: failures strictly below threshold remain in Closed state with ex
 		const breaker = CircuitBreaker.make<string>({ failureThreshold, resetTimeout: Duration.seconds(10) });
 
 		for (let i = 0; i < numFailures; i++) {
-			await breaker.protect(makeErrTask(`err_${i}`))();
+			await breaker.run(makeErrTask(`err_${i}`));
 		}
 
 		expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: numFailures });
@@ -35,7 +35,7 @@ test("property: failures reaching or exceeding threshold trip to Open state", as
 				const breaker = CircuitBreaker.make<string>({ failureThreshold, resetTimeout: Duration.seconds(10) });
 
 				for (let i = 0; i < totalFailures; i++) {
-					await breaker.protect(makeErrTask(`err_${i}`))();
+					await breaker.run(makeErrTask(`err_${i}`));
 				}
 
 				const state = breaker.state();
@@ -56,7 +56,7 @@ test("property: reset() idempotency returns state to Closed(0) from any state", 
 				const breaker = CircuitBreaker.make<string>({ failureThreshold, resetTimeout: Duration.seconds(10) });
 
 				for (let i = 0; i < failureCount; i++) {
-					await breaker.protect(makeErrTask(`err_${i}`))();
+					await breaker.run(makeErrTask(`err_${i}`));
 				}
 
 				breaker.reset();
@@ -87,7 +87,7 @@ test("property: non-integer float and non-finite thresholds are normalized safel
 				const effectiveThreshold = Number.isFinite(rawFailureThreshold) ? Math.max(1, Math.floor(rawFailureThreshold)) : 1;
 
 				for (let i = 0; i < effectiveThreshold; i++) {
-					await breaker.protect(makeErrTask(`err_${i}`))();
+					await breaker.run(makeErrTask(`err_${i}`));
 				}
 
 				expect(CircuitBreaker.is.open(breaker.state())).toBe(true);
@@ -106,8 +106,8 @@ test("property: any success following sub-threshold failures resets failure coun
 				const breaker = CircuitBreaker.make<string>({ failureThreshold, resetTimeout: Duration.seconds(10) });
 
 				for (let i = 0; i < attempts; i++) {
-					await breaker.protect(makeErrTask("err"))();
-					await breaker.protect(makeOkTask("ok"))();
+					await breaker.run(makeErrTask("err"));
+					await breaker.run(makeOkTask("ok"));
 				}
 
 				expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 0 });

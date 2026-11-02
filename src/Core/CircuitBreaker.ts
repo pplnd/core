@@ -5,11 +5,10 @@ import { Result } from "./Result.ts";
 import type { Task } from "./Task.ts";
 
 /**
- * A stateful fault-isolation barrier that protects downstream services from retry storms.
+ * Runs fallible tasks and temporarily blocks calls after enough qualifying failures.
  *
- * `CircuitBreaker` monitors task failures and temporarily blocks execution ("trips")
- * when failures exceed a configured threshold, fast-failing subsequent calls in 0ms with
- * `CircuitBreaker.OpenError` to give the failing service time to recover.
+ * Blocked calls return `CircuitBreaker.OpenError` without starting their task, giving the
+ * dependency time to recover.
  *
  * ### Operating States
  * - **Closed**: Normal execution. Every success resets failure counts (or prunes the sliding window).
@@ -29,11 +28,8 @@ import type { Task } from "./Task.ts";
  *   shouldTrip: (err) => err.status >= 500 || err.kind === "NetworkTimeout",
  * });
  *
- * const chargeCard = (payload: ChargeInput) =>
- *   pipe(
- *     callPaymentGateway(payload),
- *     paymentBreaker.protect,
- *   );
+ * const chargeCard = (payload: ChargeInput, signal?: AbortSignal) =>
+ *   paymentBreaker.run(callPaymentGateway(payload), { signal });
  * ```
  */
 export type CircuitBreaker<E = unknown> = {
@@ -46,7 +42,7 @@ export type CircuitBreaker<E = unknown> = {
 	readonly state: () => CircuitBreaker.State<E>;
 
 	/**
-	 * Protects a fallible task with the circuit breaker's fault-isolation policies.
+	 * Starts a fallible task under the circuit breaker's fault-isolation policies.
 	 *
 	 * - While `Closed`: executes the task normally, tracking failures.
 	 * - While `Open`: fast-fails immediately in 0ms with `CircuitBreaker.OpenError<E>`.
@@ -54,16 +50,19 @@ export type CircuitBreaker<E = unknown> = {
 	 *
 	 * @see {@link CircuitBreaker.reset} to manually force circuit recovery back to Closed state.
 	 *
-	 * @param task - The fallible async computation to protect.
+	 * @param task - The fallible async computation to run.
+	 * @param options - Optional cancellation signal for this call.
 	 */
-	readonly protect: <EIn extends E = E, A = unknown>(
+	readonly run: <EIn extends E = E, A = unknown>(
 		task: Task.Result<EIn, A>,
-	) => Task.Result<EIn | CircuitBreaker.OpenError<E>, A>;
+		options?: { readonly signal?: AbortSignal; },
+	) => Deferred<Result<EIn | CircuitBreaker.OpenError<E>, A>>;
 
 	/**
-	 * Manually forces the circuit breaker back to its initial `Closed` state with zero recorded failures.
+	 * Resets the breaker to `Closed` and clears recorded failures.
+	 * In-flight probes continue and return their results, but cannot change the reset breaker's state.
 	 *
-	 * @see {@link CircuitBreaker.protect} for protecting fallible tasks under circuit breaker policies.
+	 * @see {@link CircuitBreaker.run} for running fallible tasks under circuit breaker policies.
 	 */
 	readonly reset: () => void;
 
@@ -215,7 +214,7 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 	let failureTimestamps: number[] = [];
 	let openedAt = 0;
 	let lastError: E | undefined = undefined;
-	let probeInFlight = false;
+	let activeProbe: object | undefined;
 	let consecutiveSuccesses = 0;
 
 	const subscribers = new Set<(state: CircuitBreaker.State<E>) => void>();
@@ -256,7 +255,7 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 			return { kind: "Open", openedAt, retryAfterMs: Math.max(0, resetTimeoutMs - elapsed), lastError: lastError as E };
 		}
 
-		return { kind: "HalfOpen", probeInFlight, consecutiveSuccesses };
+		return { kind: "HalfOpen", probeInFlight: activeProbe !== undefined, consecutiveSuccesses };
 	};
 
 	const notifySubscribers = (): void => {
@@ -326,6 +325,7 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 
 	const executeProbe = <EIn extends E, A>(
 		task: Task.Result<EIn, A>,
+		probe: object,
 		signal?: AbortSignal,
 	): Deferred<Result<EIn | CircuitBreaker.OpenError<E>, A>> =>
 		Deferred.from.Promise(
@@ -333,8 +333,10 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 				const deferred = task(signal);
 
 				const onAbort = () => {
-					probeInFlight = false;
-					notifySubscribers();
+					if (activeProbe === probe) {
+						activeProbe = undefined;
+						notifySubscribers();
+					}
 				};
 
 				if (signal) {
@@ -350,17 +352,12 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 						signal.removeEventListener("abort", onAbort);
 					}
 
-					if (currentKind !== "HalfOpen") {
+					if (activeProbe !== probe) {
 						resolve(result);
 						return;
 					}
 
-					if (signal?.aborted) {
-						resolve(result);
-						return;
-					}
-
-					probeInFlight = false;
+					activeProbe = undefined;
 
 					if (Result.is.ok(result)) {
 						consecutiveSuccesses++;
@@ -406,45 +403,48 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 			}),
 		);
 
-	const protect =
-		<EIn extends E = E, A = unknown>(task: Task.Result<EIn, A>): Task.Result<EIn | CircuitBreaker.OpenError<E>, A> =>
-		(signal?: AbortSignal) => {
-			const now = Date.now();
+	const run = <EIn extends E = E, A = unknown>(
+		task: Task.Result<EIn, A>,
+		options?: { readonly signal?: AbortSignal; },
+	): Deferred<Result<EIn | CircuitBreaker.OpenError<E>, A>> => {
+		const signal = options?.signal;
+		const now = Date.now();
 
-			if (currentKind === "Closed") {
-				return executeClosed(task, signal);
-			}
+		if (currentKind === "Closed") {
+			return executeClosed(task, signal);
+		}
 
-			if (currentKind === "Open") {
-				const elapsed = now - openedAt;
-				if (elapsed < resetTimeoutMs) {
-					const retryAfterMs = Math.max(0, resetTimeoutMs - elapsed);
-					const openErr: CircuitBreaker.OpenError<E> = { kind: "CircuitOpenError", lastError: lastError as E, retryAfterMs };
-					return Deferred.from.Promise(Promise.resolve(Result.make.err(openErr)));
-				}
-
-				currentKind = "HalfOpen";
-				consecutiveSuccesses = 0;
-			}
-
-			// currentKind === "HalfOpen"
-			if (probeInFlight) {
-				const openErr: CircuitBreaker.OpenError<E> = {
-					kind: "CircuitOpenError",
-					lastError: lastError as E,
-					retryAfterMs: 0,
-				};
+		if (currentKind === "Open") {
+			const elapsed = now - openedAt;
+			if (elapsed < resetTimeoutMs) {
+				const retryAfterMs = Math.max(0, resetTimeoutMs - elapsed);
+				const openErr: CircuitBreaker.OpenError<E> = { kind: "CircuitOpenError", lastError: lastError as E, retryAfterMs };
 				return Deferred.from.Promise(Promise.resolve(Result.make.err(openErr)));
 			}
 
-			if (signal?.aborted) {
-				return executeClosed(task, signal);
-			}
+			currentKind = "HalfOpen";
+			consecutiveSuccesses = 0;
+		}
 
-			probeInFlight = true;
-			notifySubscribers();
-			return executeProbe(task, signal);
-		};
+		// currentKind === "HalfOpen"
+		if (activeProbe !== undefined) {
+			const openErr: CircuitBreaker.OpenError<E> = {
+				kind: "CircuitOpenError",
+				lastError: lastError as E,
+				retryAfterMs: 0,
+			};
+			return Deferred.from.Promise(Promise.resolve(Result.make.err(openErr)));
+		}
+
+		if (signal?.aborted) {
+			return executeClosed(task, signal);
+		}
+
+		const probe = {};
+		activeProbe = probe;
+		notifySubscribers();
+		return executeProbe(task, probe, signal);
+	};
 
 	const reset = (): void => {
 		const wasClosed = currentKind === "Closed" && consecutiveFailures === 0 && failureTimestamps.length === 0;
@@ -453,7 +453,7 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 		failureTimestamps = [];
 		openedAt = 0;
 		lastError = undefined;
-		probeInFlight = false;
+		activeProbe = undefined;
 		consecutiveSuccesses = 0;
 		if (!wasClosed) {
 			notifySubscribers();
@@ -467,7 +467,7 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 		};
 	};
 
-	return { state: getState, protect, reset, subscribe };
+	return { state: getState, run, reset, subscribe };
 };
 
 export const CircuitBreaker = {

@@ -15,9 +15,8 @@ test("rollback: executes in strict LIFO order for any failure index", async () =
 
 			for (let i = 0; i < stepCount; i++) {
 				const idx = i;
-				steps.push(Transaction.step({
-					id: `s_${idx}`,
-					run: () => () => {
+				steps.push(Transaction.step(`s_${idx}`, {
+					run: () => {
 						executedForward.push(idx);
 						if (idx === failIndex) {
 							return Task.Result.make.err(`fail_${idx}`);
@@ -83,9 +82,7 @@ test("run: preserves all-or-nothing conservation law", async () => {
 				for (let i = 0; i < uniqueSteps.length; i++) {
 					const step = uniqueSteps[i];
 					expectedAcc[step.id] = step.val;
-					steps.push(
-						Transaction.step({ id: step.id, run: () => () => Task.Result.make.ok(step.val), undo: makeStepUndo() }),
-					);
+					steps.push(Transaction.step(step.id, { run: () => Task.Result.make.ok(step.val), undo: makeStepUndo() }));
 				}
 
 				const tx = Transaction.make(...steps);
@@ -109,9 +106,8 @@ test("rollback: best-effort drain guarantees every completed undo runs despite i
 
 			for (let i = 0; i < stepCount; i++) {
 				const idx = i;
-				steps.push(Transaction.step({
-					id: `step_${idx}`,
-					run: () => () => {
+				steps.push(Transaction.step(`step_${idx}`, {
+					run: () => {
 						if (idx === failIndex) {
 							return Task.Result.make.err("final_step_failed");
 						}

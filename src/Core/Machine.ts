@@ -11,14 +11,10 @@ declare const _targetsBrand: unique symbol;
 // =============================================================================
 
 /**
- * Represents a state variant within a finite state machine.
+ * A named state, with an optional value and allowed destination kinds.
  *
- * Each variant is branded with its discriminator `kind`, an optional payload `value`,
- * and compile-time outbound transition constraints `AllowedTargets`.
- *
- * `AllowedTargets` is placed in a contravariant phantom position, allowing states
- * created via {@link Machine.state} to assign directly to constrained state unions
- * without forced type assertions.
+ * `AllowedTargets` restricts transition handlers at compile time. A handler can also return its
+ * current state, and an unhandled event leaves the state unchanged.
  *
  * @example
  * ```ts
@@ -66,8 +62,9 @@ type MachineTransitionHandler<S extends AnyMachineState, Payload, States extends
  */
 type MachineEntryContext<Events extends Record<string, unknown>> = {
 	/**
-	 * Dispatches an event to the state machine actor.
-	 * Calls originating from stale or aborted state generations are automatically ignored.
+	 * Sends an event to the actor while this entry is active.
+	 * Calls after leaving the state or aborting the actor are ignored. While the actor is running,
+	 * events already accepted remain queued and are processed in order.
 	 */
 	readonly send: (event: MachineEventMessage<Events>) => void;
 
@@ -126,8 +123,8 @@ type MachineActor<States extends AnyMachineState, Events extends Record<string, 
 	readonly getState: () => States;
 
 	/**
-	 * Sends an event to the actor, triggering a state transition if configured.
-	 * Re-entrant dispatches are safely queued and evaluated in FIFO order.
+	 * Sends an event to the actor and returns the resulting state.
+	 * Re-entrant calls are queued and return the current state before the queued event is processed.
 	 */
 	readonly send: (event: MachineEventMessage<Events>) => States;
 
@@ -164,8 +161,8 @@ type MachineInterpretOptions<
 	readonly id?: string;
 
 	/**
-	 * An optional {@link EventBus} to synchronize with.
-	 * All messages emitted on the bus will be forwarded to the actor.
+	 * An optional {@link EventBus} whose messages are forwarded to the actor. The bus must share at
+	 * least one event kind with the machine, and shared event payloads must be compatible.
 	 */
 	readonly bus?: EventBus<BusEvents>;
 
@@ -190,7 +187,7 @@ type CompatibleBus<Events extends Record<string, unknown>, BusEvents extends Rec
 		: never;
 
 /**
- * A typed statechart and finite state machine specification.
+ * A transition table describing named states and their event handlers.
  */
 export type Machine<States extends AnyMachineState, Events extends Record<string, unknown>> = {
 	readonly id?: string;
@@ -248,7 +245,7 @@ export namespace Machine {
 
 export const Machine = {
 	/**
-	 * Creates a validated, immutable state machine definition.
+	 * Creates a state machine definition from state configurations and event handlers.
 	 *
 	 * @example
 	 * ```ts
@@ -412,7 +409,7 @@ export const Machine = {
 	},
 
 	/**
-	 * Spawns an execution actor for a machine.
+	 * Starts an actor that stores state and runs its entry and exit effects.
 	 *
 	 * Manages active state lifecycles:
 	 * - Runs `entry` effects on state entry, providing an `AbortSignal` and guarded `send`.
@@ -420,6 +417,7 @@ export const Machine = {
 	 * - Suppresses stale async dispatches from previously active states.
 	 * - Queues re-entrant `send` calls to preserve sequential transition semantics.
 	 * - Optionally synchronizes with an {@link EventBus}.
+	 * - Reports synchronous callback errors through `onError` when supplied; otherwise they propagate.
 	 *
 	 * @see {@link Machine.transition} for pure stateless transitions.
 	 *

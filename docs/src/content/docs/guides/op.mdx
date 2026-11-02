@@ -10,6 +10,7 @@ description: Run asynchronous operations with observable state and a choice of c
 
 ## Core Behavior
 
+An older search request can finish after a newer one and replace the results shown to the user.
 `Op<Args, E, A>` describes asynchronous work that takes arguments, can fail with an error `E`, and
 returns a value `A`. `Op.interpret` creates a manager that runs the work and controls overlapping
 calls.
@@ -83,7 +84,8 @@ unsubscribe();
 
 `subscribe` reports manager state; awaiting each `run` reports that particular call's outcome.
 These are different when a call is replaced: its caller receives `OpNil`, while the manager proceeds
-with the newer call.
+with the newer call. A new subscriber immediately receives the current state if it is not `Idle`;
+subscribing while idle waits for the next state change.
 
 ## Core Operations
 
@@ -115,8 +117,10 @@ with the newer call.
 | `keyed`        | Tracks independent runs per key, with `exclusive` or `restartable` per key.   |
 
 `debounced` and `throttled` take a `duration`. `keyed` exposes a map of states and accepts an
-optional key in `abort(key)`; calling `abort()` aborts all keys. Other strategies expose one manager
-state. Check the strategy's options when configuring a retry, timeout, queue size, or rate limit.
+optional key in `abort(key)`; calling `abort()` aborts all keys. If `undefined` is a key,
+`abort(undefined)` aborts only that key. Other strategies expose one manager state. `keyed` uses the
+first argument as its key and `exclusive` per key unless configured otherwise. Check the strategy's
+options when configuring a retry, timeout, queue size, or rate limit.
 
 ### Reading and Transforming Outcomes
 
@@ -138,10 +142,12 @@ state. Check the strategy's options when configuring a retry, timeout, queue siz
 produce a result: `aborted`, `dropped`, `replaced`, or `evicted`. Handle it separately from
 `OpErr`, especially if a dropped call should not be shown as a request failure.
 
-`Op.make` maps errors thrown or rejected by its work using `onError`. A timeout returns an `OpErr`
-from its configured `onTimeout`; aborting a run returns `OpNil`. Pass the supplied signal to work
-that supports cancellation. Stopping a polling interval prevents future polling calls; use `abort`
-separately if the active call should also stop.
+`Op.make` maps errors thrown or rejected by its work using `onError` while the run is active. A
+timeout returns an `OpErr` from its configured `onTimeout`; its deadline covers the entire retry
+sequence. Aborting a run returns `OpNil`. Pass the supplied signal to work that supports
+cancellation: the manager can settle the caller, but it cannot force work that ignores the signal to
+stop. Polling starts one run immediately and schedules later runs at the interval. Stopping polling
+prevents future polling calls; use `abort` separately if the active call should also stop.
 
 The error mapper, retry predicate, timeout handler, key function, and subscribers must not throw.
 Map expected operation failures with `onError` before they enter the manager.

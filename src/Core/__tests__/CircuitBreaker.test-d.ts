@@ -1,8 +1,8 @@
 import { constTruthyBool } from "#test-utils";
 import { expectTypeOf, test } from "vitest";
-import { pipe } from "../../Composition/pipe.ts";
 import { Duration } from "../../Types/Duration.ts";
 import { CircuitBreaker } from "../CircuitBreaker.ts";
+import { Deferred } from "../Deferred.ts";
 import { Result } from "../Result.ts";
 import { Task } from "../Task.ts";
 
@@ -58,7 +58,7 @@ test("state: returns discriminated union and supports narrowing", () => {
 	}
 });
 
-test("protect: preserves narrowed task error type while appending CircuitOpenError", () => {
+test("run: preserves narrowed task error type while appending CircuitOpenError", () => {
 	type SpecificHttpError = { readonly code: 503; readonly url: string; };
 	type GeneralHttpError = { readonly code: number; };
 
@@ -69,14 +69,14 @@ test("protect: preserves narrowed task error type while appending CircuitOpenErr
 			? Task.Result.make.ok({ data: "payload" })()
 			: Task.Result.make.err({ code: 503 as const, url: "https://api.example.com" })();
 
-	const protectedTask = breaker.protect(task);
+	const protectedTask = breaker.run(task);
 
 	expectTypeOf(protectedTask).toEqualTypeOf<
-		Task.Result<SpecificHttpError | CircuitBreaker.OpenError<GeneralHttpError>, { readonly data: string; }>
+		Deferred<Result<SpecificHttpError | CircuitBreaker.OpenError<GeneralHttpError>, { readonly data: string; }>>
 	>();
 });
 
-test("protect: rejects tasks whose errors do not satisfy breaker error constraint", () => {
+test("run: rejects tasks whose errors do not satisfy breaker error constraint", () => {
 	type DbError = { readonly sqlState: string; };
 	type HttpError = { readonly statusCode: number; };
 
@@ -85,9 +85,9 @@ test("protect: rejects tasks whose errors do not satisfy breaker error constrain
 	const dbTask: Task.Result<DbError, number> = () => Task.Result.make.err({ sqlState: "42000" })();
 
 	// @ts-expect-error — DbError is not assignable to HttpError
-	breaker.protect(dbTask);
+	breaker.run(dbTask);
 
-	expectTypeOf(breaker.protect).toBeFunction();
+	expectTypeOf(breaker.run).toBeFunction();
 });
 
 test("subscribe: provides typed state in callback and returns unsubscribe thunk", () => {
@@ -111,27 +111,24 @@ test("is: type guards correctly narrow types", () => {
 	}
 });
 
-test("protect: default breaker without type argument accepts arbitrary tasks and infers OpenError<unknown>", () => {
+test("run: default breaker without type argument accepts arbitrary tasks and infers OpenError<unknown>", () => {
 	const defaultBreaker = CircuitBreaker.make({ failureThreshold: 3, resetTimeout: Duration.seconds(10) });
 
 	const task: Task.Result<{ readonly tag: "Fail"; }, string> = () =>
 		constTruthyBool() ? Task.Result.make.ok("hello")() : Task.Result.make.err({ tag: "Fail" as const })();
 
-	const protectedTask = defaultBreaker.protect(task);
+	const protectedTask = defaultBreaker.run(task);
 
 	expectTypeOf(protectedTask).toEqualTypeOf<
-		Task.Result<{ readonly tag: "Fail"; } | CircuitBreaker.OpenError<unknown>, string>
+		Deferred<Result<{ readonly tag: "Fail"; } | CircuitBreaker.OpenError<unknown>, string>>
 	>();
 });
 
-test("pipe: preserves type inference with pipe(task, breaker.protect)", () => {
+test("run: preserves result and error types for a protected request", () => {
 	type ApiError = { readonly message: string; };
 	const breaker = CircuitBreaker.make<ApiError>({ failureThreshold: 3, resetTimeout: Duration.seconds(10) });
-
 	const task: Task.Result<ApiError, number> = () =>
 		constTruthyBool() ? Task.Result.make.ok(42)() : Task.Result.make.err({ message: "failed" })();
-
-	const piped = pipe(task, breaker.protect);
-
-	expectTypeOf(piped).toEqualTypeOf<Task.Result<ApiError | CircuitBreaker.OpenError<ApiError>, number>>();
+	const outcome = breaker.run(task, { signal: new AbortController().signal });
+	expectTypeOf(outcome).toEqualTypeOf<Deferred<Result<ApiError | CircuitBreaker.OpenError<ApiError>, number>>>();
 });

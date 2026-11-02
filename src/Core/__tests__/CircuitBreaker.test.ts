@@ -66,22 +66,22 @@ test("make: normalizes invalid or fractional thresholds to at least 1", () => {
 // Closed state behavior
 // -----------------------------------------------------------------------------
 
-test("protect: passes through successful result in Closed state and keeps failures at 0", async () => {
+test("run: passes through successful result in Closed state and keeps failures at 0", async () => {
 	const breaker = CircuitBreaker.make<string>({ failureThreshold: 2, resetTimeout: Duration.milliseconds(50) });
 
-	const result = await breaker.protect(makeOkTask(42))();
+	const result = await breaker.run(makeOkTask(42));
 	expect(result).toStrictEqual(Result.make.ok(42));
 	expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 0 });
 });
 
-test("protect: increments failures on tripping errors until failureThreshold is reached", async () => {
+test("run: increments failures on tripping errors until failureThreshold is reached", async () => {
 	const breaker = CircuitBreaker.make<string>({ failureThreshold: 2, resetTimeout: Duration.milliseconds(50) });
 
-	const res1 = await breaker.protect(makeErrTask("err_1"))();
+	const res1 = await breaker.run(makeErrTask("err_1"));
 	expect(res1).toStrictEqual(Result.make.err("err_1"));
 	expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 1 });
 
-	const res2 = await breaker.protect(makeErrTask("err_2"))();
+	const res2 = await breaker.run(makeErrTask("err_2"));
 	expect(res2).toStrictEqual(Result.make.err("err_2"));
 
 	const state = breaker.state();
@@ -91,18 +91,18 @@ test("protect: increments failures on tripping errors until failureThreshold is 
 	expect(state.retryAfterMs).toBeGreaterThan(0);
 });
 
-test("protect: consecutive failures reset to 0 upon a successful execution", async () => {
+test("run: consecutive failures reset to 0 upon a successful execution", async () => {
 	const breaker = CircuitBreaker.make<string>({ failureThreshold: 2, resetTimeout: Duration.milliseconds(50) });
 
-	await breaker.protect(makeErrTask("err_1"))();
+	await breaker.run(makeErrTask("err_1"));
 	expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 1 });
 
 	// Intervening success resets failure count
-	await breaker.protect(makeOkTask("ok"))();
+	await breaker.run(makeOkTask("ok"));
 	expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 0 });
 
 	// Next failure only brings count to 1, does not trip
-	await breaker.protect(makeErrTask("err_2"))();
+	await breaker.run(makeErrTask("err_2"));
 	expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 1 });
 });
 
@@ -110,7 +110,7 @@ test("protect: consecutive failures reset to 0 upon a successful execution", asy
 // shouldTrip filtering
 // -----------------------------------------------------------------------------
 
-test("protect: ignores errors where shouldTrip returns false", async () => {
+test("run: ignores errors where shouldTrip returns false", async () => {
 	type AppError = { kind: "NotFound"; } | { kind: "ServerCrash"; };
 
 	const breaker = CircuitBreaker.make<AppError>({
@@ -120,14 +120,14 @@ test("protect: ignores errors where shouldTrip returns false", async () => {
 	});
 
 	// NotFound does not trip
-	await breaker.protect(makeErrTask<AppError>({ kind: "NotFound" }))();
+	await breaker.run(makeErrTask<AppError>({ kind: "NotFound" }));
 	expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 0 });
 
 	// ServerCrash trips
-	await breaker.protect(makeErrTask<AppError>({ kind: "ServerCrash" }))();
+	await breaker.run(makeErrTask<AppError>({ kind: "ServerCrash" }));
 	expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 1 });
 
-	await breaker.protect(makeErrTask<AppError>({ kind: "ServerCrash" }))();
+	await breaker.run(makeErrTask<AppError>({ kind: "ServerCrash" }));
 	expect(CircuitBreaker.is.open(breaker.state())).toBe(true);
 });
 
@@ -135,10 +135,10 @@ test("protect: ignores errors where shouldTrip returns false", async () => {
 // Open state & Fast-failing
 // -----------------------------------------------------------------------------
 
-test("protect: fast-fails immediately in 0ms with CircuitOpenError when Open", async () => {
+test("run: fast-fails immediately in 0ms with CircuitOpenError when Open", async () => {
 	const breaker = CircuitBreaker.make<string>({ failureThreshold: 1, resetTimeout: Duration.milliseconds(100) });
 
-	await breaker.protect(makeErrTask("upstream_failure"))();
+	await breaker.run(makeErrTask("upstream_failure"));
 	expect(CircuitBreaker.is.open(breaker.state())).toBe(true);
 
 	let called = false;
@@ -147,7 +147,7 @@ test("protect: fast-fails immediately in 0ms with CircuitOpenError when Open", a
 		return Deferred.from.Promise(Promise.resolve(Result.make.ok(99)));
 	};
 
-	const res = await breaker.protect(sideEffectTask)();
+	const res = await breaker.run(sideEffectTask);
 	expect(called).toBe(false); // Isolated: underlying task is never invoked
 	assert(res.kind === "Err");
 	assert(CircuitBreaker.is.openError(res.error));
@@ -163,7 +163,7 @@ test("protect: fast-fails immediately in 0ms with CircuitOpenError when Open", a
 test("state: evaluates to HalfOpen when resetTimeout elapses without incoming requests", async () => {
 	const breaker = CircuitBreaker.make<string>({ failureThreshold: 1, resetTimeout: Duration.milliseconds(20) });
 
-	await breaker.protect(makeErrTask("err"))();
+	await breaker.run(makeErrTask("err"));
 	expect(CircuitBreaker.is.open(breaker.state())).toBe(true);
 
 	await sleep(35);
@@ -175,10 +175,10 @@ test("state: evaluates to HalfOpen when resetTimeout elapses without incoming re
 	expect(state.consecutiveSuccesses).toBe(0);
 });
 
-test("protect: fast-fails concurrent calls while trial probe is in flight during HalfOpen", async () => {
+test("run: fast-fails concurrent calls while trial probe is in flight during HalfOpen", async () => {
 	const breaker = CircuitBreaker.make<string>({ failureThreshold: 1, resetTimeout: Duration.milliseconds(20) });
 
-	await breaker.protect(makeErrTask("err"))();
+	await breaker.run(makeErrTask("err"));
 	await sleep(30);
 
 	// Probe task takes 40ms to settle
@@ -190,13 +190,13 @@ test("protect: fast-fails concurrent calls while trial probe is in flight during
 		return Deferred.from.Promise(Promise.resolve(Result.make.ok("concurrent_ok")));
 	};
 
-	const probePromise = breaker.protect(probeTask)();
+	const probePromise = breaker.run(probeTask);
 
 	// Give microtask tick for probe to set probeInFlight = true
 	await sleep(5);
 
 	// Concurrent call arriving while probe is in flight
-	const concurrentResult = await breaker.protect(concurrentTask)();
+	const concurrentResult = await breaker.run(concurrentTask);
 
 	expect(concurrentCalled).toBe(false);
 	assert(concurrentResult.kind === "Err");
@@ -209,18 +209,18 @@ test("protect: fast-fails concurrent calls while trial probe is in flight during
 	expect(CircuitBreaker.is.closed(breaker.state())).toBe(true);
 });
 
-test("protect: resets to Closed after successThreshold consecutive successful probes", async () => {
+test("run: resets to Closed after successThreshold consecutive successful probes", async () => {
 	const breaker = CircuitBreaker.make<string>({
 		failureThreshold: 1,
 		resetTimeout: Duration.milliseconds(20),
 		successThreshold: 2,
 	});
 
-	await breaker.protect(makeErrTask("err"))();
+	await breaker.run(makeErrTask("err"));
 	await sleep(30);
 
 	// First probe succeeds
-	const res1 = await breaker.protect(makeOkTask(1))();
+	const res1 = await breaker.run(makeOkTask(1));
 	expect(res1).toStrictEqual(Result.make.ok(1));
 
 	// Still HalfOpen because successThreshold is 2
@@ -231,18 +231,18 @@ test("protect: resets to Closed after successThreshold consecutive successful pr
 	expect(intermediateState.consecutiveSuccesses).toBe(1);
 
 	// Second probe succeeds -> circuit recovers to Closed
-	const res2 = await breaker.protect(makeOkTask(2))();
+	const res2 = await breaker.run(makeOkTask(2));
 	expect(res2).toStrictEqual(Result.make.ok(2));
 	expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 0 });
 });
 
-test("protect: immediately re-trips to Open if probe in HalfOpen fails with tripping error", async () => {
+test("run: immediately re-trips to Open if probe in HalfOpen fails with tripping error", async () => {
 	const breaker = CircuitBreaker.make<string>({ failureThreshold: 1, resetTimeout: Duration.milliseconds(20) });
 
-	await breaker.protect(makeErrTask("original_err"))();
+	await breaker.run(makeErrTask("original_err"));
 	await sleep(30);
 
-	const probeRes = await breaker.protect(makeErrTask("new_probe_err"))();
+	const probeRes = await breaker.run(makeErrTask("new_probe_err"));
 	expect(probeRes).toStrictEqual(Result.make.err("new_probe_err"));
 
 	const state = breaker.state();
@@ -251,7 +251,7 @@ test("protect: immediately re-trips to Open if probe in HalfOpen fails with trip
 	expect(state.lastError).toBe("new_probe_err");
 });
 
-test("protect: advances consecutiveSuccesses if probe in HalfOpen returns non-tripping error", async () => {
+test("run: advances consecutiveSuccesses if probe in HalfOpen returns non-tripping error", async () => {
 	type ErrorKind = "500_server" | "404_not_found";
 
 	const breaker = CircuitBreaker.make<ErrorKind>({
@@ -260,11 +260,11 @@ test("protect: advances consecutiveSuccesses if probe in HalfOpen returns non-tr
 		shouldTrip: (e) => e === "500_server",
 	});
 
-	await breaker.protect(makeErrTask<ErrorKind>("500_server"))();
+	await breaker.run(makeErrTask<ErrorKind>("500_server"));
 	await sleep(30);
 
 	// Probe returns 404_not_found (service responded, not broken)
-	const probeRes = await breaker.protect(makeErrTask<ErrorKind>("404_not_found"))();
+	const probeRes = await breaker.run(makeErrTask<ErrorKind>("404_not_found"));
 	expect(probeRes).toStrictEqual(Result.make.err("404_not_found"));
 
 	// Circuit recovered to Closed because downstream answered
@@ -275,7 +275,7 @@ test("protect: advances consecutiveSuccesses if probe in HalfOpen returns non-tr
 // AbortSignal handling
 // -----------------------------------------------------------------------------
 
-test("protect: caller pre-aborted signal resolves through task without incrementing failures", async () => {
+test("run: caller pre-aborted signal resolves through task without incrementing failures", async () => {
 	const breaker = CircuitBreaker.make<string>({ failureThreshold: 1, resetTimeout: Duration.milliseconds(50) });
 
 	const controller = new AbortController();
@@ -284,21 +284,21 @@ test("protect: caller pre-aborted signal resolves through task without increment
 	const abortedTask: Task.Result<string, number> = (signal) =>
 		Deferred.from.Promise(Promise.resolve(signal?.aborted ? Result.make.err("aborted") : Result.make.ok(1)));
 
-	const res = await breaker.protect(abortedTask)(controller.signal);
+	const res = await breaker.run(abortedTask, { signal: controller.signal });
 	expect(res).toStrictEqual(Result.make.err("aborted"));
 	expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 0 });
 });
 
-test("protect: caller abortion during HalfOpen probe releases probeInFlight lock", async () => {
+test("run: caller abortion during HalfOpen probe releases probeInFlight lock", async () => {
 	const breaker = CircuitBreaker.make<string>({ failureThreshold: 1, resetTimeout: Duration.milliseconds(20) });
 
-	await breaker.protect(makeErrTask("err"))();
+	await breaker.run(makeErrTask("err"));
 	await sleep(30);
 
 	const controller = new AbortController();
 	const probeTask = makeOkTask("probe_value", 50);
 
-	const probePromise = breaker.protect(probeTask)(controller.signal);
+	const probePromise = breaker.run(probeTask, { signal: controller.signal });
 
 	// Abort caller while probe is running
 	await sleep(10);
@@ -313,10 +313,10 @@ test("protect: caller abortion during HalfOpen probe releases probeInFlight lock
 	expect(state.probeInFlight).toBe(false);
 });
 
-test("protect: caller abortion during HalfOpen probe notifies subscribers exactly once", async () => {
+test("run: caller abortion during HalfOpen probe notifies subscribers exactly once", async () => {
 	const breaker = CircuitBreaker.make<string>({ failureThreshold: 1, resetTimeout: Duration.milliseconds(20) });
 
-	await breaker.protect(makeErrTask("err"))();
+	await breaker.run(makeErrTask("err"));
 	await sleep(30);
 
 	const transitions: CircuitBreaker.State<string>[] = [];
@@ -325,7 +325,7 @@ test("protect: caller abortion during HalfOpen probe notifies subscribers exactl
 	const controller = new AbortController();
 	const probeTask = makeOkTask("probe_value", 50);
 
-	const probePromise = breaker.protect(probeTask)(controller.signal);
+	const probePromise = breaker.run(probeTask, { signal: controller.signal });
 
 	// Abort caller while probe is running
 	await sleep(10);
@@ -341,10 +341,10 @@ test("protect: caller abortion during HalfOpen probe notifies subscribers exactl
 	expect(transitions[1]).toStrictEqual({ kind: "HalfOpen", probeInFlight: false, consecutiveSuccesses: 0 });
 });
 
-test("protect: probe aborting synchronously during task invocation notifies subscribers and settles cleanly", async () => {
+test("run: probe aborting synchronously during task invocation notifies subscribers and settles cleanly", async () => {
 	const breaker = CircuitBreaker.make<string>({ failureThreshold: 1, resetTimeout: Duration.milliseconds(20) });
 
-	await breaker.protect(makeErrTask("err"))();
+	await breaker.run(makeErrTask("err"));
 	await sleep(30);
 
 	const transitions: CircuitBreaker.State<string>[] = [];
@@ -356,7 +356,7 @@ test("protect: probe aborting synchronously during task invocation notifies subs
 		return Deferred.from.Promise(Promise.resolve(Result.make.err("aborted_sync")));
 	};
 
-	const res = await breaker.protect(syncAbortTask)(controller.signal);
+	const res = await breaker.run(syncAbortTask, { signal: controller.signal });
 	expect(res).toStrictEqual(Result.make.err("aborted_sync"));
 
 	// Transitions:
@@ -371,7 +371,7 @@ test("protect: probe aborting synchronously during task invocation notifies subs
 // Sliding failure window
 // -----------------------------------------------------------------------------
 
-test("protect: supports sliding failureWindow and prunes expired failures", async () => {
+test("run: supports sliding failureWindow and prunes expired failures", async () => {
 	const breaker = CircuitBreaker.make<string>({
 		failureThreshold: 2,
 		resetTimeout: Duration.milliseconds(50),
@@ -379,7 +379,7 @@ test("protect: supports sliding failureWindow and prunes expired failures", asyn
 	});
 
 	// Failure 1
-	await breaker.protect(makeErrTask("err_1"))();
+	await breaker.run(makeErrTask("err_1"));
 	expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 1 });
 
 	// Wait for failure 1 to expire past the 30ms window
@@ -387,11 +387,11 @@ test("protect: supports sliding failureWindow and prunes expired failures", asyn
 	expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 0 });
 
 	// Failure 2 arrives after expiration -> count is 1, circuit does not trip
-	await breaker.protect(makeErrTask("err_2"))();
+	await breaker.run(makeErrTask("err_2"));
 	expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 1 });
 });
 
-test("protect: in failureWindow mode, intervening successes do not wipe windowed failures", async () => {
+test("run: in failureWindow mode, intervening successes do not wipe windowed failures", async () => {
 	const breaker = CircuitBreaker.make<string>({
 		failureThreshold: 2,
 		resetTimeout: Duration.milliseconds(50),
@@ -399,15 +399,15 @@ test("protect: in failureWindow mode, intervening successes do not wipe windowed
 	});
 
 	// Failure 1
-	await breaker.protect(makeErrTask("err_1"))();
+	await breaker.run(makeErrTask("err_1"));
 	expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 1 });
 
 	// Intervening success
-	await breaker.protect(makeOkTask("ok"))();
+	await breaker.run(makeOkTask("ok"));
 	expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 1 });
 
 	// Failure 2 within 100ms window -> trips circuit to Open!
-	await breaker.protect(makeErrTask("err_2"))();
+	await breaker.run(makeErrTask("err_2"));
 	expect(CircuitBreaker.is.open(breaker.state())).toBe(true);
 });
 
@@ -427,21 +427,21 @@ test("reset: does not notify subscribers if circuit was already clean Closed", (
 	expect(called).toBe(false);
 });
 
-test("protect: handles call-site pre-aborted signal directly", async () => {
+test("run: handles call-site pre-aborted signal directly", async () => {
 	const breaker = CircuitBreaker.make<string>({ failureThreshold: 2, resetTimeout: Duration.milliseconds(50) });
 
 	const controller = new AbortController();
 	controller.abort();
 
 	const task = makeOkTask("immediate_abort");
-	const res = await breaker.protect(task)(controller.signal);
+	const res = await breaker.run(task, { signal: controller.signal });
 	expect(res).toStrictEqual(Result.make.ok("immediate_abort"));
 });
 
 test("reset: forces circuit from Open to Closed and clears failures", async () => {
 	const breaker = CircuitBreaker.make<string>({ failureThreshold: 1, resetTimeout: Duration.milliseconds(100) });
 
-	await breaker.protect(makeErrTask("err"))();
+	await breaker.run(makeErrTask("err"));
 	expect(CircuitBreaker.is.open(breaker.state())).toBe(true);
 
 	breaker.reset();
@@ -452,12 +452,12 @@ test("reset: invalidates in-flight probe and prevents late probe failure from re
 	const breaker = CircuitBreaker.make<string>({ failureThreshold: 1, resetTimeout: Duration.milliseconds(20) });
 
 	// Trip circuit
-	await breaker.protect(makeErrTask("err_1"))();
+	await breaker.run(makeErrTask("err_1"));
 	expect(CircuitBreaker.is.open(breaker.state())).toBe(true);
 	await sleep(30);
 
 	// Launch probe that will take 40ms and fail
-	const probePromise = breaker.protect(makeErrTask("late_probe_err", 40))();
+	const probePromise = breaker.run(makeErrTask("late_probe_err", 40));
 
 	// Wait 10ms for probe to start
 	await sleep(10);
@@ -474,6 +474,58 @@ test("reset: invalidates in-flight probe and prevents late probe failure from re
 	expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 0 });
 });
 
+test("reset: a stale probe cannot replace the active probe after a second outage", async () => {
+	const breaker = CircuitBreaker.make<string>({ failureThreshold: 1, resetTimeout: Duration.milliseconds(0) });
+	await breaker.run(makeErrTask("first outage"));
+	const previous = Promise.withResolvers<Result<string, string>>();
+	const controller = new AbortController();
+	const previousCall = breaker.run(() => Deferred.from.Promise(previous.promise), { signal: controller.signal });
+
+	breaker.reset();
+	expect(controller.signal.aborted).toBe(false);
+	await breaker.run(makeErrTask("second outage"));
+	const current = Promise.withResolvers<Result<string, string>>();
+	const currentCall = breaker.run(() => Deferred.from.Promise(current.promise));
+
+	previous.resolve(Result.make.err("old probe failed"));
+	await expect(previousCall).resolves.toStrictEqual(Result.make.err("old probe failed"));
+	expect(breaker.state()).toStrictEqual({ kind: "HalfOpen", probeInFlight: true, consecutiveSuccesses: 0 });
+	let called = false;
+	const blocked = await breaker.run(() => {
+		called = true;
+		return Deferred.from.Promise(Promise.resolve(Result.make.ok("unexpected")));
+	});
+	expect(called).toBe(false);
+	expect(blocked).toStrictEqual(
+		Result.make.err({ kind: "CircuitOpenError", lastError: "second outage", retryAfterMs: 0 }),
+	);
+
+	current.resolve(Result.make.ok("recovered"));
+	await expect(currentCall).resolves.toStrictEqual(Result.make.ok("recovered"));
+	expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 0 });
+});
+
+test("reset: aborting a stale probe cannot release the current probe", async () => {
+	const breaker = CircuitBreaker.make<string>({ failureThreshold: 1, resetTimeout: Duration.milliseconds(0) });
+	await breaker.run(makeErrTask("first outage"));
+	const previous = Promise.withResolvers<Result<string, string>>();
+	const controller = new AbortController();
+	const previousCall = breaker.run(() => Deferred.from.Promise(previous.promise), { signal: controller.signal });
+	breaker.reset();
+	await breaker.run(makeErrTask("second outage"));
+	const current = Promise.withResolvers<Result<string, string>>();
+	const currentCall = breaker.run(() => Deferred.from.Promise(current.promise));
+
+	controller.abort();
+	expect(breaker.state()).toStrictEqual({ kind: "HalfOpen", probeInFlight: true, consecutiveSuccesses: 0 });
+	previous.resolve(Result.make.err("cancelled"));
+	await expect(previousCall).resolves.toStrictEqual(Result.make.err("cancelled"));
+	expect(breaker.state()).toStrictEqual({ kind: "HalfOpen", probeInFlight: true, consecutiveSuccesses: 0 });
+	current.resolve(Result.make.ok("recovered"));
+	await expect(currentCall).resolves.toStrictEqual(Result.make.ok("recovered"));
+	expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 0 });
+});
+
 test("subscribe: notifies listeners of state transitions and allows unsubscribing", async () => {
 	const breaker = CircuitBreaker.make<string>({ failureThreshold: 1, resetTimeout: Duration.milliseconds(20) });
 
@@ -481,7 +533,7 @@ test("subscribe: notifies listeners of state transitions and allows unsubscribin
 	const unsub = breaker.subscribe((s) => transitions.push(s));
 
 	// Closed -> Open
-	await breaker.protect(makeErrTask("err"))();
+	await breaker.run(makeErrTask("err"));
 	expect(transitions).toHaveLength(1);
 	expect(transitions[0]?.kind).toBe("Open");
 
@@ -489,7 +541,7 @@ test("subscribe: notifies listeners of state transitions and allows unsubscribin
 	await sleep(30);
 
 	// Open -> HalfOpen (probe starts) -> Closed (probe succeeds)
-	await breaker.protect(makeOkTask("ok"))();
+	await breaker.run(makeOkTask("ok"));
 
 	expect(transitions).toHaveLength(3);
 	expect(transitions[1]?.kind).toBe("HalfOpen");
@@ -497,16 +549,16 @@ test("subscribe: notifies listeners of state transitions and allows unsubscribin
 
 	// Unsubscribe stops future notifications
 	unsub();
-	await breaker.protect(makeErrTask("err_2"))();
+	await breaker.run(makeErrTask("err_2"));
 	expect(transitions).toHaveLength(3);
 });
 
-test("protect: in Closed state, caller aborting during in-flight task resolves without incrementing failures", async () => {
+test("run: in Closed state, caller aborting during in-flight task resolves without incrementing failures", async () => {
 	const breaker = CircuitBreaker.make<string>({ failureThreshold: 1, resetTimeout: Duration.milliseconds(50) });
 
 	const controller = new AbortController();
 	const task = makeOkTask("value", 30);
-	const promise = breaker.protect(task)(controller.signal);
+	const promise = breaker.run(task, { signal: controller.signal });
 
 	await sleep(10);
 	controller.abort();
@@ -516,7 +568,7 @@ test("protect: in Closed state, caller aborting during in-flight task resolves w
 	expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 0 });
 });
 
-test("protect: in HalfOpen state with successThreshold 2, non-tripping error advances consecutiveSuccesses", async () => {
+test("run: in HalfOpen state with successThreshold 2, non-tripping error advances consecutiveSuccesses", async () => {
 	type ErrorKind = "trip" | "ignore";
 	const breaker = CircuitBreaker.make<ErrorKind>({
 		failureThreshold: 1,
@@ -525,11 +577,11 @@ test("protect: in HalfOpen state with successThreshold 2, non-tripping error adv
 		shouldTrip: (e) => e === "trip",
 	});
 
-	await breaker.protect(makeErrTask<ErrorKind>("trip"))();
+	await breaker.run(makeErrTask<ErrorKind>("trip"));
 	await sleep(30);
 
 	// Probe 1 returns non-tripping error
-	const probe1 = await breaker.protect(makeErrTask<ErrorKind>("ignore"))();
+	const probe1 = await breaker.run(makeErrTask<ErrorKind>("ignore"));
 	expect(probe1).toStrictEqual(Result.make.err("ignore"));
 
 	// Intermediate HalfOpen state: consecutiveSuccesses: 1
@@ -539,7 +591,7 @@ test("protect: in HalfOpen state with successThreshold 2, non-tripping error adv
 	expect(state.consecutiveSuccesses).toBe(1);
 
 	// Probe 2 succeeds -> closes circuit
-	const probe2 = await breaker.protect(makeOkTask("ok"))();
+	const probe2 = await breaker.run(makeOkTask("ok"));
 	expect(probe2).toStrictEqual(Result.make.ok("ok"));
 	expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 0 });
 });
@@ -552,12 +604,15 @@ test("protect: in HalfOpen state with successThreshold 2, non-tripping error adv
 // Pipe composition & Realistic Recovery
 // -----------------------------------------------------------------------------
 
-test("pipe: composes cleanly inside pipe", async () => {
+test("run: starts the protected task immediately", async () => {
 	const breaker = CircuitBreaker.make<string>({ failureThreshold: 2, resetTimeout: Duration.milliseconds(50) });
-
-	const protectedTask = pipe(makeOkTask(100), breaker.protect);
-
-	const res = await protectedTask();
+	let started = false;
+	const result = breaker.run((signal) => {
+		started = true;
+		return makeOkTask(100)(signal);
+	});
+	expect(started).toBe(true);
+	const res = await result;
 	expect(res).toStrictEqual(Result.make.ok(100));
 });
 
@@ -580,14 +635,13 @@ test("pipe: composes in realistic multi-step pipeline with fallback error recove
 		);
 
 	// First call fails downstream -> trips breaker
-	const res1 = await pipe(fetchUser(true), breaker.protect)();
+	const res1 = await breaker.run(fetchUser(true));
 	assert(res1.kind === "Err");
 
 	// Second call fast-fails immediately via CircuitOpenError; pipeline recovers to cached fallback
-	const pipeline = pipe(
-		fetchUser(false),
-		breaker.protect,
-		Task.Result.match({
+	const message = pipe(
+		await breaker.run(fetchUser(false)),
+		Result.match({
 			ok: (user) => `Hello, ${user.name}`,
 			err: (err) =>
 				CircuitBreaker.is.openError(err)
@@ -597,8 +651,6 @@ test("pipe: composes in realistic multi-step pipeline with fallback error recove
 					: "Unexpected error",
 		}),
 	);
-
-	const message = await pipeline();
 	expect(message).toBe("Fallback: Cached User");
 });
 
@@ -606,10 +658,10 @@ test("pipe: composes in realistic multi-step pipeline with fallback error recove
 // Adversarial boundary and signal handling
 // -----------------------------------------------------------------------------
 
-test("protect: in Open state, pre-aborted signal fast-fails with CircuitOpenError without invoking downstream task", async () => {
+test("run: in Open state, pre-aborted signal fast-fails with CircuitOpenError without invoking downstream task", async () => {
 	const breaker = CircuitBreaker.make<string>({ failureThreshold: 1, resetTimeout: Duration.milliseconds(50) });
 
-	await breaker.protect(makeErrTask("upstream_failure"))();
+	await breaker.run(makeErrTask("upstream_failure"));
 	expect(CircuitBreaker.is.open(breaker.state())).toBe(true);
 
 	const controller = new AbortController();
@@ -621,7 +673,7 @@ test("protect: in Open state, pre-aborted signal fast-fails with CircuitOpenErro
 		return Deferred.from.Promise(Promise.resolve(Result.make.ok(42)));
 	};
 
-	const res = await breaker.protect(downstreamTask)(controller.signal);
+	const res = await breaker.run(downstreamTask, { signal: controller.signal });
 	expect(called).toBe(false);
 	assert(res.kind === "Err");
 	assert(CircuitBreaker.is.openError(res.error));
@@ -629,14 +681,14 @@ test("protect: in Open state, pre-aborted signal fast-fails with CircuitOpenErro
 	expect(res.error.lastError).toBe("upstream_failure");
 });
 
-test("protect: in HalfOpen state with probe in flight, pre-aborted signal fast-fails without invoking task", async () => {
+test("run: in HalfOpen state with probe in flight, pre-aborted signal fast-fails without invoking task", async () => {
 	const breaker = CircuitBreaker.make<string>({ failureThreshold: 1, resetTimeout: Duration.milliseconds(20) });
 
-	await breaker.protect(makeErrTask("trip_err"))();
+	await breaker.run(makeErrTask("trip_err"));
 	await sleep(30);
 
 	// Start probe that runs for 40ms
-	const probePromise = breaker.protect(makeOkTask("probe_val", 40))();
+	const probePromise = breaker.run(makeOkTask("probe_val", 40));
 	await sleep(5);
 
 	const controller = new AbortController();
@@ -648,7 +700,7 @@ test("protect: in HalfOpen state with probe in flight, pre-aborted signal fast-f
 		return Deferred.from.Promise(Promise.resolve(Result.make.ok("concurrent")));
 	};
 
-	const concurrentRes = await breaker.protect(concurrentTask)(controller.signal);
+	const concurrentRes = await breaker.run(concurrentTask, { signal: controller.signal });
 	expect(concurrentCalled).toBe(false);
 	assert(concurrentRes.kind === "Err");
 	assert(CircuitBreaker.is.openError(concurrentRes.error));
@@ -657,10 +709,10 @@ test("protect: in HalfOpen state with probe in flight, pre-aborted signal fast-f
 	await probePromise;
 });
 
-test("protect: in HalfOpen state without probe in flight, pre-aborted signal does not consume probe slot", async () => {
+test("run: in HalfOpen state without probe in flight, pre-aborted signal does not consume probe slot", async () => {
 	const breaker = CircuitBreaker.make<string>({ failureThreshold: 1, resetTimeout: Duration.milliseconds(20) });
 
-	await breaker.protect(makeErrTask("err"))();
+	await breaker.run(makeErrTask("err"));
 	await sleep(30);
 
 	const controller = new AbortController();
@@ -669,7 +721,7 @@ test("protect: in HalfOpen state without probe in flight, pre-aborted signal doe
 	const abortedTask: Task.Result<string, number> = (signal) =>
 		Deferred.from.Promise(Promise.resolve(signal?.aborted ? Result.make.err("aborted") : Result.make.ok(1)));
 
-	await breaker.protect(abortedTask)(controller.signal);
+	await breaker.run(abortedTask, { signal: controller.signal });
 
 	// State must still permit next real probe
 	const state = breaker.state();
@@ -689,14 +741,14 @@ test("make: normalizes NaN and non-finite configuration values safely and trips 
 	expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 0 });
 
 	// Should trip after 1 failure because failureThreshold normalized to 1
-	await breaker.protect(makeErrTask("err"))();
+	await breaker.run(makeErrTask("err"));
 	expect(CircuitBreaker.is.open(breaker.state())).toBe(true);
 });
 
 test("make: normalizes NaN resetTimeout to 0ms (evaluates immediately to HalfOpen)", async () => {
 	const breaker = CircuitBreaker.make<string>({ failureThreshold: 1, resetTimeout: Duration.milliseconds(Number.NaN) });
 
-	await breaker.protect(makeErrTask("err"))();
+	await breaker.run(makeErrTask("err"));
 	// Since resetTimeout is 0ms, cooldown has elapsed immediately
 	expect(CircuitBreaker.is.halfOpen(breaker.state())).toBe(true);
 });

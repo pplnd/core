@@ -32,7 +32,7 @@ Functions accept their data last, so multi-step operations read top-to-bottom in
 <!-- BUNDLE_OVERVIEW:START -->
 
 It has zero dependencies, ships ESM and CommonJS builds, and tree-shakes down to ~27 B–6.25 kB
-gzipped for individual modules and 23.68 kB for the entire package.
+gzipped for individual modules and 23.83 kB for the entire package.
 
 <!-- BUNDLE_OVERVIEW:END -->
 
@@ -633,17 +633,17 @@ When imported individually, only the targeted module is bundled into your applic
 | `flow`         | **173 B**          |
 | `Brand`        | **27 B**           |
 | `Duration`     | **150 B**          |
-| `Maybe`        | **1.57 kB**        |
-| `Result`       | **1.57 kB**        |
-| `Validation`   | **1.57 kB**        |
+| `Maybe`        | **1.56 kB**        |
+| `Result`       | **1.56 kB**        |
+| `Validation`   | **1.56 kB**        |
 | `RemoteData`   | **1.87 kB**        |
-| `Machine`      | **2.05 kB**        |
+| `Machine`      | **2.06 kB**        |
 | `EventBus`     | **1.21 kB**        |
-| `Batcher`      | **2.86 kB**        |
+| `Batcher`      | **2.96 kB**        |
 | `Resource`     | **2.10 kB**        |
-| `Graph`        | **5.49 kB**        |
+| `Graph`        | **2.83 kB**        |
 | `Task`         | **4.37 kB**        |
-| `Transaction`  | **5.21 kB**        |
+| `Transaction`  | **2.52 kB**        |
 | `Op`           | **6.20 kB**        |
 | `Lens`         | **233 B**          |
 | `Arr`          | **6.25 kB**        |

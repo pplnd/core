@@ -13,16 +13,15 @@ import { Transaction } from "../Transaction.ts";
 
 test("run: starts immediately and isolates input and output between runs", async () => {
 	const seen: string[] = [];
-	const transactionStep0 = Transaction.step({
-		id: "saved",
-		run: () => (initial: { readonly orderId: string; }) => {
+	const transactionStep0 = Transaction.stepFactory<{ readonly orderId: string; }>()("saved", {
+		run: ({ ctx: { input: initial } }) => {
 			seen.push(initial.orderId);
 			return Task.Result.make.ok(initial.orderId);
 		},
 	});
 	const transaction = Transaction.make(transactionStep0);
-	const first = Transaction.run(transaction, { input: { orderId: "first" } });
-	const second = Transaction.run(transaction, { input: { orderId: "second" } });
+	const first = Transaction.run(transaction, { orderId: "first" });
+	const second = Transaction.run(transaction, { orderId: "second" });
 	expect(seen).toStrictEqual(["first", "second"]);
 	const firstResult = await first;
 	const secondResult = await second;
@@ -31,33 +30,29 @@ test("run: starts immediately and isolates input and output between runs", async
 });
 
 test("step: throws TypeError if id is empty", () => {
-	expect(() => Transaction.step({ id: "", run: () => () => Task.Result.make.ok(1) })).toThrow(TypeError);
+	expect(() => Transaction.step("", { run: () => Task.Result.make.ok(1) })).toThrow(TypeError);
 });
 
 test("step: throws TypeError if id is 'initial'", () => {
 	expect(() =>
-		Transaction.step({
-			// @ts-expect-error — 'initial' is reserved
-			id: "initial",
-			run: () => () => Task.Result.make.ok(1),
-		})
+		// @ts-expect-error — 'initial' is reserved
+		Transaction.step("initial", { run: () => Task.Result.make.ok(1) })
 	).toThrow(TypeError);
 });
 
 test("step: throws Error on duplicate step id", () => {
 	const id = (): string => "stepA";
-	const first = Transaction.step({ id: id(), run: () => () => Task.Result.make.ok(1) });
-	const second = Transaction.step({ id: id(), run: () => () => Task.Result.make.ok(2) });
+	const first = Transaction.step(id(), { run: () => Task.Result.make.ok(1) });
+	const second = Transaction.step(id(), { run: () => Task.Result.make.ok(2) });
 	expect(() => Transaction.make(first, second)).toThrow(/Duplicate step id 'stepA'/);
 });
 
 test("make: rejects missing, later, and different steps with the same id", () => {
-	const upload = Transaction.step({ id: "upload", run: () => () => Task.Result.make.ok("file") });
-	const anotherUpload = Transaction.step({ id: "upload", run: () => () => Task.Result.make.ok("other") });
-	const index = Transaction.step({
-		id: "index",
+	const upload = Transaction.step("upload", { run: () => Task.Result.make.ok("file") });
+	const anotherUpload = Transaction.step("upload", { run: () => Task.Result.make.ok("other") });
+	const index = Transaction.step("index", {
 		deps: { file: upload },
-		run: ({ file }) => () => Task.Result.make.ok(file.length),
+		run: ({ deps: { file } }) => Task.Result.make.ok(file.length),
 	});
 	const missing: Transaction.AnyStep<void>[] = [index];
 	const later: Transaction.AnyStep<void>[] = [index, upload];
@@ -70,31 +65,34 @@ test("make: rejects missing, later, and different steps with the same id", () =>
 
 test("make: validates the identity of a broadly typed dependency", async () => {
 	type Order = { readonly sku: string; };
-	const reserve = Transaction.step({ id: "reserve", run: () => (order: Order) => Task.Result.make.ok(order.sku) });
-	const other = Transaction.step({ id: "other", run: () => (order: Order) => Task.Result.make.ok(order.sku) });
+	const reserve = Transaction.stepFactory<Order>()("reserve", {
+		run: ({ ctx: { input: order } }) => Task.Result.make.ok(order.sku),
+	});
+	const other = Transaction.stepFactory<Order>()("other", {
+		run: ({ ctx: { input: order } }) => Task.Result.make.ok(order.sku),
+	});
 	const build = (dependency: Transaction.AnyStep<Order>) => {
-		const dependent = Transaction.step({
-			id: "dependent",
+		const dependent = Transaction.stepFactory<Order>()("dependent", {
 			deps: { dependency },
-			run: ({ dependency: previous }) => (order: Order) => Task.Result.make.ok({ dependency: previous, sku: order.sku }),
+			run: ({ ctx: { input: order }, deps: { dependency: previous } }) =>
+				Task.Result.make.ok({ dependency: previous, sku: order.sku }),
 		});
 		return Transaction.make(reserve, dependent);
 	};
 
-	const result = await Transaction.run(build(reserve), { input: { sku: "book" } });
+	const result = await Transaction.run(build(reserve), { sku: "book" });
 	expect(result).toStrictEqual(Result.make.ok({ reserve: "book", dependent: { dependency: "book", sku: "book" } }));
 	expect(() => build(other)).toThrow(/Dependency 'other' must precede step 'dependent'/);
 });
 
 test("make: supports conditional and absent dependencies without skipping validation", async () => {
-	const first = Transaction.step({ id: "first", run: () => () => Task.Result.make.ok("one") });
-	const other = Transaction.step({ id: "other", run: () => () => Task.Result.make.ok("two") });
+	const first = Transaction.step("first", { run: () => Task.Result.make.ok("one") });
+	const other = Transaction.step("other", { run: () => Task.Result.make.ok("two") });
 	const build = (useFirst: boolean) => {
 		const deps = useFirst ? { primary: first } : { alternate: other };
-		const dependent = Transaction.step({
-			id: "dependent",
+		const dependent = Transaction.step("dependent", {
 			deps,
-			run: (resolved) => () => Task.Result.make.ok(resolved.primary ?? resolved.alternate),
+			run: ({ deps: resolved }) => Task.Result.make.ok(resolved.primary ?? resolved.alternate),
 		});
 		return Transaction.make(first, dependent);
 	};
@@ -102,10 +100,9 @@ test("make: supports conditional and absent dependencies without skipping valida
 	expect(result).toStrictEqual(Result.make.ok({ first: "one", dependent: "one" }));
 	expect(() => build(false)).toThrow(/Dependency 'other' must precede step 'dependent'/);
 
-	const optional = Transaction.step({
-		id: "optional",
+	const optional = Transaction.step("optional", {
 		deps: { skipped: undefined },
-		run: (resolved) => () => Task.Result.make.ok(Object.hasOwn(resolved, "skipped")),
+		run: ({ deps: resolved }) => Task.Result.make.ok(Object.hasOwn(resolved, "skipped")),
 	});
 	const optionalResult = await Transaction.run(Transaction.make(optional));
 	expect(optionalResult).toStrictEqual(Result.make.ok({ optional: false }));
@@ -114,21 +111,19 @@ test("make: supports conditional and absent dependencies without skipping valida
 test("rollback: compensation receives dependency aliases and the same run input", async () => {
 	type Order = { readonly customer: string; };
 	const log: string[] = [];
-	const upload = Transaction.step({
-		id: "upload",
-		run: () => (order: Order) => Task.Result.make.ok(`file:${order.customer}`),
+	const upload = Transaction.stepFactory<Order>()("upload", {
+		run: ({ ctx: { input: order } }) => Task.Result.make.ok(`file:${order.customer}`),
 	});
-	const index = Transaction.step({
-		id: "index",
+	const index = Transaction.stepFactory<Order>()("index", {
 		deps: { file: upload },
-		run: ({ file }) => (order: Order) => Task.Result.make.ok(`${file}:${order.customer}`),
-		undo: (value, { file }, order) => {
+		run: ({ ctx: { input: order }, deps: { file } }) => Task.Result.make.ok(`${file}:${order.customer}`),
+		undo: ({ ctx: { output: value, input: order }, deps: { file } }) => {
 			log.push(`${value}|${file}|${order.customer}`);
 			return Task.Result.make.ok(undefined);
 		},
 	});
-	const notify = Transaction.step({ id: "notify", run: () => () => Task.Result.make.err("offline") });
-	const outcome = await Transaction.run(Transaction.make(upload, index, notify), { input: { customer: "Mina" } });
+	const notify = Transaction.step("notify", { run: () => Task.Result.make.err("offline") });
+	const outcome = await Transaction.run(Transaction.make(upload, index, notify), { customer: "Mina" });
 
 	expect(outcome).toStrictEqual(
 		Result.make.err({ kind: "TransactionFailure", stepId: "notify", error: "offline", undoErrors: [] }),
@@ -143,17 +138,15 @@ test("rollback: compensation receives dependency aliases and the same run input"
 test("forward: executes sequential steps without input and accumulates outputs", async () => {
 	const order: string[] = [];
 
-	const transactionStep0 = Transaction.step({
-		id: "first",
-		run: () => () => {
+	const transactionStep0 = Transaction.step("first", {
+		run: () => {
 			order.push("run:first");
 			return Task.Result.make.ok(10);
 		},
 	});
-	const transactionStep1 = Transaction.step({
-		id: "second",
+	const transactionStep1 = Transaction.step("second", {
 		deps: { first: transactionStep0 },
-		run: (ctx) => () => {
+		run: ({ deps: ctx }) => {
 			order.push(`run:second(${ctx.first})`);
 			return Task.Result.make.ok(`val_${ctx.first * 2}`);
 		},
@@ -169,25 +162,22 @@ test("forward: executes sequential steps without input and accumulates outputs",
 test("forward: threads initial input and prior step outputs across all steps", async () => {
 	type Input = { readonly sku: string; readonly qty: number; };
 
-	const transactionStep0 = Transaction.step({
-		id: "reserve",
-		run: () => (initial: Input) => Task.Result.make.ok({ resId: `res_${initial.sku}_${initial.qty}` }),
+	const transactionStep0 = Transaction.stepFactory<Input>()("reserve", {
+		run: ({ ctx: { input: initial } }) => Task.Result.make.ok({ resId: `res_${initial.sku}_${initial.qty}` }),
 	});
-	const transactionStep1 = Transaction.step({
-		id: "charge",
+	const transactionStep1 = Transaction.stepFactory<Input>()("charge", {
 		deps: { reserve: transactionStep0 },
-		run: ({ reserve }) => (initial: Input) =>
+		run: ({ ctx: { input: initial }, deps: { reserve } }) =>
 			Task.Result.make.ok({ chargeId: `ch_${reserve.resId}`, amount: initial.qty * 50 }),
 	});
-	const transactionStep2 = Transaction.step({
-		id: "notify",
+	const transactionStep2 = Transaction.stepFactory<Input>()("notify", {
 		deps: { reserve: transactionStep0, charge: transactionStep1 },
-		run: ({ reserve, charge }) => (initial: Input) =>
+		run: ({ ctx: { input: initial }, deps: { reserve, charge } }) =>
 			Task.Result.make.ok({ status: "sent", summary: `${initial.sku}: ${reserve.resId} charged ${charge.amount}` }),
 	});
 	const tx = Transaction.make(transactionStep0, transactionStep1, transactionStep2);
 
-	const outcome = await Transaction.run(tx, { input: { sku: "widget", qty: 3 } });
+	const outcome = await Transaction.run(tx, { sku: "widget", qty: 3 });
 
 	expect(outcome).toStrictEqual(
 		Result.make.ok({
@@ -205,32 +195,29 @@ test("forward: threads initial input and prior step outputs across all steps", a
 test("rollback: invokes completed step undo handlers in strict LIFO order on failure", async () => {
 	const log: string[] = [];
 
-	const transactionStep0 = Transaction.step({
-		id: "step1",
-		run: () => (initial: { readonly userId: string; }) => {
+	const transactionStep0 = Transaction.stepFactory<{ readonly userId: string; }>()("step1", {
+		run: ({ ctx: { input: initial } }) => {
 			log.push(`run:step1(${initial.userId})`);
 			return Task.Result.make.ok("out1");
 		},
-		undo: (out, ctx, initial) => {
+		undo: ({ ctx: { output: out, input: initial } }) => {
 			log.push(`undo:step1(${out}, initial=${initial.userId})`);
 			return Task.Result.make.ok(undefined);
 		},
 	});
-	const transactionStep1 = Transaction.step({
-		id: "step2",
+	const transactionStep1 = Transaction.stepFactory<{ readonly userId: string; }>()("step2", {
 		deps: { step1: transactionStep0 },
-		run: ({ step1 }) => (_input: { readonly userId: string; }) => {
+		run: ({ ctx: { input: _input }, deps: { step1 } }) => {
 			log.push(`run:step2(${step1})`);
 			return Task.Result.make.ok("out2");
 		},
-		undo: (out, ctx) => {
+		undo: ({ ctx: { output: out }, deps: ctx }) => {
 			log.push(`undo:step2(${out}, step1=${ctx.step1})`);
 			return Task.Result.make.ok(undefined);
 		},
 	});
-	const transactionStep2 = Transaction.step({
-		id: "step3",
-		run: () => (_input: { readonly userId: string; }) => {
+	const transactionStep2 = Transaction.stepFactory<{ readonly userId: string; }>()("step3", {
+		run: ({ ctx: { input: _input } }) => {
 			log.push("run:step3:fails");
 			return Task.Result.make.err("step3_failed");
 		},
@@ -241,7 +228,7 @@ test("rollback: invokes completed step undo handlers in strict LIFO order on fai
 	});
 	const tx = Transaction.make(transactionStep0, transactionStep1, transactionStep2);
 
-	const outcome = await Transaction.run(tx, { input: { userId: "user_42" } });
+	const outcome = await Transaction.run(tx, { userId: "user_42" });
 
 	expect(outcome).toStrictEqual(
 		Result.make.err({ kind: "TransactionFailure", stepId: "step3", error: "step3_failed", undoErrors: [] }),
@@ -259,9 +246,8 @@ test("rollback: invokes completed step undo handlers in strict LIFO order on fai
 test("rollback: when step 1 fails, no undos are invoked and undoErrors is empty", async () => {
 	let undoCalled = false;
 
-	const transactionStep0 = Transaction.step({
-		id: "first",
-		run: () => () => Task.Result.make.err("first_failed"),
+	const transactionStep0 = Transaction.step("first", {
+		run: () => Task.Result.make.err("first_failed"),
 		undo: () => {
 			undoCalled = true;
 			return Task.Result.make.ok(undefined);
@@ -280,24 +266,22 @@ test("rollback: when step 1 fails, no undos are invoked and undoErrors is empty"
 test("rollback: steps without undo are safely skipped during LIFO drainage", async () => {
 	const rollbacks: string[] = [];
 
-	const transactionStep0 = Transaction.step({
-		id: "s1",
-		run: () => () => Task.Result.make.ok("v1"),
+	const transactionStep0 = Transaction.step("s1", {
+		run: () => Task.Result.make.ok("v1"),
 		undo: () => {
 			rollbacks.push("s1");
 			return Task.Result.make.ok(undefined);
 		},
 	});
-	const transactionStep1 = Transaction.step({ id: "s2", run: () => () => Task.Result.make.ok("v2") });
-	const transactionStep2 = Transaction.step({
-		id: "s3",
-		run: () => () => Task.Result.make.ok("v3"),
+	const transactionStep1 = Transaction.step("s2", { run: () => Task.Result.make.ok("v2") });
+	const transactionStep2 = Transaction.step("s3", {
+		run: () => Task.Result.make.ok("v3"),
 		undo: () => {
 			rollbacks.push("s3");
 			return Task.Result.make.ok(undefined);
 		},
 	});
-	const transactionStep3 = Transaction.step({ id: "s4", run: () => () => Task.Result.make.err("s4_failed") });
+	const transactionStep3 = Transaction.step("s4", { run: () => Task.Result.make.err("s4_failed") });
 	const tx = Transaction.make(transactionStep0, transactionStep1, transactionStep2, transactionStep3);
 
 	const outcome = await Transaction.run(tx);
@@ -313,33 +297,29 @@ test("rollback: steps without undo are safely skipped during LIFO drainage", asy
 test("rollback: continues draining remaining undos when intermediate undos return errors", async () => {
 	const log: string[] = [];
 
-	const transactionStep0 = Transaction.step({
-		id: "step1",
-		run: () => () => Task.Result.make.ok(1),
+	const transactionStep0 = Transaction.step("step1", {
+		run: () => Task.Result.make.ok(1),
 		undo: () => {
 			log.push("undo:step1");
 			return Task.Result.make.ok(undefined);
 		},
 	});
-	const transactionStep1 = Transaction.step({
-		id: "step2",
-		run: () => () => Task.Result.make.ok(2),
+	const transactionStep1 = Transaction.step("step2", {
+		run: () => Task.Result.make.ok(2),
 		undo: () => {
 			log.push("undo:step2_fails");
 			return Task.Result.make.err("step2_undo_err");
 		},
 	});
-	const transactionStep2 = Transaction.step({
-		id: "step3",
-		run: () => () => Task.Result.make.ok(3),
+	const transactionStep2 = Transaction.step("step3", {
+		run: () => Task.Result.make.ok(3),
 		undo: () => {
 			log.push("undo:step3_fails");
 			return Task.Result.make.err("step3_undo_err");
 		},
 	});
-	const transactionStep3 = Transaction.step({
-		id: "step4",
-		run: () => () => {
+	const transactionStep3 = Transaction.step("step4", {
+		run: () => {
 			log.push("run:step4_fails");
 			return Task.Result.make.err("forward_failure");
 		},
@@ -370,16 +350,15 @@ test("abort: returns Err immediately if signal is already aborted before startin
 
 	let stepExecuted = false;
 
-	const transactionStep0 = Transaction.step({
-		id: "s1",
-		run: () => () => {
+	const transactionStep0 = Transaction.step("s1", {
+		run: () => {
 			stepExecuted = true;
 			return Task.Result.make.ok("v1");
 		},
 	});
 	const tx = Transaction.make(transactionStep0);
 
-	const outcome = await Transaction.run(tx, { signal: controller.signal });
+	const outcome = await Transaction.run(tx, undefined, { signal: controller.signal });
 
 	expect(stepExecuted).toBe(false);
 	expect(outcome).toStrictEqual(
@@ -396,9 +375,8 @@ test("abort: triggers LIFO rollback of completed steps when aborted mid-flight",
 	const controller = new AbortController();
 	const log: string[] = [];
 
-	const transactionStep0 = Transaction.step({
-		id: "s1",
-		run: () => () => {
+	const transactionStep0 = Transaction.step("s1", {
+		run: () => {
 			log.push("run:s1");
 			return Task.Result.make.ok("v1");
 		},
@@ -407,9 +385,8 @@ test("abort: triggers LIFO rollback of completed steps when aborted mid-flight",
 			return Task.Result.make.ok(undefined);
 		},
 	});
-	const transactionStep1 = Transaction.step({
-		id: "s2",
-		run: () => () => {
+	const transactionStep1 = Transaction.step("s2", {
+		run: () => {
 			log.push("run:s2:aborting");
 			controller.abort(new Error("mid_flight_abort"));
 			return Task.Result.make.ok("v2");
@@ -419,16 +396,15 @@ test("abort: triggers LIFO rollback of completed steps when aborted mid-flight",
 			return Task.Result.make.ok(undefined);
 		},
 	});
-	const transactionStep2 = Transaction.step({
-		id: "s3",
-		run: () => () => {
+	const transactionStep2 = Transaction.step("s3", {
+		run: () => {
 			log.push("run:s3:should_not_run");
 			return Task.Result.make.ok("v3");
 		},
 	});
 	const tx = Transaction.make(transactionStep0, transactionStep1, transactionStep2);
 
-	const outcome = await Transaction.run(tx, { signal: controller.signal });
+	const outcome = await Transaction.run(tx, undefined, { signal: controller.signal });
 
 	expect(outcome).toStrictEqual(
 		Result.make.err({
@@ -450,16 +426,15 @@ test("retry: transient step failure retries up to policy attempts and succeeds w
 	let attempts = 0;
 	let undoCalled = false;
 
-	const transactionStep0 = Transaction.step({
-		id: "transientStep",
-		retry: RetryPolicy.constant({ attempts: 3, delay: Duration.milliseconds(5) }),
-		run: () => () => {
-			attempts++;
-			if (attempts < 3) {
-				return Task.Result.make.err("transient_err");
-			}
-			return Task.Result.make.ok("recovered");
-		},
+	const transactionStep0 = Transaction.step("transientStep", {
+		run: () =>
+			Task.Result.retry(RetryPolicy.constant({ attempts: 3, delay: Duration.milliseconds(5) }))((signal) => {
+				attempts++;
+				if (attempts < 3) {
+					return Task.Result.make.err("transient_err")(signal);
+				}
+				return Task.Result.make.ok("recovered")(signal);
+			}),
 		undo: () => {
 			undoCalled = true;
 			return Task.Result.make.ok(undefined);
@@ -478,21 +453,19 @@ test("retry: step failure that exhausts retries initiates LIFO rollback", async 
 	let attempts = 0;
 	const log: string[] = [];
 
-	const transactionStep0 = Transaction.step({
-		id: "step1",
-		run: () => () => Task.Result.make.ok("s1_ok"),
+	const transactionStep0 = Transaction.step("step1", {
+		run: () => Task.Result.make.ok("s1_ok"),
 		undo: () => {
 			log.push("undo:step1");
 			return Task.Result.make.ok(undefined);
 		},
 	});
-	const transactionStep1 = Transaction.step({
-		id: "step2",
-		retry: RetryPolicy.constant({ attempts: 2, delay: Duration.milliseconds(5) }),
-		run: () => () => {
-			attempts++;
-			return Task.Result.make.err(`retry_err_${attempts}`);
-		},
+	const transactionStep1 = Transaction.step("step2", {
+		run: () =>
+			Task.Result.retry(RetryPolicy.constant({ attempts: 2, delay: Duration.milliseconds(5) }))((signal) => {
+				attempts++;
+				return Task.Result.make.err(`retry_err_${attempts}`)(signal);
+			}),
 	});
 	const tx = Transaction.make(transactionStep0, transactionStep1);
 
@@ -508,22 +481,21 @@ test("retry: step failure that exhausts retries initiates LIFO rollback", async 
 test("timeout: forward step exceeding timeout duration fails and rolls back", async () => {
 	const log: string[] = [];
 
-	const transactionStep0 = Transaction.step({
-		id: "step1",
-		run: () => () => Task.Result.make.ok("s1_ok"),
+	const transactionStep0 = Transaction.step("step1", {
+		run: () => Task.Result.make.ok("s1_ok"),
 		undo: () => {
 			log.push("undo:step1");
 			return Task.Result.make.ok(undefined);
 		},
 	});
-	const transactionStep1 = Transaction.step({
-		id: "slowStep",
-		timeout: { duration: Duration.milliseconds(10), onTimeout: () => "timed_out" },
-		run: () => () => () =>
-			Deferred.from.Promise(
-				new Promise<Result<never, string>>((resolve) => {
-					setTimeout(() => resolve(Result.make.ok("too_late")), 50);
-				}),
+	const transactionStep1 = Transaction.step("slowStep", {
+		run: () =>
+			Task.Result.timeout({ duration: Duration.milliseconds(10), onTimeout: () => "timed_out" })(() =>
+				Deferred.from.Promise(
+					new Promise<Result<never, string>>((resolve) => {
+						setTimeout(() => resolve(Result.make.ok("too_late")), 50);
+					}),
+				)
 			),
 	});
 	const tx = Transaction.make(transactionStep0, transactionStep1);
@@ -536,6 +508,34 @@ test("timeout: forward step exceeding timeout duration fails and rolls back", as
 	expect(log).toStrictEqual(["undo:step1"]);
 });
 
+test("timeout: aborts the task before compensation and leaves undo uncancelled", async () => {
+	const events: string[] = [];
+	const reserve = Transaction.step("reserve", {
+		run: () => Task.Result.make.ok("reserved"),
+		undo: () => (signal) => {
+			events.push(signal === undefined ? "undo:uncancelled" : "undo:signal");
+			return Task.Result.make.ok(undefined)(signal);
+		},
+	});
+	const upload = Transaction.step("upload", {
+		run: () =>
+			Task.Result.timeout({ duration: Duration.milliseconds(5), onTimeout: () => "timed_out" })(
+				Task.Result.tryCatch((signal) =>
+					new Promise<string>((_resolve, reject) => {
+						signal?.addEventListener("abort", () => {
+							events.push("upload:aborted");
+							reject(new Error("aborted"));
+						}, { once: true });
+					}), { onError: String }),
+			),
+	});
+	const outcome = await Transaction.run(Transaction.make(reserve, upload));
+	expect(outcome).toStrictEqual(
+		Result.make.err({ kind: "TransactionFailure", stepId: "upload", error: "timed_out", undoErrors: [] }),
+	);
+	expect(events).toStrictEqual(["upload:aborted", "undo:uncancelled"]);
+});
+
 // =============================================================================
 // Telemetry Hooks & Exception Isolation
 // =============================================================================
@@ -545,19 +545,17 @@ test("telemetry: fires onStepSuccess, onStepFailure, and onUndo hooks", async ()
 	const failures: Array<{ stepId: string; error: unknown; }> = [];
 	const undos: Array<{ stepId: string; error?: unknown; }> = [];
 
-	const transactionStep0 = Transaction.step({
-		id: "s1",
-		run: () => () => Task.Result.make.ok("val1"),
+	const transactionStep0 = Transaction.step("s1", {
+		run: () => Task.Result.make.ok("val1"),
 		undo: () => Task.Result.make.ok(undefined),
 	});
-	const transactionStep1 = Transaction.step({
-		id: "s2",
-		run: () => () => Task.Result.make.err("fail2"),
+	const transactionStep1 = Transaction.step("s2", {
+		run: () => Task.Result.make.err("fail2"),
 		undo: () => Task.Result.make.ok(undefined),
 	});
 	const tx = Transaction.make(transactionStep0, transactionStep1);
 
-	await Transaction.run(tx, {
+	await Transaction.run(tx, undefined, {
 		onStepSuccess: (meta) => successes.push(meta),
 		onStepFailure: (meta) => failures.push(meta),
 		onUndo: (meta) => undos.push(meta),
@@ -571,15 +569,14 @@ test("telemetry: fires onStepSuccess, onStepFailure, and onUndo hooks", async ()
 test("telemetry: fires onUndo with the error when undo fails", async () => {
 	const undos: Array<{ stepId: string; error?: unknown; }> = [];
 
-	const transactionStep0 = Transaction.step({
-		id: "s1",
-		run: () => () => Task.Result.make.ok("v1"),
+	const transactionStep0 = Transaction.step("s1", {
+		run: () => Task.Result.make.ok("v1"),
 		undo: () => Task.Result.make.err("undo_failed_err"),
 	});
-	const transactionStep1 = Transaction.step({ id: "s2", run: () => () => Task.Result.make.err("step2_fail") });
+	const transactionStep1 = Transaction.step("s2", { run: () => Task.Result.make.err("step2_fail") });
 	const tx = Transaction.make(transactionStep0, transactionStep1);
 
-	const outcome = await Transaction.run(tx, {
+	const outcome = await Transaction.run(tx, undefined, {
 		onUndo: (meta) => {
 			undos.push(meta);
 		},
@@ -592,18 +589,17 @@ test("telemetry: fires onUndo with the error when undo fails", async () => {
 test("signals: aborts a running transaction through the run signal", async () => {
 	const callerCtrl = new AbortController();
 
-	const transactionStep0 = Transaction.step({ id: "s1", run: () => () => Task.Result.make.ok("v1") });
-	const transactionStep1 = Transaction.step({
-		id: "s2",
-		run: () => () => {
+	const transactionStep0 = Transaction.step("s1", { run: () => Task.Result.make.ok("v1") });
+	const transactionStep1 = Transaction.step("s2", {
+		run: () => {
 			callerCtrl.abort(new Error("caller_abort"));
 			return Task.Result.make.ok("v2");
 		},
 	});
-	const transactionStep2 = Transaction.step({ id: "s3", run: () => () => Task.Result.make.ok("v3") });
+	const transactionStep2 = Transaction.step("s3", { run: () => Task.Result.make.ok("v3") });
 	const tx = Transaction.make(transactionStep0, transactionStep1, transactionStep2);
 
-	const outcome = await Transaction.run(tx, { signal: callerCtrl.signal });
+	const outcome = await Transaction.run(tx, undefined, { signal: callerCtrl.signal });
 
 	expect(outcome).toStrictEqual(
 		Result.make.err({
@@ -617,11 +613,10 @@ test("signals: aborts a running transaction through the run signal", async () =>
 
 test("step: defines __proto__ as an own property without mutating the output or context prototype", async () => {
 	const payload = { polluted: true };
-	const transactionStep0 = Transaction.step({ id: "__proto__", run: () => () => Task.Result.make.ok(payload) });
-	const transactionStep1 = Transaction.step({
-		id: "verifyContext",
+	const transactionStep0 = Transaction.step("__proto__", { run: () => Task.Result.make.ok(payload) });
+	const transactionStep1 = Transaction.step("verifyContext", {
 		deps: { ["__proto__"]: transactionStep0 },
-		run: (ctx) => () =>
+		run: ({ deps: ctx }) =>
 			Task.Result.make.ok({
 				hasOwnProto: Object.hasOwn(ctx, "__proto__"),
 				protoIsPlain: Object.getPrototypeOf(ctx) === Object.prototype,
@@ -646,11 +641,11 @@ test("step: defines __proto__ as an own property without mutating the output or 
 	expect(output.verifyContext).toStrictEqual({ hasOwnProto: true, protoIsPlain: true, inheritedPolluted: false });
 });
 
-test("run: accepts run options as second argument when transaction takes no input", async () => {
+test("run: accepts run options as third argument when transaction takes no input", async () => {
 	let succeeded = false;
-	const transactionStep0 = Transaction.step({ id: "s1", run: () => () => Task.Result.make.ok("v1") });
+	const transactionStep0 = Transaction.step("s1", { run: () => Task.Result.make.ok("v1") });
 	const tx = Transaction.make(transactionStep0);
-	const outcome = await Transaction.run(tx, {
+	const outcome = await Transaction.run(tx, undefined, {
 		onStepSuccess: () => {
 			succeeded = true;
 		},
@@ -663,7 +658,7 @@ test("run: returns initial stepId when empty transaction is aborted prior to exe
 	const ctrl = new AbortController();
 	ctrl.abort(new Error("aborted_empty"));
 	const tx = Transaction.make();
-	const outcome = await Transaction.run(tx, { signal: ctrl.signal });
+	const outcome = await Transaction.run(tx, undefined, { signal: ctrl.signal });
 	expect(outcome).toStrictEqual(
 		Result.make.err({
 			kind: "TransactionFailure",
@@ -678,7 +673,7 @@ test("run: preserves a null signal reason before execution", async () => {
 	const ctrl = new AbortController();
 	ctrl.abort(null);
 	const tx = Transaction.make();
-	const outcome = await Transaction.run(tx, { signal: ctrl.signal });
+	const outcome = await Transaction.run(tx, undefined, { signal: ctrl.signal });
 	expect(outcome).toStrictEqual(
 		Result.make.err({
 			kind: "TransactionFailure",
@@ -692,17 +687,16 @@ test("run: preserves a null signal reason before execution", async () => {
 test("run: preserves a null signal reason between steps", async () => {
 	const ctrl = new AbortController();
 
-	const transactionStep0 = Transaction.step({
-		id: "s1",
-		run: () => () => {
+	const transactionStep0 = Transaction.step("s1", {
+		run: () => {
 			ctrl.abort(null);
 			return Task.Result.make.ok("v1");
 		},
 	});
-	const transactionStep1 = Transaction.step({ id: "s2", run: () => () => Task.Result.make.ok("v2") });
+	const transactionStep1 = Transaction.step("s2", { run: () => Task.Result.make.ok("v2") });
 	const tx = Transaction.make(transactionStep0, transactionStep1);
 
-	const outcome = await Transaction.run(tx, { signal: ctrl.signal });
+	const outcome = await Transaction.run(tx, undefined, { signal: ctrl.signal });
 	expect(outcome).toStrictEqual(
 		Result.make.err({
 			kind: "TransactionFailure",
@@ -715,23 +709,59 @@ test("run: preserves a null signal reason between steps", async () => {
 
 test("run: forwards an input object shaped like RunOptions (e.g. { signal: AbortSignal }) to context.initial ([TRANSACTION-001])", async () => {
 	const inputCtrl = new AbortController();
+	const runCtrl = new AbortController();
 	inputCtrl.abort("domain_abort_payload");
 
 	type SignalInput = { readonly signal: AbortSignal; };
 
-	const transactionStep0 = Transaction.step({
-		id: "inspect",
-		run: () => (initial: SignalInput) =>
-			Task.Result.make.ok({ sameSignal: initial.signal === inputCtrl.signal, reason: initial.signal.reason }),
+	const transactionStep0 = Transaction.stepFactory<SignalInput>()("inspect", {
+		run: ({ ctx: { input: initial } }) => (signal) =>
+			Task.Result.make.ok({
+				sameSignal: initial.signal === inputCtrl.signal,
+				runSignal: signal === runCtrl.signal,
+				reason: initial.signal.reason,
+			})(signal),
 	});
 	const tx = Transaction.make(transactionStep0);
 
-	const outcome = await Transaction.run(tx, { input: { signal: inputCtrl.signal } });
-	expect(outcome).toStrictEqual(Result.make.ok({ inspect: { sameSignal: true, reason: "domain_abort_payload" } }));
+	const outcome = await Transaction.run(tx, { signal: inputCtrl.signal }, { signal: runCtrl.signal });
+	expect(outcome).toStrictEqual(
+		Result.make.ok({ inspect: { sameSignal: true, runSignal: true, reason: "domain_abort_payload" } }),
+	);
 });
 
 test("forward: executes an empty transaction returning an empty record", async () => {
 	const tx = Transaction.make();
 	const outcome = await Transaction.run(tx);
 	expect(outcome).toStrictEqual(Result.make.ok({}));
+});
+
+test("stepFactory: creates reusable steps with per-run input and compensation", async () => {
+	type Input = { name: string; };
+	const events: string[] = [];
+	const step = Transaction.stepFactory<Input>();
+	const upload = step("upload", {
+		run: ({ ctx: { input } }) => {
+			events.push(`upload:${input.name}`);
+			return Task.Result.make.ok(input.name);
+		},
+		undo: ({ ctx: { output: name } }) => {
+			events.push(`undo:${name}`);
+			return Task.Result.make.ok(undefined);
+		},
+	});
+	const fail = step("index", {
+		deps: { upload },
+		run: ({ deps: { upload: name } }) => {
+			events.push(`index:${name}`);
+			return Task.Result.make.err("unavailable");
+		},
+	});
+	const publish = Transaction.make(upload, fail);
+	const uploadOnly = Transaction.make(upload);
+	const failed = await Transaction.run(publish, { name: "report.pdf" });
+	expect(Result.is.err(failed)).toBe(true);
+	expect(events).toStrictEqual(["upload:report.pdf", "index:report.pdf", "undo:report.pdf"]);
+	const success = await Transaction.run(uploadOnly, { name: "other.pdf" });
+	expect(success).toStrictEqual(Result.make.ok({ upload: "other.pdf" }));
 });
