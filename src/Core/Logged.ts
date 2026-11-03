@@ -224,7 +224,10 @@ export const Logged = {
 	 * ```
 	 */
 	assign:
-		<K extends string, L2, A, B>(key: K, transform: (value: A) => Logged<L2, B>) =>
+		<K extends string, L2, A extends object, B>(
+			key: K extends keyof A ? never : K,
+			transform: (value: A) => Logged<L2, B>,
+		) =>
 		<L1 = never>(logged: Logged<L1, A>): Logged<L1 | L2, A & { [P in K]: B; }> => {
 			const next = transform(logged.value);
 			return {

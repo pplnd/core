@@ -5,7 +5,7 @@ description: Define how values combine and what to return for an empty collectio
 
 <!-- BUNDLE_SIZE:START -->
 
-> 1.81 kB minified + gzipped
+> 1.78 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

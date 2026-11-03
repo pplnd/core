@@ -5,7 +5,7 @@ description: Clean, inspect, split, and parse strings in pipelines.
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.20 kB minified + gzipped
+> 2.18 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

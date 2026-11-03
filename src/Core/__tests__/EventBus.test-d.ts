@@ -14,19 +14,10 @@ test("make: infers EventBus<S> from schema type and accepts valid options", () =
 	const bus = EventBus.make<TestSchema>();
 	expectTypeOf(bus).toEqualTypeOf<EventBus<TestSchema>>();
 
-	const namedBus = EventBus.make<TestSchema>({ id: "app-bus", onError: (_err) => {} });
+	const namedBus = EventBus.make<TestSchema>({ id: "app-bus" });
 	expectTypeOf(namedBus).toEqualTypeOf<EventBus<TestSchema>>();
 	expectTypeOf(namedBus.id).toEqualTypeOf<string | undefined>();
 	expectTypeOf(namedBus[Symbol.toStringTag]).toEqualTypeOf<string | undefined>();
-
-	const contextualBus = EventBus.make<TestSchema>({
-		id: "app-bus",
-		onError: (_err, context) => {
-			expectTypeOf(context?.busId).toEqualTypeOf<string | undefined>();
-			expectTypeOf(context?.message).toEqualTypeOf<EventBus.Message<TestSchema> | undefined>();
-		},
-	});
-	expectTypeOf(contextualBus).toEqualTypeOf<EventBus<TestSchema>>();
 
 	// @ts-expect-error — schema must be a Record<string, unknown>
 	expectTypeOf(EventBus.make<string>).toBeFunction();
@@ -34,8 +25,8 @@ test("make: infers EventBus<S> from schema type and accepts valid options", () =
 	// @ts-expect-error — id option must be a string
 	expectTypeOf(EventBus.make<TestSchema>({ id: 123 })).toBeObject();
 
-	// @ts-expect-error — onError handler parameter cannot be restricted to number
-	expectTypeOf(EventBus.make<TestSchema>({ onError: (_err: number) => {} })).toBeObject();
+	// @ts-expect-error — subscriber errors are handled by subscribers, not a bus option
+	EventBus.make<TestSchema>({ onError: () => {} });
 });
 
 test("nominal brand: prevents unbranded plain objects from satisfying EventBus", () => {
@@ -252,14 +243,53 @@ test("forward: validates compatibility between bus schemas and filters", () => {
 	expectTypeOf(EventBus.forward({ from: authBus, to: incompatiblePayloadBus, only: ["userLoggedIn"] })).toBeFunction();
 });
 
-test("subscribe: rejects optional keys that are not part of the subscribed events array ([EVENTBUS-003])", () => {
+test("subscribe: rejects optional keys that are not part of the subscribed events array", () => {
 	const bus = EventBus.make<TestSchema>();
 
 	// @ts-expect-error — "C" is in TestSchema but not in the subscribed sequence ["A", "B"]
 	expectTypeOf(EventBus.subscribe(bus, ["A", "B"], { ordered: true, optional: ["C"] })).toBeObject();
 });
 
-test("forward: supports heterogeneous target bus arrays for shared events and dynamic only filter ([EVENTBUS-003])", () => {
+test("forward: accepts named ForwardOptions for filtered cross-domain configurations", () => {
+	const authBus = EventBus.make<AuthSchema>();
+	const analyticsBus = EventBus.make<AnalyticsSchema>();
+	const connect = (options: EventBus.ForwardOptions<AuthSchema, AnalyticsSchema, "userLoggedIn">) =>
+		EventBus.forward(options);
+
+	expectTypeOf(connect({ from: authBus, to: analyticsBus, only: ["userLoggedIn"] })).toEqualTypeOf<() => void>();
+	expectTypeOf(connect({ from: authBus, to: [analyticsBus], only: ["userLoggedIn"] })).toEqualTypeOf<() => void>();
+
+	// @ts-expect-error — the target lacks sessionExpired, so the filter is required
+	expectTypeOf(connect({ from: authBus, to: analyticsBus })).toBeFunction();
+	// @ts-expect-error — every target must accept the selected event payload
+	expectTypeOf(connect({ from: authBus, to: EventBus.make<IncompatiblePayloadSchema>(), only: ["userLoggedIn"] }))
+		.toBeFunction();
+});
+
+test("forward: accepts named ForwardOptions with a dynamic filter for compatible schemas", () => {
+	const from = EventBus.make<SpecificSchema>();
+	const to = EventBus.make<TestSchema>();
+	const connect = (options: EventBus.ForwardOptions<SpecificSchema, TestSchema>) => EventBus.forward(options);
+	const configure = (only: ReadonlyArray<"A"> | undefined) => connect({ from, to, only });
+
+	expectTypeOf(configure(["A"])).toEqualTypeOf<() => void>();
+	expectTypeOf(configure(undefined)).toEqualTypeOf<() => void>();
+	expectTypeOf(connect({ from, to: [to] })).toEqualTypeOf<() => void>();
+});
+
+test("forward: accepts named ForwardOptions for heterogeneous target tuples", () => {
+	const from = EventBus.make<AuthSchema>();
+	const analyticsBus = EventBus.make<AnalyticsSchema>();
+	type Targets = readonly [EventBus<AnalyticsSchema>, EventBus<AuthSchema>];
+	const connect = (options: EventBus.ForwardOptions<AuthSchema, AuthSchema, "userLoggedIn", Targets>) =>
+		EventBus.forward(options);
+
+	expectTypeOf(connect({ from, to: [analyticsBus, from], only: ["userLoggedIn"] })).toEqualTypeOf<() => void>();
+	// @ts-expect-error — an unfiltered source also emits sessionExpired, which the analytics bus lacks
+	expectTypeOf(connect({ from, to: [analyticsBus, from] })).toBeFunction();
+});
+
+test("forward: supports heterogeneous target bus arrays for shared events and dynamic only filter", () => {
 	const authBus = EventBus.make<AuthSchema>();
 	const analyticsBus = EventBus.make<AnalyticsSchema>();
 	const specificBus = EventBus.make<SpecificSchema>();

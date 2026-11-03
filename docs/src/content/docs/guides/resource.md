@@ -5,7 +5,7 @@ description: Pair an asynchronous acquisition with cleanup and use the acquired 
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.10 kB minified + gzipped
+> 2.05 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

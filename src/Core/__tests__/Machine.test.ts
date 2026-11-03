@@ -22,20 +22,18 @@ type AuthEvents = {
 
 const createAuthMachine = () =>
 	Machine.make<AuthState, AuthEvents>({
-		states: {
-			loggedOut: { on: { SUBMIT: (_state, { email }) => Machine.state("authenticating", { email }) } },
-			authenticating: {
-				on: {
-					RESOLVE: (_state, { token }) => Machine.state("authenticated", { token }),
-					REJECT: (_state, { error }) => Machine.state("failed", { error }),
-				},
+		loggedOut: { on: { SUBMIT: (_state, { email }) => Machine.state("authenticating", { email }) } },
+		authenticating: {
+			on: {
+				RESOLVE: (_state, { token }) => Machine.state("authenticated", { token }),
+				REJECT: (_state, { error }) => Machine.state("failed", { error }),
 			},
-			authenticated: { on: { LOGOUT: () => Machine.state("loggedOut") } },
-			failed: {
-				on: {
-					SUBMIT: (_state, { email }) => Machine.state("authenticating", { email }),
-					LOGOUT: () => Machine.state("loggedOut"),
-				},
+		},
+		authenticated: { on: { LOGOUT: () => Machine.state("loggedOut") } },
+		failed: {
+			on: {
+				SUBMIT: (_state, { email }) => Machine.state("authenticating", { email }),
+				LOGOUT: () => Machine.state("loggedOut"),
 			},
 		},
 	});
@@ -56,20 +54,10 @@ test("state: constructs payload states with a value property", () => {
 	expect(state.value).toStrictEqual({ email: "dev@example.com" });
 });
 
-test("make: constructs an immutable machine definition", () => {
+test("make: constructs a machine from a state table", () => {
 	const machine = createAuthMachine();
 	expect(Machine.state("loggedOut")).toStrictEqual({ kind: "loggedOut" });
 	expect(machine.states.loggedOut.on?.SUBMIT).toBeTypeOf("function");
-});
-
-test("make: supports optional id and sets Symbol.toStringTag", () => {
-	const machineWithoutId = createAuthMachine();
-	expect(machineWithoutId.id).toBeUndefined();
-	expect(Object.prototype.toString.call(machineWithoutId)).toBe("[object Machine]");
-
-	const machineWithId = Machine.make<AuthState, AuthEvents>({ id: "auth", states: createAuthMachine().states });
-	expect(machineWithId.id).toBe("auth");
-	expect(Object.prototype.toString.call(machineWithId)).toBe("[object Machine(auth)]");
 });
 
 // =============================================================================
@@ -143,7 +131,10 @@ test("transition: returns state unchanged when event is unhandled", () => {
 
 test("transition: ignores events with no handler or an undefined handler", () => {
 	const machine = Machine.make<AuthState, AuthEvents>({
-		states: { loggedOut: {}, authenticating: { on: { REJECT: undefined } }, authenticated: {}, failed: {} },
+		loggedOut: {},
+		authenticating: { on: { REJECT: undefined } },
+		authenticated: {},
+		failed: {},
 	});
 	const loggedOut = Machine.state("loggedOut");
 	const authenticating = Machine.state("authenticating", { email: "dev@example.com" });
@@ -157,37 +148,28 @@ test("interpret: runs and reports cleanup returned after an entry aborts its act
 	type State = Machine.State<"idle", void, "active"> | Machine.State<"active", void, never>;
 	type Events = { START: void; };
 	const abortActor = { run: () => {} };
-	const errors: unknown[] = [];
 	let cleaned = false;
 	const machine = Machine.make<State, Events>({
-		states: {
-			idle: { on: { START: () => Machine.state("active") } },
-			active: {
-				entry: () => {
-					abortActor.run();
-					return () => {
-						cleaned = true;
-						throw new Error("cleanup failed");
-					};
-				},
+		idle: { on: { START: () => Machine.state("active") } },
+		active: {
+			entry: () => {
+				abortActor.run();
+				return () => {
+					cleaned = true;
+					throw new Error("cleanup failed");
+				};
 			},
 		},
 	});
-	const actor = Machine.interpret(machine, { initial: Machine.state("idle"), onError: (error) => errors.push(error) });
+	const actor = Machine.interpret(machine, { initial: Machine.state("idle") });
 	abortActor.run = () => actor.abort();
-	actor.send({ kind: "START" });
+	expect(() => actor.send({ kind: "START" })).toThrow("cleanup failed");
 	expect(cleaned).toBe(true);
 	expect(actor.isRunning()).toBe(false);
-	expect(errors).toStrictEqual([new Error("cleanup failed")]);
 });
 
-test("interpret: retains the first error when error handlers throw more than once", () => {
-	const actor = Machine.interpret(createAuthMachine(), {
-		initial: Machine.state("loggedOut"),
-		onError: (error) => {
-			throw error;
-		},
-	});
+test("interpret: retains the first error when multiple listeners throw", () => {
+	const actor = Machine.interpret(createAuthMachine(), { initial: Machine.state("loggedOut") });
 	actor.subscribe(() => {
 		throw new Error("first listener");
 	});
@@ -196,6 +178,17 @@ test("interpret: retains the first error when error handlers throw more than onc
 	});
 	expect(() => actor.send({ kind: "SUBMIT", value: { email: "dev@example.com" } })).toThrow("first listener");
 	expect(actor.getState().kind).toBe("authenticating");
+});
+
+test("interpret: a bus-driven transition propagates listener errors after entering the next state", () => {
+	const bus = EventBus.make<AuthEvents>();
+	const actor = Machine.interpret(createAuthMachine(), { initial: Machine.state("loggedOut"), bus });
+	actor.subscribe(() => {
+		throw new Error("view failed");
+	});
+	expect(() => EventBus.emit(bus, { kind: "SUBMIT", value: { email: "dev@example.com" } })).toThrow("view failed");
+	expect(actor.getState()).toStrictEqual({ kind: "authenticating", value: { email: "dev@example.com" } });
+	actor.abort();
 });
 
 test("interpret: tolerates a persisted state from an older machine definition", () => {
@@ -209,7 +202,10 @@ test("interpret: tolerates a persisted state from an older machine definition", 
 
 test("transition: returns state unchanged when state is unconfigured in machine", () => {
 	const machine = Machine.make<AuthState, AuthEvents>({
-		states: { loggedOut: {}, authenticating: {}, authenticated: {}, failed: {} },
+		loggedOut: {},
+		authenticating: {},
+		authenticated: {},
+		failed: {},
 	});
 
 	// Runtime boundary check for dynamic or untyped callers
@@ -241,30 +237,14 @@ test("interpret: actors from one machine have independent initial states", () =>
 	expect(second.getState()).toStrictEqual({ kind: "authenticated", value: { token: "second" } });
 });
 
-test("interpret: supports optional instance id and sets Symbol.toStringTag", () => {
-	const machineWithoutId = createAuthMachine();
-	const actorDefault = Machine.interpret(machineWithoutId, { initial: Machine.state("loggedOut") });
-	expect(actorDefault.id).toBeUndefined();
-	expect(Object.prototype.toString.call(actorDefault)).toBe("[object Machine.Actor]");
-
-	const machineWithId = Machine.make<AuthState, AuthEvents>({ id: "auth-machine", states: createAuthMachine().states });
-	const actorInherited = Machine.interpret(machineWithId, { initial: Machine.state("loggedOut") });
-	expect(actorInherited.id).toBeUndefined();
-	expect(Object.prototype.toString.call(actorInherited)).toBe("[object Machine.Actor[auth-machine]]");
-
-	const actorOverridden = Machine.interpret(machineWithId, {
-		initial: Machine.state("loggedOut"),
-		id: "auth-instance-1",
-	});
-	expect(actorOverridden.id).toBe("auth-instance-1");
-	expect(Object.prototype.toString.call(actorOverridden)).toBe("[object Machine.Actor(auth-instance-1)[auth-machine]]");
-
-	const actorWithIdOnly = Machine.interpret(machineWithoutId, {
-		initial: Machine.state("loggedOut"),
-		id: "custom-actor",
-	});
-	expect(actorWithIdOnly.id).toBe("custom-actor");
-	expect(Object.prototype.toString.call(actorWithIdOnly)).toBe("[object Machine.Actor(custom-actor)]");
+test("interpret: supports an optional actor id", () => {
+	const machine = createAuthMachine();
+	const anonymous = Machine.interpret(machine, { initial: Machine.state("loggedOut") });
+	expect(anonymous.id).toBeUndefined();
+	expect(Object.prototype.toString.call(anonymous)).toBe("[object Machine.Actor]");
+	const named = Machine.interpret(machine, { initial: Machine.state("loggedOut"), id: "auth-instance-1" });
+	expect(named.id).toBe("auth-instance-1");
+	expect(Object.prototype.toString.call(named)).toBe("[object Machine.Actor(auth-instance-1)]");
 });
 
 test("interpret: sends events, updates state, and notifies subscribers", () => {
@@ -300,23 +280,21 @@ test("interpret: executes entry and exit hooks with scoped AbortSignal", () => {
 	type TestEvents = { ACTIVATE: void; DEACTIVATE: void; };
 
 	const machine = Machine.make<TestState, TestEvents>({
-		states: {
-			idle: { on: { ACTIVATE: () => Machine.state("active") } },
-			active: {
-				entry: (_state, { signal }) => {
-					entryCount++;
-					signal.addEventListener("abort", () => {
-						signalAbortedOnExit = signal.aborted;
-					});
-					return () => {
-						cleanupCalled = true;
-					};
-				},
-				exit: () => {
-					exitCount++;
-				},
-				on: { DEACTIVATE: () => Machine.state("idle") },
+		idle: { on: { ACTIVATE: () => Machine.state("active") } },
+		active: {
+			entry: (_state, { signal }) => {
+				entryCount++;
+				signal.addEventListener("abort", () => {
+					signalAbortedOnExit = signal.aborted;
+				});
+				return () => {
+					cleanupCalled = true;
+				};
 			},
+			exit: () => {
+				exitCount++;
+			},
+			on: { DEACTIVATE: () => Machine.state("idle") },
 		},
 	});
 
@@ -348,20 +326,18 @@ test("interpret: suppresses stale send calls from previous state entry", () => {
 	let delayedSend: (() => void) | null = null;
 
 	const machine = Machine.make<TestState, TestEvents>({
-		states: {
-			idle: { on: { START: () => Machine.state("loading") } },
-			loading: {
-				entry: (_state, { send }) => {
-					delayedSend = () => {
-						staleSendAttempted = true;
-						send({ kind: "FINISH" });
-					};
-				},
-				on: { FINISH: () => Machine.state("ready"), CANCEL: () => Machine.state("cancelled") },
+		idle: { on: { START: () => Machine.state("loading") } },
+		loading: {
+			entry: (_state, { send }) => {
+				delayedSend = () => {
+					staleSendAttempted = true;
+					send({ kind: "FINISH" });
+				};
 			},
-			ready: {},
-			cancelled: {},
+			on: { FINISH: () => Machine.state("ready"), CANCEL: () => Machine.state("cancelled") },
 		},
+		ready: {},
+		cancelled: {},
 	});
 
 	const actor = Machine.interpret(machine, { initial: Machine.state("idle") });
@@ -391,27 +367,25 @@ test("interpret: queues and evaluates re-entrant send calls sequentially", () =>
 	type TestEvents = { NEXT: void; };
 
 	const machine = Machine.make<TestState, TestEvents>({
-		states: {
-			step0: { on: { NEXT: () => Machine.state("step1") } },
-			step1: {
-				entry: (_state, { send }) => {
-					log.push("enter:step1");
-					// Re-entrant dispatch inside entry
-					send({ kind: "NEXT" });
-				},
-				on: { NEXT: () => Machine.state("step2") },
+		step0: { on: { NEXT: () => Machine.state("step1") } },
+		step1: {
+			entry: (_state, { send }) => {
+				log.push("enter:step1");
+				// Re-entrant dispatch inside entry
+				send({ kind: "NEXT" });
 			},
-			step2: {
-				entry: (_state, { send }) => {
-					log.push("enter:step2");
-					send({ kind: "NEXT" });
-				},
-				on: { NEXT: () => Machine.state("step3") },
+			on: { NEXT: () => Machine.state("step2") },
+		},
+		step2: {
+			entry: (_state, { send }) => {
+				log.push("enter:step2");
+				send({ kind: "NEXT" });
 			},
-			step3: {
-				entry: () => {
-					log.push("enter:step3");
-				},
+			on: { NEXT: () => Machine.state("step3") },
+		},
+		step3: {
+			entry: () => {
+				log.push("enter:step3");
 			},
 		},
 	});
@@ -430,15 +404,13 @@ test("interpret: abort stops the actor and ignores subsequent dispatches", () =>
 	type TestEvents = { STOP: void; };
 
 	const machine = Machine.make<TestState, TestEvents>({
-		states: {
-			running: {
-				entry: () => () => {
-					cleanupRan = true;
-				},
-				on: { STOP: () => Machine.state("stopped") },
+		running: {
+			entry: () => () => {
+				cleanupRan = true;
 			},
-			stopped: {},
+			on: { STOP: () => Machine.state("stopped") },
 		},
+		stopped: {},
 	});
 
 	const actor = Machine.interpret(machine, { initial: Machine.state("running") });
@@ -479,175 +451,63 @@ test("interpret: synchronizes seamlessly with an external EventBus", () => {
 });
 
 // =============================================================================
-// 6. Error Routing via onError
+// 6. Callback Error Propagation
 // =============================================================================
 
-test("interpret: routes exceptions in entry, exit, and listeners to onError", () => {
-	const errors: Error[] = [];
-
-	type TestState = Machine.State<"start", void, "middle"> | Machine.State<"middle", void, "end">;
-	type TestEvents = { NEXT: void; };
-
-	const machine = Machine.make<TestState, TestEvents>({
-		states: {
-			start: {
-				exit: () => {
-					throw new Error("exit error");
-				},
-				on: { NEXT: () => Machine.state("middle") },
+test("interpret: completes transition after exit, listener, and entry throw", () => {
+	type State = Machine.State<"start", void, "next"> | Machine.State<"next", void, never>;
+	type Events = { NEXT: void; };
+	const calls: string[] = [];
+	const machine = Machine.make<State, Events>({
+		start: {
+			exit: () => {
+				calls.push("exit");
+				throw new Error("exit failed");
 			},
-			middle: {
-				entry: () => {
-					throw new Error("entry error");
-				},
+			on: { NEXT: () => Machine.state("next") },
+		},
+		next: {
+			entry: () => {
+				calls.push("entry");
+				throw new Error("entry failed");
 			},
 		},
 	});
-
-	const actor = Machine.interpret(machine, {
-		initial: Machine.state("start"),
-		onError: (err) => {
-			if (err instanceof Error) {
-				errors.push(err);
-			}
-		},
-	});
-
+	const actor = Machine.interpret(machine, { initial: Machine.state("start") });
 	actor.subscribe(() => {
-		throw new Error("listener error");
+		calls.push("listener");
+		throw new Error("listener failed");
 	});
-
-	actor.send({ kind: "NEXT" });
-
-	expect(errors).toHaveLength(3);
-	expect(errors[0].message).toBe("exit error");
-	expect(errors[1].message).toBe("listener error");
-	expect(errors[2].message).toBe("entry error");
+	expect(() => actor.send({ kind: "NEXT" })).toThrow("exit failed");
+	expect(calls).toStrictEqual(["exit", "listener", "entry"]);
+	expect(actor.getState().kind).toBe("next");
 });
 
-test("interpret: passes contextual actorId, state, and phase to onError", () => {
-	type TestState = Machine.State<"start", void, "middle"> | Machine.State<"middle", void, "end">;
-	type TestEvents = { NEXT: void; };
-
-	type ErrorContext = {
-		readonly actorId?: string;
-		readonly state: TestState;
-		readonly phase: "entry" | "exit" | "listener" | "transition";
-	};
-	const contexts: ErrorContext[] = [];
-
-	const machine = Machine.make<TestState, TestEvents>({
-		id: "context-machine",
-
-		states: {
-			start: {
-				exit: () => {
-					throw new Error("exit error");
-				},
-				on: { NEXT: () => Machine.state("middle") },
+test("interpret: propagates cleanup failure after a queued initial transition", () => {
+	type State = Machine.State<"init", void, "ready"> | Machine.State<"ready", void, never>;
+	type Events = { GO: void; };
+	let cleaned = false;
+	let entered = false;
+	const machine = Machine.make<State, Events>({
+		init: {
+			entry: (_state, { send }) => {
+				send({ kind: "GO" });
+				return () => {
+					cleaned = true;
+					throw new Error("cleanup failed");
+				};
 			},
-			middle: {
-				entry: () => {
-					throw new Error("entry error");
-				},
+			on: { GO: () => Machine.state("ready") },
+		},
+		ready: {
+			entry: () => {
+				entered = true;
 			},
 		},
 	});
-
-	const actor = Machine.interpret(machine, {
-		initial: Machine.state("start"),
-		id: "custom-actor",
-		onError: (_err, ctx) => {
-			if (ctx) {
-				contexts.push(ctx);
-			}
-		},
-	});
-
-	actor.subscribe(() => {
-		throw new Error("listener error");
-	});
-
-	actor.send({ kind: "NEXT" });
-
-	expect(contexts).toHaveLength(3);
-	expect(contexts[0]).toStrictEqual({ actorId: "custom-actor", state: { kind: "start" }, phase: "exit" });
-	expect(contexts[1]).toStrictEqual({ actorId: "custom-actor", state: { kind: "middle" }, phase: "listener" });
-	expect(contexts[2]).toStrictEqual({ actorId: "custom-actor", state: { kind: "middle" }, phase: "entry" });
-});
-
-test("interpret: runs immediate cleanup if entry transitions synchronously and catches throwing cleanup", () => {
-	const errors: Error[] = [];
-	let immediateCleanupRan = false;
-
-	type TestState = Machine.State<"init", void, "ready"> | Machine.State<"ready", void, never>;
-	type TestEvents = { GO: void; };
-
-	const machine = Machine.make<TestState, TestEvents>({
-		states: {
-			init: {
-				entry: (_state, { send }) => {
-					// Synchronously transition before returning cleanup
-					send({ kind: "GO" });
-					return () => {
-						immediateCleanupRan = true;
-						throw new Error("sync cleanup error");
-					};
-				},
-				on: { GO: () => Machine.state("ready") },
-			},
-			ready: {},
-		},
-	});
-
-	const actor = Machine.interpret(machine, {
-		initial: Machine.state("init"),
-		onError: (err) => {
-			if (err instanceof Error) {
-				errors.push(err);
-			}
-		},
-	});
-
-	expect(actor.getState().kind).toBe("ready");
-	expect(immediateCleanupRan).toBe(true);
-	expect(errors).toHaveLength(1);
-	expect(errors[0].message).toBe("sync cleanup error");
-});
-
-test("interpret: handles transition handler exceptions during send and routes to onError", () => {
-	const errors: Error[] = [];
-
-	type TestState = Machine.State<"start", void, "next"> | Machine.State<"next", void, never>;
-	type TestEvents = { BLOW_UP: void; };
-
-	const machine = Machine.make<TestState, TestEvents>({
-		states: {
-			start: {
-				on: {
-					BLOW_UP: () => {
-						throw new Error("handler explosion");
-					},
-				},
-			},
-			next: {},
-		},
-	});
-
-	const actor = Machine.interpret(machine, {
-		initial: Machine.state("start"),
-		onError: (err) => {
-			if (err instanceof Error) {
-				errors.push(err);
-			}
-		},
-	});
-
-	actor.send({ kind: "BLOW_UP" });
-
-	expect(actor.getState().kind).toBe("start");
-	expect(errors).toHaveLength(1);
-	expect(errors[0].message).toBe("handler explosion");
+	expect(() => Machine.interpret(machine, { initial: Machine.state("init") })).toThrow("cleanup failed");
+	expect(cleaned).toBe(true);
+	expect(entered).toBe(true);
 });
 
 test("interpret: stops queue processing immediately if actor is aborted during transition", () => {
@@ -661,20 +521,18 @@ test("interpret: stops queue processing immediately if actor is aborted during t
 	const holder: { actor?: Machine.Actor<TestState, TestEvents>; } = {};
 
 	const machine = Machine.make<TestState, TestEvents>({
-		states: {
-			step1: {
-				on: {
-					RUN: () => {
-						// Abort actor mid-dispatch while another event is queued
-						holder.actor?.send({ kind: "RUN" });
-						holder.actor?.abort();
-						return Machine.state("step2");
-					},
+		step1: {
+			on: {
+				RUN: () => {
+					// Abort actor mid-dispatch while another event is queued
+					holder.actor?.send({ kind: "RUN" });
+					holder.actor?.abort();
+					return Machine.state("step2");
 				},
 			},
-			step2: { on: { RUN: () => Machine.state("step3") } },
-			step3: {},
 		},
+		step2: { on: { RUN: () => Machine.state("step3") } },
+		step3: {},
 	});
 
 	const actor = Machine.interpret(machine, { initial: Machine.state("step1") });
@@ -683,64 +541,6 @@ test("interpret: stops queue processing immediately if actor is aborted during t
 
 	expect(actor.isRunning()).toBe(false);
 	expect(actor.getState().kind).toBe("step1");
-});
-
-test("interpret: handles throwing cleanup during state exit", () => {
-	const errors: Error[] = [];
-
-	type TestState = Machine.State<"a", void, "b"> | Machine.State<"b", void, never>;
-	type TestEvents = { NEXT: void; };
-
-	const machine = Machine.make<TestState, TestEvents>({
-		states: {
-			a: {
-				entry: () => () => {
-					throw new Error("exit cleanup error");
-				},
-				on: { NEXT: () => Machine.state("b") },
-			},
-			b: {},
-		},
-	});
-
-	const actor = Machine.interpret(machine, {
-		initial: Machine.state("a"),
-		onError: (err) => {
-			if (err instanceof Error) {
-				errors.push(err);
-			}
-		},
-	});
-
-	actor.send({ kind: "NEXT" });
-
-	expect(actor.getState().kind).toBe("b");
-	expect(errors).toHaveLength(1);
-	expect(errors[0].message).toBe("exit cleanup error");
-});
-
-test("interpret: propagates exception when onError handler itself throws while completing state transition", () => {
-	const bus = EventBus.make<AuthEvents>();
-	const machine = createAuthMachine();
-
-	const actor = Machine.interpret(machine, {
-		initial: Machine.state("loggedOut"),
-		bus,
-		onError: () => {
-			throw new Error("onError exploded");
-		},
-	});
-
-	actor.subscribe(() => {
-		throw new Error("listener fail");
-	});
-	expect(() => actor.send({ kind: "SUBMIT", value: { email: "a@b.com" } })).toThrow("onError exploded");
-	expect(actor.getState()).toStrictEqual({ kind: "authenticating", value: { email: "a@b.com" } });
-
-	// Abort with bus
-	actor.abort();
-	actor.abort();
-	expect(actor.isRunning()).toBe(false);
 });
 
 test("interpret: ignores unhandled events without transitioning or notifying subscribers", () => {
@@ -767,26 +567,24 @@ test("interpret: propagates callback exceptions when no onError handler is provi
 	const log: string[] = [];
 
 	const machine = Machine.make<TestState, TestEvents>({
-		states: {
-			idle: {
-				entry: () => () => {
-					log.push("idle:cleanup");
-					throw new Error("cleanup failed");
-				},
-				exit: () => {
-					log.push("idle:exit");
-				},
-				on: {
-					EXPLODE: () => {
-						throw new Error("handler unhandled error");
-					},
-					NEXT: () => Machine.state("active"),
-				},
+		idle: {
+			entry: () => () => {
+				log.push("idle:cleanup");
+				throw new Error("cleanup failed");
 			},
-			active: {
-				entry: () => {
-					log.push("active:entry");
+			exit: () => {
+				log.push("idle:exit");
+			},
+			on: {
+				EXPLODE: () => {
+					throw new Error("handler unhandled error");
 				},
+				NEXT: () => Machine.state("active"),
+			},
+		},
+		active: {
+			entry: () => {
+				log.push("active:entry");
 			},
 		},
 	});
@@ -806,23 +604,21 @@ test("interpret: propagates exit and entry exceptions when no onError handler is
 	type TestEvents = { STEP: void; };
 
 	const machine = Machine.make<TestState, TestEvents>({
-		states: {
-			a: {
-				exit: () => {
-					throw new Error("exit boom");
-				},
-				on: { STEP: () => Machine.state("b") },
+		a: {
+			exit: () => {
+				throw new Error("exit boom");
 			},
-			b: {
-				entry: () => {
-					throw new Error("entry boom");
-				},
-				on: { STEP: () => Machine.state("c") },
+			on: { STEP: () => Machine.state("b") },
+		},
+		b: {
+			entry: () => {
+				throw new Error("entry boom");
 			},
-			c: {
-				exit: () => {
-					throw new Error("abort exit boom");
-				},
+			on: { STEP: () => Machine.state("c") },
+		},
+		c: {
+			exit: () => {
+				throw new Error("abort exit boom");
 			},
 		},
 	});
@@ -847,16 +643,14 @@ test("interpret: propagates exception if actor is aborted inside a throwing clea
 
 	const holder: { actor?: Machine.Actor<TestState, TestEvents>; } = {};
 	const machine = Machine.make<TestState, TestEvents>({
-		states: {
-			a: {
-				entry: () => () => {
-					holder.actor?.abort();
-					throw new Error("cleanup abort boom");
-				},
-				on: { NEXT: () => Machine.state("b") },
+		a: {
+			entry: () => () => {
+				holder.actor?.abort();
+				throw new Error("cleanup abort boom");
 			},
-			b: {},
+			on: { NEXT: () => Machine.state("b") },
 		},
+		b: {},
 	});
 
 	const actor = Machine.interpret(machine, { initial: Machine.state("a") });
@@ -929,42 +723,40 @@ test("scenario: multi-step e-commerce checkout with accumulated order context", 
 	};
 
 	const checkoutMachine = Machine.make<CheckoutState, CheckoutEvents>({
-		states: {
-			cart: {
-				on: {
-					ADD_ITEM: (state, { item, priceCents }) =>
-						Machine.state("cart", {
-							items: [...state.value.items, item],
-							subtotalCents: state.value.subtotalCents + priceCents,
-						}),
-					SET_SHIPPING: (state, { address, shippingCents }) =>
-						Machine.state("shipping", {
-							items: state.value.items,
-							subtotalCents: state.value.subtotalCents,
-							address,
-							shippingCents,
-						}),
-					CANCEL: (_state, { reason }) => Machine.state("cancelled", { reason }),
-				},
+		cart: {
+			on: {
+				ADD_ITEM: (state, { item, priceCents }) =>
+					Machine.state("cart", {
+						items: [...state.value.items, item],
+						subtotalCents: state.value.subtotalCents + priceCents,
+					}),
+				SET_SHIPPING: (state, { address, shippingCents }) =>
+					Machine.state("shipping", {
+						items: state.value.items,
+						subtotalCents: state.value.subtotalCents,
+						address,
+						shippingCents,
+					}),
+				CANCEL: (_state, { reason }) => Machine.state("cancelled", { reason }),
 			},
-			shipping: {
-				on: {
-					PROCEED_TO_PAYMENT: (state, { orderId }) =>
-						Machine.state("payment", { orderId, totalCents: state.value.subtotalCents + state.value.shippingCents }),
-					BACK_TO_CART: (state) =>
-						Machine.state("cart", { items: state.value.items, subtotalCents: state.value.subtotalCents }),
-					CANCEL: (_state, { reason }) => Machine.state("cancelled", { reason }),
-				},
-			},
-			payment: {
-				on: {
-					PAYMENT_SUCCESS: (state, { receiptUrl }) =>
-						Machine.state("completed", { orderId: state.value.orderId, receiptUrl }),
-				},
-			},
-			completed: {},
-			cancelled: {},
 		},
+		shipping: {
+			on: {
+				PROCEED_TO_PAYMENT: (state, { orderId }) =>
+					Machine.state("payment", { orderId, totalCents: state.value.subtotalCents + state.value.shippingCents }),
+				BACK_TO_CART: (state) =>
+					Machine.state("cart", { items: state.value.items, subtotalCents: state.value.subtotalCents }),
+				CANCEL: (_state, { reason }) => Machine.state("cancelled", { reason }),
+			},
+		},
+		payment: {
+			on: {
+				PAYMENT_SUCCESS: (state, { receiptUrl }) =>
+					Machine.state("completed", { orderId: state.value.orderId, receiptUrl }),
+			},
+		},
+		completed: {},
+		cancelled: {},
 	});
 
 	const actor = Machine.interpret(checkoutMachine, { initial: Machine.state("cart", { items: [], subtotalCents: 0 }) });
@@ -1028,28 +820,26 @@ test("scenario: document approval lifecycle with revision and feedback loops", (
 	};
 
 	const docMachine = Machine.make<DocState, DocEvents>({
-		states: {
-			draft: {
-				on: {
-					SUBMIT_REVIEW: (state, { reviewer }) =>
-						Machine.state("inReview", { docId: state.value.docId, content: state.value.content, assignedReviewer: reviewer }),
-				},
+		draft: {
+			on: {
+				SUBMIT_REVIEW: (state, { reviewer }) =>
+					Machine.state("inReview", { docId: state.value.docId, content: state.value.content, assignedReviewer: reviewer }),
 			},
-			inReview: {
-				on: {
-					REQUEST_CHANGES: (state, { feedback }) =>
-						Machine.state("changesRequested", { docId: state.value.docId, content: state.value.content, feedback }),
-					PUBLISH: (state, { publishedUrl }) => Machine.state("approved", { docId: state.value.docId, publishedUrl }),
-				},
-			},
-			changesRequested: {
-				on: {
-					UPDATE_CONTENT: (state, { newContent, reviewer }) =>
-						Machine.state("inReview", { docId: state.value.docId, content: newContent, assignedReviewer: reviewer }),
-				},
-			},
-			approved: {},
 		},
+		inReview: {
+			on: {
+				REQUEST_CHANGES: (state, { feedback }) =>
+					Machine.state("changesRequested", { docId: state.value.docId, content: state.value.content, feedback }),
+				PUBLISH: (state, { publishedUrl }) => Machine.state("approved", { docId: state.value.docId, publishedUrl }),
+			},
+		},
+		changesRequested: {
+			on: {
+				UPDATE_CONTENT: (state, { newContent, reviewer }) =>
+					Machine.state("inReview", { docId: state.value.docId, content: newContent, assignedReviewer: reviewer }),
+			},
+		},
+		approved: {},
 	});
 
 	const actor = Machine.interpret(docMachine, {
@@ -1083,10 +873,10 @@ test("scenario: document approval lifecycle with revision and feedback loops", (
 });
 
 // =============================================================================
-// 9. Open Findings Regression Suite ([MACHINE-001], [MACHINE-002])
+// 9. Regression Suite
 // =============================================================================
 
-test("interpret: abort during transition or listener prevents duplicate exits and post-abort entry ([MACHINE-001])", () => {
+test("interpret: abort during transition or listener prevents duplicate exits and post-abort entry", () => {
 	type TestState = Machine.State<"step1", void, "step2"> | Machine.State<"step2", void, never>;
 	type TestEvents = { NEXT: void; };
 
@@ -1094,25 +884,23 @@ test("interpret: abort during transition or listener prevents duplicate exits an
 	const holder: { actor?: Machine.Actor<TestState, TestEvents>; } = {};
 
 	const machine = Machine.make<TestState, TestEvents>({
-		states: {
-			step1: {
-				exit: () => {
-					events.push("step1:exit");
-				},
-				on: {
-					NEXT: () => {
-						holder.actor?.abort();
-						return Machine.state("step2");
-					},
+		step1: {
+			exit: () => {
+				events.push("step1:exit");
+			},
+			on: {
+				NEXT: () => {
+					holder.actor?.abort();
+					return Machine.state("step2");
 				},
 			},
-			step2: {
-				entry: () => {
-					events.push("step2:entry");
-				},
-				exit: () => {
-					events.push("step2:exit");
-				},
+		},
+		step2: {
+			entry: () => {
+				events.push("step2:entry");
+			},
+			exit: () => {
+				events.push("step2:exit");
 			},
 		},
 	});
@@ -1128,31 +916,29 @@ test("interpret: abort during transition or listener prevents duplicate exits an
 	expect(events).toStrictEqual(["step1:exit"]);
 });
 
-test("interpret: synchronous send inside initial state entry preserves entry -> cleanup -> exit -> next entry order ([MACHINE-001])", () => {
+test("interpret: synchronous send inside initial state entry preserves entry -> cleanup -> exit -> next entry order", () => {
 	type TestState = Machine.State<"init", void, "ready"> | Machine.State<"ready", void, never>;
 	type TestEvents = { GO: void; };
 
 	const order: string[] = [];
 
 	const machine = Machine.make<TestState, TestEvents>({
-		states: {
-			init: {
-				entry: (_state, { send }) => {
-					order.push("init:entry");
-					send({ kind: "GO" });
-					return () => {
-						order.push("init:cleanup");
-					};
-				},
-				exit: () => {
-					order.push("init:exit");
-				},
-				on: { GO: () => Machine.state("ready") },
+		init: {
+			entry: (_state, { send }) => {
+				order.push("init:entry");
+				send({ kind: "GO" });
+				return () => {
+					order.push("init:cleanup");
+				};
 			},
-			ready: {
-				entry: () => {
-					order.push("ready:entry");
-				},
+			exit: () => {
+				order.push("init:exit");
+			},
+			on: { GO: () => Machine.state("ready") },
+		},
+		ready: {
+			entry: () => {
+				order.push("ready:entry");
 			},
 		},
 	});
@@ -1162,7 +948,7 @@ test("interpret: synchronous send inside initial state entry preserves entry -> 
 	expect(order).toStrictEqual(["init:entry", "init:cleanup", "init:exit", "ready:entry"]);
 });
 
-test("interpret: processes both synchronous sends accepted from an entry hook ([MACHINE-001])", () => {
+test("interpret: processes both synchronous sends accepted from an entry hook", () => {
 	type TestState =
 		| Machine.State<"init", void, "step1">
 		| Machine.State<"step1", void, "step2">
@@ -1171,23 +957,82 @@ test("interpret: processes both synchronous sends accepted from an entry hook ([
 	type TestEvents = { START: void; NEXT: void; };
 
 	const machine = Machine.make<TestState, TestEvents>({
-		states: {
-			init: { on: { START: () => Machine.state("step1") } },
-			step1: {
-				entry: (_state, { send }) => {
-					send({ kind: "NEXT" });
-					send({ kind: "NEXT" });
-				},
-				on: { NEXT: () => Machine.state("step2") },
+		init: { on: { START: () => Machine.state("step1") } },
+		step1: {
+			entry: (_state, { send }) => {
+				send({ kind: "NEXT" });
+				send({ kind: "NEXT" });
 			},
-			step2: { on: { NEXT: () => Machine.state("step3") } },
-			step3: {},
+			on: { NEXT: () => Machine.state("step2") },
 		},
+		step2: { on: { NEXT: () => Machine.state("step3") } },
+		step3: {},
 	});
 
 	const actor = Machine.interpret(machine, { initial: Machine.state("init") });
 	actor.send({ kind: "START" });
 	expect(actor.getState().kind).toBe("step3");
+});
+
+test("interpret: aborting from an entry hook runs cleanup before exit", () => {
+	type TestState = Machine.State<"idle", void, "active"> | Machine.State<"active", void, never>;
+	type TestEvents = { START: void; };
+
+	const order: string[] = [];
+	const holder: { actor?: Machine.Actor<TestState, TestEvents>; } = {};
+
+	const machine = Machine.make<TestState, TestEvents>({
+		idle: { on: { START: () => Machine.state("active") } },
+		active: {
+			entry: () => {
+				order.push("entry");
+				holder.actor?.abort();
+				return () => {
+					order.push("cleanup");
+				};
+			},
+			exit: () => {
+				order.push("exit");
+			},
+		},
+	});
+
+	const actor = Machine.interpret(machine, { initial: Machine.state("idle") });
+	holder.actor = actor;
+	actor.send({ kind: "START" });
+
+	expect(order).toStrictEqual(["entry", "cleanup", "exit"]);
+	expect(actor.isRunning()).toBe(false);
+	expect(actor.getState().kind).toBe("active");
+});
+
+test("interpret: aborting from a void entry hook still runs the exit hook after entry", () => {
+	type TestState = Machine.State<"idle", void, "active"> | Machine.State<"active", void, never>;
+	type TestEvents = { START: void; };
+
+	const order: string[] = [];
+	const holder: { actor?: Machine.Actor<TestState, TestEvents>; } = {};
+
+	const machine = Machine.make<TestState, TestEvents>({
+		idle: { on: { START: () => Machine.state("active") } },
+		active: {
+			entry: () => {
+				order.push("entry");
+				holder.actor?.abort();
+			},
+			exit: () => {
+				order.push("exit");
+			},
+		},
+	});
+
+	const actor = Machine.interpret(machine, { initial: Machine.state("idle") });
+	holder.actor = actor;
+	actor.send({ kind: "START" });
+
+	expect(order).toStrictEqual(["entry", "exit"]);
+	expect(actor.isRunning()).toBe(false);
+	expect(actor.getState().kind).toBe("active");
 });
 
 test("interpret: abort during cleanup exits once and prevents the transition", () => {
@@ -1196,21 +1041,19 @@ test("interpret: abort during cleanup exits once and prevents the transition", (
 	const calls: string[] = [];
 	const holder: { actor?: Machine.Actor<States, Events>; } = {};
 	const machine = Machine.make<States, Events>({
-		states: {
-			open: {
-				entry: () => () => {
-					calls.push("cleanup");
-					holder.actor?.abort();
-				},
-				exit: () => {
-					calls.push("exit");
-				},
-				on: { CLOSE: () => Machine.state("closed") },
+		open: {
+			entry: () => () => {
+				calls.push("cleanup");
+				holder.actor?.abort();
 			},
-			closed: {
-				entry: () => {
-					calls.push("closed");
-				},
+			exit: () => {
+				calls.push("exit");
+			},
+			on: { CLOSE: () => Machine.state("closed") },
+		},
+		closed: {
+			entry: () => {
+				calls.push("closed");
 			},
 		},
 	});
@@ -1226,15 +1069,13 @@ test("interpret: listener removal and abort take effect during notification", ()
 	type Events = { CLOSE: void; };
 	const calls: string[] = [];
 	const machine = Machine.make<States, Events>({
-		states: {
-			open: { on: { CLOSE: () => Machine.state("closed") } },
-			closed: {
-				entry: () => {
-					calls.push("entry");
-				},
-				exit: () => {
-					calls.push("exit");
-				},
+		open: { on: { CLOSE: () => Machine.state("closed") } },
+		closed: {
+			entry: () => {
+				calls.push("entry");
+			},
+			exit: () => {
+				calls.push("exit");
 			},
 		},
 	});
@@ -1257,22 +1098,4 @@ test("interpret: listener removal and abort take effect during notification", ()
 	actor.send({ kind: "CLOSE" });
 	expect(calls).toStrictEqual(["first", "abort"]);
 	expect(actor.isRunning()).toBe(false);
-});
-
-test("transition: ignores unhandled Object.prototype event kinds such as toString ([MACHINE-002])", () => {
-	type TestState = Machine.State<"idle", void, "done"> | Machine.State<"done", void, never>;
-	type TestEvents = { NEXT: void; };
-
-	const machine = Machine.make<TestState, TestEvents>({
-		states: { idle: { on: { NEXT: () => Machine.state("done") } }, done: {} },
-	});
-
-	const protoEvent: Machine.EventMessage<TestEvents> = { kind: "NEXT" };
-	Reflect.set(protoEvent, "kind", "toString");
-
-	const nextState = Machine.transition(machine, protoEvent)(Machine.state("idle"));
-	expect(nextState).toStrictEqual({ kind: "idle" });
-
-	const actor = Machine.interpret(machine, { initial: Machine.state("idle") });
-	expect(actor.send(protoEvent)).toStrictEqual({ kind: "idle" });
 });

@@ -208,6 +208,17 @@ test("struct: preserves heterogeneous error unions and object shapes", () => {
 	expectTypeOf(structured).toEqualTypeOf<Validation<"ERR_A" | "ERR_B", { a: number; b: string; }>>();
 });
 
+test("struct: extracts channels from concrete variants with a never fallback", () => {
+	const passedOnly = Validation.struct({ abc: Validation.make.passed(42) });
+	expectTypeOf(passedOnly).toEqualTypeOf<Validation<never, { abc: number; }>>();
+
+	const empty = Validation.struct({});
+	expectTypeOf(empty).toEqualTypeOf<Validation<never, {}>>();
+
+	const failedOnly = Validation.struct({ abc: Validation.make.failed("boom" as const) });
+	expectTypeOf(failedOnly).toEqualTypeOf<Validation<"boom", { abc: never; }>>();
+});
+
 test("keyed: narrows validated object properties when check passes", () => {
 	const validateUser = Validation.keyed.make({
 		name: (s: string) => (s.length > 0 ? Validation.make.passed(s) : Validation.make.failed("Name required")),

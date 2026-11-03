@@ -60,14 +60,6 @@ const isPassed = <E, A>(validation: Validation<E, A>): validation is Validation.
 const isFailed = <E, A>(validation: Validation<E, A>): validation is Validation.Failed<E> =>
 	validation.kind === "Failed";
 
-const setProperty = <T extends Record<string, unknown>>(target: T, key: string, value: unknown): void => {
-	if (key === "__proto__") {
-		Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
-	} else {
-		(target as Record<string, unknown>)[key] = value;
-	}
-};
-
 // =============================================================================
 // Combinators
 // =============================================================================
@@ -114,6 +106,9 @@ function apply<E2 = never, A = unknown, E3 = never>(
 		);
 	};
 }
+
+type StructErrorOf<T> = T extends Validation.Failed<infer E> ? E : never;
+type StructValueOf<T> = T extends Validation.Passed<infer A> ? A : never;
 
 // =============================================================================
 // Public Export
@@ -501,7 +496,7 @@ export const Validation = {
 	},
 
 	/**
-	 * Combines a record of Validations into a single Validation of a record.
+	 * Combines a record of Validations into a single Validation of a record. Own string and symbol keys are processed in key order; inherited fields are not supported.
 	 * Accumulates all failed branches' errors.
 	 *
 	 * @example
@@ -519,23 +514,20 @@ export const Validation = {
 	 */
 	struct: <T extends Record<string, Validation<unknown, unknown>>>(
 		fields: T,
-	): Validation<
-		T[keyof T] extends Validation<infer E, unknown> ? E : never,
-		{ [K in keyof T]: T[K] extends Validation<unknown, infer A> ? A : never; }
-	> => {
-		type ErrUnion = T[keyof T] extends Validation<infer Err, unknown> ? Err : never;
-		type Out = { [K in keyof T]: T[K] extends Validation<unknown, infer Val> ? Val : never; };
+	): Validation<StructErrorOf<T[keyof T]>, { [K in keyof T]: StructValueOf<T[K]>; }> => {
+		type ErrUnion = StructErrorOf<T[keyof T]>;
+		type Out = { [K in keyof T]: StructValueOf<T[K]>; };
 		const record = {} as Out;
 		const errors: ErrUnion[] = [];
-		for (const key in fields) {
-			if (Object.hasOwn(fields, key)) {
-				const val = fields[key];
-				if (isPassed(val)) {
-					setProperty(record as Record<string, unknown>, key, val.value);
-				} else {
-					for (let i = 0; i < val.errors.length; i++) {
-						errors.push(val.errors[i] as ErrUnion);
-					}
+		const keys = Reflect.ownKeys(fields);
+		for (let i = 0; i < keys.length; i++) {
+			const key = keys[i];
+			const val = fields[key as keyof T];
+			if (isPassed(val)) {
+				record[key as keyof Out] = val.value as Out[keyof Out];
+			} else {
+				for (let j = 0; j < val.errors.length; j++) {
+					errors.push(val.errors[j] as ErrUnion);
 				}
 			}
 		}

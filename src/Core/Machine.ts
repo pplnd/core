@@ -165,18 +165,6 @@ type MachineInterpretOptions<
 	 * least one event kind with the machine, and shared event payloads must be compatible.
 	 */
 	readonly bus?: EventBus<BusEvents>;
-
-	/**
-	 * Error handler for exceptions thrown inside entry, exit, transition, or subscriber callbacks.
-	 */
-	readonly onError?: (
-		error: unknown,
-		context?: {
-			readonly actorId?: string;
-			readonly state: States;
-			readonly phase: "entry" | "exit" | "listener" | "transition";
-		},
-	) => void;
 };
 
 type CompatibleBus<Events extends Record<string, unknown>, BusEvents extends Record<string, unknown>> =
@@ -190,7 +178,6 @@ type CompatibleBus<Events extends Record<string, unknown>, BusEvents extends Rec
  * A transition table describing named states and their event handlers.
  */
 export type Machine<States extends AnyMachineState, Events extends Record<string, unknown>> = {
-	readonly id?: string;
 	readonly [Symbol.toStringTag]?: string;
 	readonly states: Machine.TransitionTable<States, Events>;
 };
@@ -263,41 +250,34 @@ export const Machine = {
 	 * };
 	 *
 	 * const authMachine = Machine.make<AuthState, AuthEvents>({
-	 *   id: "auth",
-	 *   states: {
-	 *     loggedOut: {
-	 *       on: {
-	 *         SUBMIT: (_state, { email }) => Machine.state("authenticating", { email }),
-	 *       },
+	 *   loggedOut: {
+	 *     on: {
+	 *       SUBMIT: (_state, { email }) => Machine.state("authenticating", { email }),
 	 *     },
-	 *     authenticating: {
-	 *       on: {
-	 *         RESOLVE: (_state, { token }) => Machine.state("authenticated", { token }),
-	 *         REJECT: (_state, { error }) => Machine.state("failed", { error }),
-	 *       },
+	 *   },
+	 *   authenticating: {
+	 *     on: {
+	 *       RESOLVE: (_state, { token }) => Machine.state("authenticated", { token }),
+	 *       REJECT: (_state, { error }) => Machine.state("failed", { error }),
 	 *     },
-	 *     authenticated: {
-	 *       on: {
-	 *         LOGOUT: () => Machine.state("loggedOut"),
-	 *       },
+	 *   },
+	 *   authenticated: {
+	 *     on: {
+	 *       LOGOUT: () => Machine.state("loggedOut"),
 	 *     },
-	 *     failed: {
-	 *       on: {
-	 *         SUBMIT: (_state, { email }) => Machine.state("authenticating", { email }),
-	 *         LOGOUT: () => Machine.state("loggedOut"),
-	 *       },
+	 *   },
+	 *   failed: {
+	 *     on: {
+	 *       SUBMIT: (_state, { email }) => Machine.state("authenticating", { email }),
+	 *       LOGOUT: () => Machine.state("loggedOut"),
 	 *     },
 	 *   },
 	 * });
 	 * ```
 	 */
 	make: <States extends AnyMachineState, Events extends Record<string, unknown>>(
-		config: { readonly id?: string; readonly states: MachineTransitionTable<States, Events>; },
-	): Machine<States, Events> => ({
-		...(config.id !== undefined ? { id: config.id } : {}),
-		[Symbol.toStringTag]: config.id !== undefined ? `Machine(${config.id})` : "Machine",
-		states: { ...config.states },
-	}),
+		states: MachineTransitionTable<States, Events>,
+	): Machine<States, Events> => ({ [Symbol.toStringTag]: "Machine", states: { ...states } }),
 
 	/**
 	 * Constructs a state variant without requiring manual type assertions.
@@ -353,6 +333,9 @@ export const Machine = {
 	 * and returns the next state without executing lifecycle side effects.
 	 *
 	 * If the state does not handle the event, the current state is returned unchanged.
+	 * State kinds and event kinds must be declared machine members; external data must be validated
+	 * before it enters a machine (garbage-in-garbage-out — a prototype-named kind through a contract
+	 * violation is treated as an inherited property, not a member).
 	 *
 	 * @see {@link Machine.interpret} to run a stateful actor with async lifecycle effects.
 	 *
@@ -370,12 +353,10 @@ export const Machine = {
 			event: MachineEventMessage<Events>,
 		) =>
 		(state: States): States => {
-			if (!Object.hasOwn(machine.states, state.kind)) { return state; }
 			const config = machine.states[state.kind as States["kind"]];
 			if (!config || !config.on) {
 				return state;
 			}
-			if (!Object.hasOwn(config.on, event.kind)) { return state; }
 			const handler = config.on[event.kind as keyof Events & string];
 			if (!handler) {
 				return state;
@@ -417,7 +398,7 @@ export const Machine = {
 	 * - Suppresses stale async dispatches from previously active states.
 	 * - Queues re-entrant `send` calls to preserve sequential transition semantics.
 	 * - Optionally synchronizes with an {@link EventBus}.
-	 * - Reports synchronous callback errors through `onError` when supplied; otherwise they propagate.
+	 * - Propagates synchronous callback errors after completing the active transition or cleanup.
 	 *
 	 * @see {@link Machine.transition} for pure stateless transitions.
 	 *
@@ -447,6 +428,7 @@ export const Machine = {
 		let currentAbortController: AbortController | null = null;
 		let currentCleanup: (() => void) | null = null;
 		let stateEntered = false;
+		let isEntering = false;
 		let isProcessing = false;
 		let busDisposer: (() => void) | null = null;
 
@@ -455,17 +437,8 @@ export const Machine = {
 		let pendingError: unknown;
 		let hasPendingError = false;
 
-		const reportError = (error: unknown, phase: "entry" | "exit" | "listener" | "transition", state: States): void => {
-			if (options?.onError) {
-				try {
-					options.onError(error, { ...(actorId !== undefined ? { actorId } : {}), state, phase });
-				} catch (handlerError) {
-					if (!hasPendingError) {
-						pendingError = handlerError;
-						hasPendingError = true;
-					}
-				}
-			} else if (!hasPendingError) {
+		const reportError = (error: unknown): void => {
+			if (!hasPendingError) {
 				pendingError = error;
 				hasPendingError = true;
 			}
@@ -480,6 +453,17 @@ export const Machine = {
 			}
 		};
 
+		const runExitHook = (state: States): void => {
+			const config = machine.states[state.kind as States["kind"]];
+			if (config?.exit) {
+				try {
+					config.exit(state as any);
+				} catch (error) {
+					reportError(error);
+				}
+			}
+		};
+
 		const exitState = (state: States): void => {
 			if (!stateEntered) { return; }
 			stateEntered = false;
@@ -488,21 +472,20 @@ export const Machine = {
 			currentAbortController = null;
 			currentCleanup = null;
 			controller?.abort();
+			if (isEntering) {
+				// An entry hook aborted the actor before returning its disposer. The disposer is
+				// not available yet, so defer cleanup and exit until the entry returns and
+				// `enterState` runs them in cleanup → exit order.
+				return;
+			}
 			if (cleanup) {
 				try {
 					cleanup();
 				} catch (error) {
-					reportError(error, "exit", state);
+					reportError(error);
 				}
 			}
-			const config = Object.hasOwn(machine.states, state.kind) ? machine.states[state.kind as States["kind"]] : undefined;
-			if (config?.exit) {
-				try {
-					config.exit(state as any);
-				} catch (error) {
-					reportError(error, "exit", state);
-				}
-			}
+			runExitHook(state);
 		};
 
 		const enterState = (
@@ -514,7 +497,7 @@ export const Machine = {
 			currentAbortController = controller;
 			stateEntered = true;
 
-			const config = Object.hasOwn(machine.states, state.kind) ? machine.states[state.kind as States["kind"]] : undefined;
+			const config = machine.states[state.kind as States["kind"]];
 			if (!config?.entry) {
 				return;
 			}
@@ -526,21 +509,31 @@ export const Machine = {
 				dispatch(event);
 			};
 
+			isEntering = true;
+			let cleanup: (() => void) | undefined;
 			try {
-				const cleanup = config.entry(state as any, { send: guardedSend, signal: controller.signal });
-				if (typeof cleanup === "function") {
-					if (!isRunning || currentGen !== generation || controller.signal.aborted) {
-						try {
-							cleanup();
-						} catch (error) {
-							reportError(error, "exit", state);
-						}
-					} else {
-						currentCleanup = cleanup;
+				const result = config.entry(state as any, { send: guardedSend, signal: controller.signal });
+				cleanup = typeof result === "function" ? result : undefined;
+			} catch (error) {
+				reportError(error);
+			} finally {
+				isEntering = false;
+			}
+
+			// An entry hook may abort the actor before returning its disposer. In that case
+			// `exitState` deferred cleanup and the exit hook; replay them here in the documented
+			// cleanup → exit order. Otherwise store the disposer for the next transition or abort.
+			if (!isRunning) {
+				if (cleanup !== undefined) {
+					try {
+						cleanup();
+					} catch (error) {
+						reportError(error);
 					}
 				}
-			} catch (error) {
-				reportError(error, "entry", state);
+				runExitHook(state);
+			} else if (cleanup !== undefined) {
+				currentCleanup = cleanup;
 			}
 		};
 
@@ -558,7 +551,7 @@ export const Machine = {
 					try {
 						nextState = Machine.transition(machine, nextEvent)(prevState);
 					} catch (error) {
-						reportError(error, "transition", prevState);
+						reportError(error);
 					}
 					if (!isRunning) {
 						flushPendingError();
@@ -581,7 +574,7 @@ export const Machine = {
 								try {
 									listener(nextState);
 								} catch (error) {
-									reportError(error, "listener", nextState);
+									reportError(error);
 								}
 							}
 						}
@@ -622,11 +615,7 @@ export const Machine = {
 
 		return {
 			...(actorId !== undefined ? { id: actorId } : {}),
-			[Symbol.toStringTag]: actorId !== undefined
-				? machine.id !== undefined ? `Machine.Actor(${actorId})[${machine.id}]` : `Machine.Actor(${actorId})`
-				: machine.id !== undefined
-				? `Machine.Actor[${machine.id}]`
-				: "Machine.Actor",
+			[Symbol.toStringTag]: actorId !== undefined ? `Machine.Actor(${actorId})` : "Machine.Actor",
 			getState: () => currentState,
 			send,
 			subscribe: (listener: (state: States) => void) => {

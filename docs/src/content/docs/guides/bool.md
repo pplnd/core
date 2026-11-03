@@ -5,7 +5,7 @@ description: Parse and combine boolean values, including checks that run only wh
 
 <!-- BUNDLE_SIZE:START -->
 
-> 1.88 kB minified + gzipped
+> 1.87 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

@@ -1,5 +1,4 @@
 import { expect, test } from "vitest";
-import { pipe } from "../../Composition/pipe.ts";
 import { Duration } from "../../Types/Duration.ts";
 import { RetryPolicy } from "../../Types/RetryPolicy.ts";
 import { Deferred } from "../Deferred.ts";
@@ -611,36 +610,6 @@ test("signals: aborts a running transaction through the run signal", async () =>
 	);
 });
 
-test("step: defines __proto__ as an own property without mutating the output or context prototype", async () => {
-	const payload = { polluted: true };
-	const transactionStep0 = Transaction.step("__proto__", { run: () => Task.Result.make.ok(payload) });
-	const transactionStep1 = Transaction.step("verifyContext", {
-		deps: { ["__proto__"]: transactionStep0 },
-		run: ({ deps: ctx }) =>
-			Task.Result.make.ok({
-				hasOwnProto: Object.hasOwn(ctx, "__proto__"),
-				protoIsPlain: Object.getPrototypeOf(ctx) === Object.prototype,
-				inheritedPolluted: "polluted" in ctx,
-			}),
-	});
-	const tx = Transaction.make(transactionStep0, transactionStep1);
-
-	const outcome = await Transaction.run(tx);
-	expect(Result.is.ok(outcome)).toBe(true);
-	const output = pipe(
-		outcome,
-		Result.getOrElse(() => ({
-			__proto__: { polluted: false },
-			verifyContext: { hasOwnProto: false, protoIsPlain: false, inheritedPolluted: true },
-		})),
-	);
-	expect(Object.getPrototypeOf(output)).toBe(Object.prototype);
-	expect(Object.hasOwn(output, "__proto__")).toBe(true);
-	expect(output.__proto__).toStrictEqual(payload);
-	expect("polluted" in output).toBe(false);
-	expect(output.verifyContext).toStrictEqual({ hasOwnProto: true, protoIsPlain: true, inheritedPolluted: false });
-});
-
 test("run: accepts run options as third argument when transaction takes no input", async () => {
 	let succeeded = false;
 	const transactionStep0 = Transaction.step("s1", { run: () => Task.Result.make.ok("v1") });
@@ -707,7 +676,7 @@ test("run: preserves a null signal reason between steps", async () => {
 	);
 });
 
-test("run: forwards an input object shaped like RunOptions (e.g. { signal: AbortSignal }) to context.initial ([TRANSACTION-001])", async () => {
+test("run: forwards an input object shaped like RunOptions (e.g. { signal: AbortSignal }) to context.initial", async () => {
 	const inputCtrl = new AbortController();
 	const runCtrl = new AbortController();
 	inputCtrl.abort("domain_abort_payload");

@@ -36,19 +36,15 @@ export namespace Result {
 // =============================================================================
 // Private Helpers & Variant Constructors
 // =============================================================================
-const setProperty = <T extends Record<string, unknown>>(target: T, key: string, value: unknown): void => {
-	if (key === "__proto__") {
-		Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
-	} else {
-		(target as Record<string, unknown>)[key] = value;
-	}
-};
 
 const makeOk = <A>(value: A): Result.Ok<A> => ({ kind: "Ok", value });
 const makeErr = <const E>(error: E): Result.Err<E> => ({ kind: "Err", error });
 
 const isOk = <E, A>(result: Result<E, A>): result is Result.Ok<A> => result.kind === "Ok";
 const isErr = <E, A>(result: Result<E, A>): result is Result.Err<E> => result.kind === "Err";
+
+type StructErrorOf<T> = T extends Result.Err<infer E> ? E : never;
+type StructValueOf<T> = T extends Result.Ok<infer A> ? A : never;
 
 // =============================================================================
 // Public Export
@@ -445,6 +441,8 @@ export const Result = {
 
 	/**
 	 * Evaluates a new Result using the current accumulator and attaches the output to a new key.
+	 * The key must not already exist on the accumulator — use `map` to update an existing field.
+	 * The accumulator is expected to be a plain object (own enumerable properties).
 	 *
 	 * @see {@link Result.assignTo} to initialize a pipeline accumulator record.
 	 *
@@ -457,18 +455,22 @@ export const Result = {
 	 * ```
 	 */
 	assign:
-		<K extends string, E2, A, B>(key: K, transform: (value: A) => Result<E2, B>) =>
+		<K extends string, E2, A extends object, B>(
+			key: K extends keyof A ? never : K,
+			transform: (value: A) => Result<E2, B>,
+		) =>
 		<E1 = never>(result: Result<E1, A>): Result<E1 | E2, A & { [P in K]: B; }> => {
 			if (!isOk(result)) { return result; }
 			const res = transform(result.value);
 			if (!isOk(res)) { return res; }
-			const accumulator = { ...(result.value as unknown as Record<string, unknown>) } as A & { [P in K]: B; };
-			setProperty(accumulator as Record<string, unknown>, key, res.value);
+			const accumulator = { ...(result.value as unknown as Record<string, unknown>), [key]: res.value } as
+				& A
+				& { [P in K]: B; };
 			return makeOk(accumulator);
 		},
 
 	/**
-	 * Combines a record of Results into a single Result of a record.
+	 * Combines a record of Results into a single Result of a record. Own string and symbol keys are processed in key order; inherited fields are not supported.
 	 * Evaluates fields in key order and short-circuits on the first failure.
 	 *
 	 * @see {@link Result.assign} to combine values sequentially with inter-field dependencies.
@@ -483,23 +485,17 @@ export const Result = {
 	 */
 	struct: <T extends Record<string, Result<unknown, unknown>>>(
 		fields: T,
-	): Result<
-		T[keyof T] extends Result<infer E, unknown> ? E : never,
-		{ [K in keyof T]: T[K] extends Result<unknown, infer A> ? A : never; }
-	> => {
-		type StructResult = Result<
-			T[keyof T] extends Result<infer E, unknown> ? E : never,
-			{ [K in keyof T]: T[K] extends Result<unknown, infer A> ? A : never; }
-		>;
-		const result = {} as { [K in keyof T]: T[K] extends Result<unknown, infer A> ? A : never; };
-		for (const key in fields) {
-			if (Object.hasOwn(fields, key)) {
-				const res = fields[key];
-				if (isErr(res)) {
-					return res as unknown as StructResult;
-				}
-				setProperty(result as Record<string, unknown>, key, res.value);
+	): Result<StructErrorOf<T[keyof T]>, { [K in keyof T]: StructValueOf<T[K]>; }> => {
+		type Out = { [K in keyof T]: StructValueOf<T[K]>; };
+		const result = {} as Out;
+		const keys = Reflect.ownKeys(fields);
+		for (let i = 0; i < keys.length; i++) {
+			const key = keys[i];
+			const res = fields[key as keyof T];
+			if (isErr(res)) {
+				return res as unknown as Result<StructErrorOf<T[keyof T]>, Out>;
 			}
+			result[key as keyof Out] = res.value as Out[keyof Out];
 		}
 		return makeOk(result);
 	},

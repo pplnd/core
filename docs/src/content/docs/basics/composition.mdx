@@ -265,9 +265,18 @@ pipe(
 ); // returns userId immediately; analytics save runs in background
 ```
 
+The pipeline receives `userId` immediately; it cannot observe whether the background work succeeds
+or fails. `onError` also receives synchronous throws from the callback and must not itself throw.
+Use `Task.Result` when the caller needs to await and handle the outcome.
+
 #### Timing steps with tapTime
 
 `tapTime` measures the execution duration of a side-effect function. It supports both synchronous and asynchronous operations (for promises, the duration is tracked until the promise resolves or rejects).
+
+The pipeline receives its original value without waiting for asynchronous work. A synchronous throw
+propagates after timing is reported, but a promise rejection only ends the measurement; it is not
+returned to the pipeline caller. Handle expected async failures inside the timed function, or use an
+awaited `Task.Result` when the caller needs the outcome.
 
 The configuration object requires either a `label` (to log to the console automatically) or an `onFinish` callback (to route the typed `Duration` elsewhere), which are mutually exclusive to avoid conflicts:
 

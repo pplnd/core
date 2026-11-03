@@ -55,20 +55,11 @@ export namespace EventBus {
 	/**
 	 * Configuration options for creating an `EventBus`.
 	 */
-	export type Options<S extends Record<string, unknown> = Record<string, unknown>> = {
+	export type Options = {
 		/**
 		 * An optional diagnostic identifier for debugging, logging, and inspection.
 		 */
 		readonly id?: string;
-
-		/**
-		 * An optional error handler invoked when a subscriber callback throws an unhandled error during event emission.
-		 * If omitted, subscriber exceptions propagate synchronously to the caller of `EventBus.emit`.
-		 */
-		readonly onError?: (
-			error: unknown,
-			context?: { readonly busId?: string; readonly message: EventBus.Message<S>; },
-		) => void;
 	};
 
 	/**
@@ -143,21 +134,20 @@ export namespace EventBus {
 	 * When `only` is specified, allows forwarding between different event schemas as long as
 	 * the selected event keys exist in both buses and their payload types are compatible.
 	 * When `only` is omitted, the target bus schema must accept all events defined in the source bus.
+	 * `Targets` can specify a readonly tuple of buses with different schemas; each target is checked.
 	 */
 	export type ForwardOptions<
 		FromSchema extends Record<string, unknown>,
 		ToSchema extends Record<string, unknown> = FromSchema,
 		K extends keyof FromSchema & string = keyof FromSchema & string,
+		Targets extends EventBus<any> | readonly EventBus<any>[] = EventBus<ToSchema> | ReadonlyArray<EventBus<ToSchema>>,
 	> = {
 		readonly from: EventBus<FromSchema>;
-		readonly to: ToSchema extends { [P in K]: FromSchema[P]; } ? EventBus<ToSchema> | ReadonlyArray<EventBus<ToSchema>>
-			: never;
+		readonly to: Targets & CompatibleForwardTargets<FromSchema, Targets, K>;
 		readonly only: ReadonlyArray<K>;
 	} | {
 		readonly from: EventBus<FromSchema>;
-		readonly to: ToSchema extends { [P in keyof FromSchema]: FromSchema[P]; }
-			? EventBus<ToSchema> | ReadonlyArray<EventBus<ToSchema>>
-			: never;
+		readonly to: Targets & CompatibleForwardTargets<FromSchema, Targets, keyof FromSchema & string>;
 		readonly only?: ReadonlyArray<K>;
 	};
 
@@ -172,19 +162,18 @@ export namespace EventBus {
 	> = { readonly [Key in Exclude<K, Opt>]: S[Key]; } & { readonly [Key in Extract<K, Opt>]?: S[Key]; };
 }
 
-/**
- * Sets an object property safely without triggering prototype pollution when key is `"__proto__"`.
- *
- * @internal
- */
-const setProperty = <O extends object, K extends PropertyKey, V>(target: O, key: K, value: V): O => {
-	if (key === "__proto__") {
-		Object.defineProperty(target, key, { value, writable: true, enumerable: true, configurable: true });
-	} else {
-		(target as Record<PropertyKey, unknown>)[key] = value;
+type CompatibleForwardTargets<
+	FromSchema extends Record<string, unknown>,
+	Targets extends EventBus<any> | readonly EventBus<any>[],
+	K extends keyof FromSchema & string,
+> = Targets extends readonly EventBus<any>[]
+	? {
+		[I in keyof Targets]: Targets[I] extends EventBus<infer S>
+			? S extends { [P in K]: FromSchema[P]; } ? Targets[I] : never
+			: never;
 	}
-	return target;
-};
+	: Targets extends EventBus<infer S> ? S extends { [P in K]: FromSchema[P]; } ? Targets : never
+	: never;
 
 /**
  * Initializes a new `EventBus` instance backed by private state.
@@ -194,7 +183,7 @@ const setProperty = <O extends object, K extends PropertyKey, V>(target: O, key:
  *
  * @internal
  */
-const makeEventBus = <S extends Record<string, unknown>>(options?: EventBus.Options<S>): EventBus<S> => {
+const makeEventBus = <S extends Record<string, unknown>>(options?: EventBus.Options): EventBus<S> => {
 	const busId = options?.id;
 	return ({
 		...(busId !== undefined ? { id: busId } : {}),
@@ -210,6 +199,26 @@ const makeEventBus = <S extends Record<string, unknown>>(options?: EventBus.Opti
 };
 
 /**
+ * Module-level state for one synchronous delivery cascade across all buses.
+ *
+ * `depth` counts how many nested `emitSingleBus` frames are currently active. The outermost `emit`
+ * call is frame 1; every nested or re-entrant emission increases the depth. When the depth returns
+ * to 0, the cascade has fully completed.
+ *
+ * `trace` records which message objects have already passed through each forward link during the
+ * current cascade. `forward` re-emits the exact message object it received, so a message that loops
+ * back to a bus it already visited passes through the same forward link again. Seeing the same
+ * message object on the same forward link twice means a forwarding cycle. The trace is cleared when
+ * `depth` returns to 0, so independent `emit` calls never affect each other.
+ *
+ * @internal
+ */
+const forwardCascade: { depth: number; trace: Map<(msg: unknown) => void, Set<unknown>> | null; } = {
+	depth: 0,
+	trace: null,
+};
+
+/**
  * Dispatches a message to all subscribers of a single `EventBus` instance.
  *
  * Employs a synchronous breadth-first queue trampoline:
@@ -219,6 +228,9 @@ const makeEventBus = <S extends Record<string, unknown>>(options?: EventBus.Opti
  * 4. Reuses the cached `internal.subscriberArray` snapshot, or lazily builds it via `Array.from(subscribers)`
  *    if invalidated by subscriber mutations (`add` / `delete`).
  *
+ * Every entry frame increments `forwardCascade.depth`; the frame that returns the depth to 0 owns
+ * the end of the cascade and clears `forwardCascade.trace`.
+ *
  * @internal
  */
 const emitSingleBus = (
@@ -226,37 +238,34 @@ const emitSingleBus = (
 	msg: EventBus.Message<Record<string, unknown>>,
 ): void => {
 	const internal = toInternalEventBus(bus)[EVENT_BUS_STATE];
-	internal.queue.push(msg);
-	if (internal.isEmitting) {
-		return;
-	}
-	internal.isEmitting = true;
+	forwardCascade.depth++;
 	try {
-		let queueHead = 0;
-		while (queueHead < internal.queue.length) {
-			const nextMsg = internal.queue[queueHead++];
-			internal.subscriberArray ??= Array.from(internal.subscribers);
-			const subscribers = internal.subscriberArray;
-			for (let i = 0; i < subscribers.length; i++) {
-				if (internal.subscribers.has(subscribers[i])) {
-					try {
+		internal.queue.push(msg);
+		if (internal.isEmitting) {
+			return;
+		}
+		internal.isEmitting = true;
+		try {
+			let queueHead = 0;
+			while (queueHead < internal.queue.length) {
+				const nextMsg = internal.queue[queueHead++];
+				internal.subscriberArray ??= Array.from(internal.subscribers);
+				const subscribers = internal.subscriberArray;
+				for (let i = 0; i < subscribers.length; i++) {
+					if (internal.subscribers.has(subscribers[i])) {
 						subscribers[i](nextMsg);
-					} catch (err) {
-						if (internal.options?.onError) {
-							internal.options.onError(err, {
-								...(internal.options.id !== undefined ? { busId: internal.options.id } : {}),
-								message: nextMsg,
-							});
-						} else {
-							throw err;
-						}
 					}
 				}
 			}
+		} finally {
+			internal.queue.length = 0;
+			internal.isEmitting = false;
 		}
 	} finally {
-		internal.queue.length = 0;
-		internal.isEmitting = false;
+		forwardCascade.depth--;
+		if (forwardCascade.depth === 0) {
+			forwardCascade.trace = null;
+		}
 	}
 };
 
@@ -298,38 +307,16 @@ function forwardEventBus<
 	FromSchema extends Record<string, unknown>,
 	const K extends keyof FromSchema & string,
 	const B extends readonly EventBus<any>[],
->(
-	options: {
-		readonly from: EventBus<FromSchema>;
-		readonly to:
-			& B
-			& {
-				[I in keyof B]: B[I] extends EventBus<infer S> ? S extends { [P in K]: FromSchema[P]; } ? B[I] : never : never;
-			};
-		readonly only: ReadonlyArray<K>;
-	},
-): () => void;
+>(options: EventBus.ForwardOptions<FromSchema, FromSchema, K, B>): () => void;
 function forwardEventBus<
 	FromSchema extends Record<string, unknown>,
 	ToSchema extends { [P in K]: FromSchema[P]; },
 	const K extends keyof FromSchema & string,
->(
-	options: {
-		readonly from: EventBus<FromSchema>;
-		readonly to: EventBus<ToSchema> | ReadonlyArray<EventBus<ToSchema>>;
-		readonly only: ReadonlyArray<K>;
-	},
-): () => void;
+>(options: EventBus.ForwardOptions<FromSchema, ToSchema, K>): () => void;
 function forwardEventBus<
 	FromSchema extends Record<string, unknown>,
 	ToSchema extends { [P in keyof FromSchema]: FromSchema[P]; },
->(
-	options: {
-		readonly from: EventBus<FromSchema>;
-		readonly to: EventBus<ToSchema> | ReadonlyArray<EventBus<ToSchema>>;
-		readonly only?: ReadonlyArray<keyof FromSchema & string>;
-	},
-): () => void;
+>(options: EventBus.ForwardOptions<FromSchema, ToSchema>): () => void;
 function forwardEventBus(
 	options: {
 		readonly from: EventBus<Record<string, unknown>>;
@@ -338,16 +325,35 @@ function forwardEventBus(
 	},
 ): () => void {
 	const filterSet = options.only ? new Set<string>(options.only) : null;
+	const internalFrom = toInternalEventBus(options.from)[EVENT_BUS_STATE];
 
 	const handler = (msg: unknown) => {
 		const typedMsg = msg as EventBus.Message<Record<string, unknown>>;
 		if (filterSet !== null && !filterSet.has(typedMsg.kind)) {
 			return;
 		}
+		// The same message object has already passed through this forward link during the current
+		// cascade, so the message has looped back to a bus it already visited. Throw to stop the
+		// cycle and report the misconfiguration instead of delivering indefinitely.
+		if (forwardCascade.trace === null) {
+			forwardCascade.trace = new Map();
+		}
+		let seenMessages = forwardCascade.trace.get(handler);
+		if (seenMessages === undefined) {
+			seenMessages = new Set();
+			forwardCascade.trace.set(handler, seenMessages);
+		}
+		if (seenMessages.has(msg)) {
+			throw new Error(
+				`EventBus: forwarding cycle detected for message kind "${typedMsg.kind}" on bus "${
+					internalFrom.options?.id ?? "(anonymous)"
+				}"`,
+			);
+		}
+		seenMessages.add(msg);
 		emitEventBus(options.to, typedMsg as any);
 	};
 
-	const internalFrom = toInternalEventBus(options.from)[EVENT_BUS_STATE];
 	internalFrom.subscribers.add(handler);
 	internalFrom.subscriberArray = null;
 
@@ -601,7 +607,7 @@ function subscribeEventBus(
 
 			if (!isOrdered) {
 				if (eventList.includes(msg.kind)) {
-					setProperty(collected, msg.kind, msg.value);
+					collected[msg.kind] = msg.value;
 					let hasAll = true;
 					for (let i = 0; i < eventList.length; i++) {
 						const k = eventList[i];
@@ -641,7 +647,7 @@ function subscribeEventBus(
 			}
 
 			if (msg.kind === expectedKind) {
-				setProperty(collected, msg.kind, msg.value);
+				collected[msg.kind] = msg.value;
 				sequenceIndex++;
 				if (sequenceIndex === eventList.length) {
 					sequenceIndex = 0;
@@ -656,7 +662,7 @@ function subscribeEventBus(
 			} else if (isStrict) {
 				sequenceIndex = restartIndex(msg.kind);
 				if (sequenceIndex > 0) {
-					collected = setProperty({}, msg.kind, msg.value);
+					collected = { [msg.kind]: msg.value };
 				} else {
 					sequenceIndex = 0;
 					collected = {};
@@ -664,7 +670,7 @@ function subscribeEventBus(
 			} else if (eventList.includes(msg.kind)) {
 				sequenceIndex = restartIndex(msg.kind);
 				if (sequenceIndex > 0) {
-					collected = setProperty({}, msg.kind, msg.value);
+					collected = { [msg.kind]: msg.value };
 				} else {
 					sequenceIndex = 0;
 					collected = {};
@@ -772,6 +778,10 @@ export const EventBus = {
 
 	/**
 	 * Forwards messages from one event bus to another (or multiple).
+	 *
+	 * Forwarding a message back to a bus it already visited within the same emission throws an
+	 * error naming the bus and message kind, breaking cycles such as `A → B → A` on the first
+	 * repeat instead of delivering indefinitely.
 	 *
 	 * @see {@link EventBus.emit} for publishing messages directly.
 	 * @see {@link EventBus.subscribe} for consuming events on a bus.

@@ -5,7 +5,7 @@ description: Run asynchronous tasks after their dependencies are ready.
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.83 kB minified + gzipped
+> 2.82 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -112,5 +112,5 @@ ignores the signal and continues running. Node callbacks, tasks, timeout handler
 observers must not throw or reject; use `Task.Result` for expected failures.
 
 `Graph.node` rejects an empty ID. `Graph.make` checks reachable nodes for duplicate IDs and cycles
-at runtime. A nonpositive or non-integer `concurrency` value is treated as unbounded. Wrap fallible
-work in `Task.Result.tryCatch` to map expected errors to the intended type.
+at runtime. A nonpositive or non-integer `concurrency` value clamps to 1. Wrap fallible work in
+`Task.Result.tryCatch` to map expected errors to the intended type.

@@ -650,6 +650,18 @@ test("struct: returns ok({}) when given empty object", async () => {
 	expect(res).toStrictEqual(Result.make.ok({}));
 });
 
+test("struct: copies symbol-keyed fields and short-circuits on a symbol-keyed Err", async () => {
+	const token = Symbol("token");
+	const res = await Task.Result.struct({ value: Task.Result.make.ok(42), [token]: Task.Result.make.ok("extra") })();
+	expect(res).toStrictEqual(Result.make.ok({ value: 42, [token]: "extra" }));
+
+	const failing = await Task.Result.struct({
+		value: Task.Result.make.ok(42),
+		[token]: Task.Result.make.err("boom" as const),
+	})();
+	expect(failing).toStrictEqual(Result.make.err("boom"));
+});
+
 // --- retry ---
 
 test("retry: returns Ok on first attempt without retrying", async () => {
@@ -1144,23 +1156,6 @@ test("assign: safely handles __proto__ property without prototype pollution", as
 	expect("polluted" in {}).toBe(false);
 });
 
-test("struct: safely handles __proto__ property without prototype pollution", async () => {
-	const protoFields: Record<string, Task.Result<string, unknown>> = {};
-	Object.defineProperty(protoFields, "__proto__", {
-		value: Task.Result.make.ok({ polluted: true }),
-		enumerable: true,
-		configurable: true,
-		writable: true,
-	});
-	protoFields.a = Task.Result.make.ok(1);
-
-	const res = await Task.Result.struct(protoFields)();
-	expect(Result.is.ok(res)).toBe(true);
-	const value = Result.getOrElse((): Record<string, unknown> => ({}))(res);
-	expect(Object.hasOwn(value, "__proto__")).toBe(true);
-	expect("polluted" in {}).toBe(false);
-});
-
 // ---------------------------------------------------------------------------
 // from.Task
 // ---------------------------------------------------------------------------
@@ -1251,6 +1246,28 @@ test("all: limits concurrency and preserves order", async () => {
 	expect(maxActive).toBe(2);
 });
 
+test("all: clamps invalid concurrency values to sequential execution", async () => {
+	for (const concurrency of [1.5, NaN, Infinity, 0, -1]) {
+		let active = 0;
+		let maxActive = 0;
+		const counting = (): Task.Result<never, number> => () => {
+			active++;
+			maxActive = Math.max(maxActive, active);
+			return Deferred.from.Promise(
+				Promise.resolve(Result.make.ok(1)).then((result) => {
+					active--;
+					return result;
+				}),
+			);
+		};
+
+		const result = await Task.Result.all([counting(), counting(), counting()], { concurrency })();
+
+		expect(result).toStrictEqual(Result.make.ok([1, 1, 1]));
+		expect(maxActive).toBe(1);
+	}
+});
+
 test("all: settles with Task.Aborted when caller signal aborts during execution", async () => {
 	const controller = new AbortController();
 	let cancelled = false;
@@ -1324,10 +1341,10 @@ test("all: does not trigger abort listeners when all tasks succeed", async () =>
 });
 
 // ---------------------------------------------------------------------------
-// Open Findings Regression Suite ([TASK-002], [TASK-005])
+// Regression Suite
 // ---------------------------------------------------------------------------
 
-test("retry: exits wait immediately when signal is aborted synchronously inside onRetry ([TASK-005])", async () => {
+test("retry: exits wait immediately when signal is aborted synchronously inside onRetry", async () => {
 	const controller = new AbortController();
 	const policy = RetryPolicy.constant({
 		attempts: 3,

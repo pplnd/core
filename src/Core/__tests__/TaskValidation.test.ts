@@ -407,6 +407,21 @@ test("struct: combines record of Passed in parallel", async () => {
 	expect(result).toStrictEqual(Validation.make.passed({ name: "Alice", age: 30 }));
 });
 
+test("struct: copies symbol-keyed passed fields and accumulates symbol-keyed failures", async () => {
+	const token = Symbol("token");
+	const res = await Task.Validation.struct({
+		value: Task.Validation.make.passed(42),
+		[token]: Task.Validation.make.passed("extra"),
+	})();
+	expect(res).toStrictEqual(Validation.make.passed({ value: 42, [token]: "extra" }));
+
+	const failing = await Task.Validation.struct({
+		value: Task.Validation.make.passed(42),
+		[token]: Task.Validation.make.failed("boom" as const),
+	})();
+	expect(failing).toStrictEqual(Validation.make.failed("boom"));
+});
+
 test("struct: accumulates errors from all failed branches", async () => {
 	const result = await Task.Validation.struct({
 		name: Task.Validation.make.failed("Name required"),
@@ -515,21 +530,4 @@ test("run: executes Task.Validation in a pipeline", async () => {
 	const controller = new AbortController();
 	const res = await pipe(Task.Validation.make.passed(42), Task.Validation.run(controller.signal));
 	expect(res).toStrictEqual(Validation.make.passed(42));
-});
-
-test("struct: safely handles __proto__ property without prototype pollution", async () => {
-	const protoFields: Record<string, Task.Validation<string, unknown>> = {};
-	Object.defineProperty(protoFields, "__proto__", {
-		value: Task.Validation.make.passed({ polluted: true }),
-		enumerable: true,
-		configurable: true,
-		writable: true,
-	});
-	protoFields.a = Task.Validation.make.passed(1);
-
-	const res = await Task.Validation.struct(protoFields)();
-	expect(Validation.is.passed(res)).toBe(true);
-	const value = Validation.getOrElse((): Record<string, unknown> => ({}))(res);
-	expect(Object.hasOwn(value, "__proto__")).toBe(true);
-	expect("polluted" in {}).toBe(false);
 });

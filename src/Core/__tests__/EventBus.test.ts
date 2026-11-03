@@ -56,79 +56,34 @@ test("emit: broadcasts to multiple target event buses", () => {
 	expect(s2Count).toBe(1);
 });
 
-test("emit: passes errors to onError option handler if provided", () => {
-	let caughtError: Error | undefined;
-	const s = EventBus.make<TestSchema>({
-		onError: (err) => {
-			if (err instanceof Error) {
-				caughtError = err;
-			}
-		},
-	});
-
-	EventBus.subscribe(s, "A").tap(() => {
-		throw new Error("listener error");
-	});
-
-	EventBus.emit(s, { kind: "A", value: { value: 1 } });
-	expect(caughtError).toBeInstanceOf(Error);
-	expect(caughtError?.message).toBe("listener error");
-});
-
-test("emit: passes contextual busId and message to onError handler", () => {
-	let caughtError: Error | undefined;
-	let caughtContext: { readonly busId?: string; readonly message: EventBus.Message<TestSchema>; } | undefined;
-	const s = EventBus.make<TestSchema>({
-		id: "error-bus",
-		onError: (err, context) => {
-			if (err instanceof Error) {
-				caughtError = err;
-			}
-			caughtContext = context;
-		},
-	});
-
-	EventBus.subscribe(s, "A").tap(() => {
-		throw new Error("listener error");
-	});
-
-	EventBus.emit(s, { kind: "A", value: { value: 99 } });
-	expect(caughtError).toBeInstanceOf(Error);
-	expect(caughtError?.message).toBe("listener error");
-	expect(caughtContext).toStrictEqual({ busId: "error-bus", message: { kind: "A", value: { value: 99 } } });
-});
-
-test("emit: subscriber isolation ensures throwing listener does not prevent sibling listeners from receiving events", () => {
-	const errors: unknown[] = [];
-	const s = EventBus.make<TestSchema>({
-		onError: (err) => {
-			errors.push(err);
-		},
-	});
-
-	let siblingReceived = false;
-
-	EventBus.subscribe(s, "A").tap(() => {
-		throw new Error("faulty subscriber");
-	});
-
-	EventBus.subscribe(s, "A").tap(() => {
-		siblingReceived = true;
-	});
-
-	EventBus.emit(s, { kind: "A", value: { value: 42 } });
-
-	expect(errors).toHaveLength(1);
-	expect(siblingReceived).toBe(true);
-});
-
-test("emit: throws error if listener throws and no onError handler is provided", () => {
+test("emit: propagates a subscriber exception", () => {
 	const s = EventBus.make<TestSchema>();
+	let siblingCalled = false;
 	EventBus.subscribe(s, "A").tap(() => {
 		throw new Error("uncaught error");
 	});
+	EventBus.subscribe(s, "A").tap(() => {
+		siblingCalled = true;
+	});
 
 	expect(() => EventBus.emit(s, { kind: "A", value: { value: 1 } })).toThrow("uncaught error");
+	expect(siblingCalled).toBe(false);
+});
+
+test("emit: stops delivery to later target buses when a subscriber throws", () => {
+	const first = EventBus.make<TestSchema>();
+	const second = EventBus.make<TestSchema>();
+	let secondCalled = false;
+
+	EventBus.subscribe(first, "A").tap(() => {
+		throw new Error("first target error");
+	});
+	EventBus.subscribe(second, "A").tap(() => {
+		secondCalled = true;
+	});
+
+	expect(() => EventBus.emit([first, second], { kind: "A", value: { value: 1 } })).toThrow("first target error");
+	expect(secondCalled).toBe(false);
 });
 
 // --- Re-entrant Emissions & Trampoline Queue ---
@@ -523,6 +478,110 @@ test("forward: pipes messages to multiple target event buses", () => {
 	disconnect();
 });
 
+// --- Forwarding Cycle Detection ---
+
+test("forward: throws when a message cycles back to a bus it already visited", () => {
+	const a = EventBus.make<TestSchema>();
+	const b = EventBus.make<TestSchema>();
+	let bDeliveries = 0;
+
+	EventBus.forward({ from: a, to: b });
+	EventBus.forward({ from: b, to: a });
+	EventBus.subscribe(b, "A").tap(() => {
+		bDeliveries++;
+	});
+
+	expect(() => EventBus.emit(a, { kind: "A", value: { value: 1 } })).toThrow("forwarding cycle");
+	expect(bDeliveries).toBe(1);
+});
+
+test("forward: throws on a three-bus cycle", () => {
+	const a = EventBus.make<TestSchema>();
+	const b = EventBus.make<TestSchema>();
+	const c = EventBus.make<TestSchema>();
+
+	EventBus.forward({ from: a, to: b });
+	EventBus.forward({ from: b, to: c });
+	EventBus.forward({ from: c, to: a });
+
+	expect(() => EventBus.emit(a, { kind: "A", value: { value: 1 } })).toThrow("forwarding cycle");
+});
+
+test("forward: throws on a self-forwarding bus", () => {
+	const a = EventBus.make<TestSchema>();
+	EventBus.forward({ from: a, to: a });
+
+	expect(() => EventBus.emit(a, { kind: "A", value: { value: 1 } })).toThrow("forwarding cycle");
+});
+
+test("forward: reports the forwarding bus id in the cycle error", () => {
+	const a = EventBus.make<TestSchema>({ id: "orders" });
+	const b = EventBus.make<TestSchema>({ id: "audit" });
+
+	EventBus.forward({ from: a, to: b });
+	EventBus.forward({ from: b, to: a });
+
+	expect(() => EventBus.emit(a, { kind: "A", value: { value: 1 } })).toThrow('bus "orders"');
+});
+
+test("forward: allows bidirectional forwards with disjoint filters", () => {
+	const a = EventBus.make<TestSchema>();
+	const b = EventBus.make<TestSchema>();
+	let bGotA = 0;
+	let aGotB = 0;
+
+	EventBus.forward({ from: a, to: b, only: ["A"] });
+	EventBus.forward({ from: b, to: a, only: ["B"] });
+	EventBus.subscribe(b, "A").tap(() => {
+		bGotA++;
+	});
+	EventBus.subscribe(a, "B").tap(() => {
+		aGotB++;
+	});
+
+	EventBus.emit(a, { kind: "A", value: { value: 1 } });
+	EventBus.emit(b, { kind: "B", value: { text: "reply" } });
+
+	expect(bGotA).toBe(1);
+	expect(aGotB).toBe(1);
+});
+
+test("forward: delivers duplicate copies through diamond fan-in without a cycle error", () => {
+	const a = EventBus.make<TestSchema>();
+	const b = EventBus.make<TestSchema>();
+	const c = EventBus.make<TestSchema>();
+	const d = EventBus.make<TestSchema>();
+	let dDeliveries = 0;
+
+	EventBus.forward({ from: a, to: b });
+	EventBus.forward({ from: a, to: c });
+	EventBus.forward({ from: b, to: d });
+	EventBus.forward({ from: c, to: d });
+	EventBus.subscribe(d, "A").tap(() => {
+		dDeliveries++;
+	});
+
+	EventBus.emit(a, { kind: "A", value: { value: 1 } });
+
+	expect(dDeliveries).toBe(2);
+});
+
+test("forward: clears cycle tracking after the emission cascade completes", () => {
+	const a = EventBus.make<TestSchema>();
+	const b = EventBus.make<TestSchema>();
+	let bDeliveries = 0;
+
+	EventBus.forward({ from: a, to: b });
+	EventBus.subscribe(b, "A").tap(() => {
+		bDeliveries++;
+	});
+
+	EventBus.emit(a, { kind: "A", value: { value: 1 } });
+	EventBus.emit(a, { kind: "A", value: { value: 1 } });
+
+	expect(bDeliveries).toBe(2);
+});
+
 // --- Type Narrowing & Safe Indexing ---
 
 test("listen: narrows msg.kind to listened keys in reduce", () => {
@@ -651,24 +710,6 @@ test("collect: skips optional step and sets its value to undefined", () => {
 	expect(snapshots).toHaveLength(1);
 	expect(snapshots[0].B).toBeUndefined();
 	expect(snapshots[0]).toStrictEqual({ A: { value: 1 }, C: { flag: true } });
-});
-
-test("collect: safely handles __proto__ event kind without prototype pollution", () => {
-	type ProtoSchema = { __proto__: { injected: string; }; normal: { data: number; }; };
-	const s = EventBus.make<ProtoSchema>();
-	const snapshots: Array<EventBus.CollectedPayloads<ProtoSchema, "__proto__" | "normal">> = [];
-
-	EventBus.subscribe(s, ["__proto__", "normal"]).collect((payloads) => {
-		snapshots.push(payloads);
-	});
-
-	EventBus.emit(s, { kind: "__proto__", value: { injected: "polluted" } });
-	EventBus.emit(s, { kind: "normal", value: { data: 123 } });
-
-	expect(snapshots).toHaveLength(1);
-	const cleanObject: Record<string, unknown> = {};
-	expect(cleanObject["injected"]).toBeUndefined();
-	expect(Object.hasOwn(snapshots[0], "__proto__")).toBe(true);
 });
 
 test("collect: preserves falsy payloads (0, false, empty string) without conflating them with skipped optional steps", () => {
@@ -915,27 +956,15 @@ test("subscribe: schema-wide subscription object structurally omits collect", ()
 
 // --- Once Lifecycle, Concurrency & Edge Cases ---
 
-test("subscribe: ensures once subscriber stays unsubscribed when callback throws under onError", () => {
-	let caught = 0;
-	const s = EventBus.make<TestSchema>({
-		onError: () => {
-			caught++;
-		},
-	});
+test("subscribe: once subscriber stays unsubscribed when its callback throws", () => {
+	const bus = EventBus.make<TestSchema>();
 	let executions = 0;
-
-	EventBus.subscribe(s, "A", { once: true }).tap(() => {
+	EventBus.subscribe(bus, "A", { once: true }).tap(() => {
 		executions++;
 		throw new Error("once error");
 	});
-
-	EventBus.emit(s, { kind: "A", value: { value: 1 } });
-	expect(caught).toBe(1);
-	expect(executions).toBe(1);
-
-	// Second emission must NOT trigger the once subscriber again
-	EventBus.emit(s, { kind: "A", value: { value: 2 } });
-	expect(caught).toBe(1);
+	expect(() => EventBus.emit(bus, { kind: "A", value: { value: 1 } })).toThrow("once error");
+	EventBus.emit(bus, { kind: "A", value: { value: 2 } });
 	expect(executions).toBe(1);
 });
 
@@ -1033,10 +1062,10 @@ test("composition: integrates with pipe to process messages", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Open Findings Regression Suite ([EVENTBUS-001], [EVENTBUS-002])
+// Regression Suite
 // ---------------------------------------------------------------------------
 
-test("emit: does not invoke subscriber that was unsubscribed by an earlier subscriber during the same emission ([EVENTBUS-001])", () => {
+test("emit: does not invoke subscriber that was unsubscribed by an earlier subscriber during the same emission", () => {
 	const s = EventBus.make<TestSchema>();
 	let sub2Calls = 0;
 	const holder: { unsub2?: () => void; } = {};
@@ -1053,7 +1082,7 @@ test("emit: does not invoke subscriber that was unsubscribed by an earlier subsc
 	expect(sub2Calls).toBe(0);
 });
 
-test("subscribe: restarts ordered sequence when unexpected event matches after leading optional step ([EVENTBUS-002])", () => {
+test("subscribe: restarts ordered sequence when unexpected event matches after leading optional step", () => {
 	const s = EventBus.make<TestSchema>();
 	let tapCount = 0;
 	const collected: Array<EventBus.CollectedPayloads<TestSchema, "A" | "B" | "C", "A">> = [];
@@ -1075,7 +1104,7 @@ test("subscribe: restarts ordered sequence when unexpected event matches after l
 	expect(collected).toStrictEqual([{ B: { text: "restarted" }, C: { flag: true } }]);
 });
 
-test("subscribe: defensively clones events array so external mutation does not corrupt active subscription ([EVENTBUS-002])", () => {
+test("subscribe: defensively clones events array so external mutation does not corrupt active subscription", () => {
 	const s = EventBus.make<TestSchema>();
 	const events: Array<"A" | "B"> = ["A", "B"];
 	let fired = 0;

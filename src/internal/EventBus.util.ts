@@ -12,10 +12,7 @@ export const EVENT_BUS_STATE: unique symbol = Symbol.for("@pplnd/core/EventBus.s
  *
  * @internal
  */
-export type EventBusOptions = {
-	readonly id?: string;
-	readonly onError?: (error: unknown, context?: { readonly busId?: string; readonly message: unknown; }) => void;
-};
+export type EventBusOptions = { readonly id?: string; };
 
 /**
  * Low-level operational state backing an `EventBus` instance.
@@ -27,7 +24,7 @@ export type EventBusOptions = {
  */
 export type EventBusInternalState = {
 	/**
-	 * Diagnostic label and error-handling options provided at bus construction.
+	 * Diagnostic options provided at bus construction.
 	 */
 	readonly options?: EventBusOptions;
 

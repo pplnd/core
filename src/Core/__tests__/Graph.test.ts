@@ -453,25 +453,31 @@ test("run: removes abort listener from caller signal upon graph failure", async 
 	expect(removed).toBe(true);
 });
 
-test("run: handles non-integer and negative concurrency options gracefully", async () => {
-	const node1 = Graph.node("n1", { run: () => Task.Result.make.ok(1) });
-	const node2 = Graph.node("n2", { run: () => Task.Result.make.ok(2) });
+test("run: clamps invalid concurrency values to sequential execution", async () => {
+	let inFlight = 0;
+	let maxInFlight = 0;
+	const delayed = (id: string) =>
+		Graph.node(id, {
+			run: () =>
+				Task.Result.tryCatch(async () => {
+					inFlight++;
+					maxInFlight = Math.max(maxInFlight, inFlight);
+					await new Promise((resolve) => setTimeout(resolve, 10));
+					inFlight--;
+					return id;
+				}, { onError: String }),
+		});
 	const sink = Graph.node("sink", {
-		deps: { node1, node2 },
-		run: ({ deps }) => Task.Result.make.ok(deps.node1 + deps.node2),
+		deps: { a: delayed("a"), b: delayed("b"), c: delayed("c") },
+		run: ({ deps }) => Task.Result.make.ok(`${deps.a}${deps.b}${deps.c}`),
 	});
 
-	const r1 = await Graph.run(Graph.make(sink, { concurrency: 1.5 }));
-	expect(r1).toStrictEqual(Result.make.ok(3));
-
-	const r2 = await Graph.run(Graph.make(sink, { concurrency: NaN }));
-	expect(r2).toStrictEqual(Result.make.ok(3));
-
-	const r3 = await Graph.run(Graph.make(sink, { concurrency: -1 }));
-	expect(r3).toStrictEqual(Result.make.ok(3));
-
-	const r4 = await Graph.run(Graph.make(sink, { concurrency: 0 }));
-	expect(r4).toStrictEqual(Result.make.ok(3));
+	for (const invalid of [1.5, NaN, -1, 0, Infinity]) {
+		maxInFlight = 0;
+		const result = await Graph.run(Graph.make(sink, { concurrency: invalid }));
+		expect(result).toStrictEqual(Result.make.ok("abc"));
+		expect(maxInFlight).toBe(1);
+	}
 });
 
 test("run: preserves side-effect isolation so downstream nodes never execute on upstream failure", async () => {

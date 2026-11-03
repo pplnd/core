@@ -177,6 +177,14 @@ test("struct: combines homogeneous and heterogeneous Maybes into single object r
 	expectTypeOf(structured).toEqualTypeOf<Maybe<{ a: number; b: string; }>>();
 });
 
+test("struct: extracts values from Some variants with a never fallback", () => {
+	const noneOnly = Maybe.struct({ value: Maybe.make.none() });
+	expectTypeOf(noneOnly).toEqualTypeOf<Maybe<{ value: never; }>>();
+
+	const empty = Maybe.struct({});
+	expectTypeOf(empty).toEqualTypeOf<Maybe<{}>>();
+});
+
 test("assign & assignTo: accumulates pipeline object record correctly", () => {
 	const optA = constTruthyBool() ? Maybe.make.some(1) : Maybe.make.none();
 
@@ -187,6 +195,18 @@ test("assign & assignTo: accumulates pipeline object record correctly", () => {
 	);
 	expectTypeOf(bound).toEqualTypeOf<Maybe<{ a: number; } & { b: string; }>>();
 	expectTypeOf(bound).toMatchTypeOf<Maybe<{ a: number; b: string; }>>();
+});
+
+test("assign: appends new keys only — existing keys and primitive accumulators are rejected", () => {
+	const bound = pipe(Maybe.make.some(1), Maybe.assignTo("a"), Maybe.assign("b", ({ a }) => Maybe.make.some(a + 1)));
+	expectTypeOf(bound).toEqualTypeOf<Maybe<{ a: number; } & { b: number; }>>();
+
+	// @ts-expect-error — "a" already exists on the accumulator; use map to update a field
+	const updated = pipe(Maybe.make.some({ a: 1 }), Maybe.assign("a", () => Maybe.make.some(2)));
+	expectTypeOf(updated).toBeObject();
+
+	// @ts-expect-error — the accumulator must be an object, not a primitive
+	expectTypeOf(Maybe.assign("label", (n: number) => Maybe.make.some(n))).toBeFunction();
 });
 
 test("negative: flags missing match handlers, invalid transforms, and variant incompatibilities", () => {

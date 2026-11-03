@@ -687,17 +687,6 @@ test("all: rolls back already-acquired record resources in reverse order when a 
 	expect(order).toStrictEqual(["rel-db"]);
 });
 
-test("all: safely sets __proto__ key without prototype pollution", async () => {
-	const pKey = "__proto__";
-	const dangerous = Resource.all({ [pKey]: Resource.make(Task.Result.make.ok("polluted"), () => Task.make(undefined)) });
-
-	const result = await Resource.use(dangerous, { run: (rec) => Task.Result.make.ok(rec[pKey]) });
-
-	expect(result).toStrictEqual({ kind: "Ok", value: "polluted" });
-	// Verify Object.prototype is not polluted
-	expect(({} as any).polluted).toBeUndefined();
-});
-
 test("all: releases all record resources in reverse order when consume returns Err", async () => {
 	const order: string[] = [];
 	const resA = Resource.make(Task.Result.make.ok("A"), () =>

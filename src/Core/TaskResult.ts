@@ -10,14 +10,6 @@ import { Task } from "./Task.ts";
 const makeOk = <A>(value: A): Task.Result<never, A> => Task.make(CoreResult.make.ok(value));
 const makeErr = <const E>(error: E): Task.Result<E, never> => Task.make(CoreResult.make.err(error));
 
-const setProperty = <T extends Record<string, unknown>>(target: T, key: string, value: unknown): void => {
-	if (key === "__proto__") {
-		Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
-	} else {
-		(target as Record<string, unknown>)[key] = value;
-	}
-};
-
 const mapTaskResult = <A, B>(transform: (value: A) => B) => <E = never>(task: Task.Result<E, A>): Task.Result<E, B> =>
 	Task.map(CoreResult.map<A, B>(transform))(task);
 
@@ -368,6 +360,10 @@ export const TaskResult = {
 	/**
 	 * Evaluates a new Task.Result using the current accumulator and attaches the output to a new key.
 	 *
+	 * Evaluates a new fallible Task using the current accumulator and attaches the output to a new key.
+	 * The key must not already exist on the accumulator — use `map` to update an existing field.
+	 * The accumulator is expected to be a plain object (own enumerable properties).
+	 *
 	 * @example
 	 * ```ts
 	 * pipe(
@@ -377,18 +373,20 @@ export const TaskResult = {
 	 * ```
 	 */
 	assign:
-		<K extends string, E2, A, B>(key: K, transform: (value: A) => Task.Result<E2, B>) =>
+		<K extends string, E2, A extends object, B>(
+			key: K extends keyof A ? never : K,
+			transform: (value: A) => Task.Result<E2, B>,
+		) =>
 		<E1 = never>(task: Task.Result<E1, A>): Task.Result<E1 | E2, A & { [P in K]: B; }> =>
 			chainTaskResult<E2, A, A & { [P in K]: B; }>((acc) =>
 				mapTaskResult<B, A & { [P in K]: B; }>((val) => {
-					const accumulator = { ...(acc as unknown as Record<string, unknown>) } as A & { [P in K]: B; };
-					setProperty(accumulator as Record<string, unknown>, key, val);
+					const accumulator = { ...(acc as unknown as Record<string, unknown>), [key]: val } as A & { [P in K]: B; };
 					return accumulator;
 				})(transform(acc))
 			)(task),
 
 	/**
-	 * Combines a record of Task.Results into a single Task.Result of a record.
+	 * Combines a record of Task.Results into a single Task.Result of a record. Own string and symbol keys are processed in key order; inherited fields are not supported.
 	 * Evaluates all tasks in parallel, forwarding the AbortSignal down to each sub-task.
 	 * Returns the first Err encountered in key order.
 	 *
@@ -412,11 +410,11 @@ export const TaskResult = {
 				type E = T[keyof T] extends Task.Result<infer Err, unknown> ? Err : never;
 				type R = { [K in keyof T]: T[K] extends Task.Result<unknown, infer A> ? A : never; };
 				type StructResult = Result<E, R>;
-				const keys = Object.keys(fields);
+				const keys = Reflect.ownKeys(fields);
 				const len = keys.length;
 				const promises = new Array<Promise<Result<unknown, unknown>>>(len);
 				for (let i = 0; i < len; i++) {
-					promises[i] = Deferred.to.Promise(fields[keys[i]](signal));
+					promises[i] = Deferred.to.Promise(fields[keys[i] as keyof T](signal));
 				}
 				return Promise.all(promises).then((results) => {
 					const record = {} as R;
@@ -425,7 +423,7 @@ export const TaskResult = {
 						if (CoreResult.is.err(res)) {
 							return res as unknown as StructResult;
 						}
-						setProperty(record as Record<string, unknown>, keys[i], res.value);
+						record[keys[i] as keyof R] = res.value as R[keyof R];
 					}
 					return CoreResult.make.ok(record) as StructResult;
 				});
@@ -541,7 +539,9 @@ export const TaskResult = {
 	/**
 	 * Runs multiple fallible tasks in parallel and collects their successful values into a tuple.
 	 *
-	 * - An optional `concurrency` option limits the number of tasks executing at any given time.
+	 * - An optional `concurrency` option limits the number of tasks executing at any given time;
+	 *   a provided nonpositive or non-integer value clamps to 1, and omitting the option runs all
+	 *   tasks unbounded.
 	 * - Short-circuits on the first `Err`: cancels all currently active tasks and avoids starting queued tasks.
 	 * - If caller's `signal` is already aborted, returns `Task.Aborted` immediately without starting work.
 	 * - If caller's `signal` aborts during execution, cancels active work and settles immediately with `Task.Aborted`.
@@ -621,9 +621,11 @@ export const TaskResult = {
 					let completedCount = 0;
 
 					const concurrency = options?.concurrency;
-					const maxConcurrency = concurrency !== undefined && Number.isInteger(concurrency) && concurrency > 0
+					const maxConcurrency = concurrency === undefined
+						? len
+						: Number.isInteger(concurrency) && concurrency > 0
 						? Math.min(concurrency, len)
-						: len;
+						: 1;
 
 					const worker = async (): Promise<void> => {
 						// oxlint-disable-next-line no-unmodified-loop-condition

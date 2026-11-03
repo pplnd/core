@@ -2889,10 +2889,10 @@ test("retry: accepts RetryPolicy directly in Op.interpret", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Open Findings Regression Suite ([OP-001] - [OP-003])
+// Regression Suite
 // ---------------------------------------------------------------------------
 
-test("interpret: throttled prevents re-entrant run inside Pending subscriber from bypassing cooldown ([OP-001])", async () => {
+test("interpret: throttled prevents re-entrant run inside Pending subscriber from bypassing cooldown", async () => {
 	const manager = Op.interpret(delayedOp(20), { strategy: "throttled", duration: Duration.milliseconds(100) });
 	let reentrantPromise: Deferred<Op.Outcome<string, number>> | undefined;
 	let triggered = false;
@@ -2909,7 +2909,7 @@ test("interpret: throttled prevents re-entrant run inside Pending subscriber fro
 	await expect(p1).resolves.toStrictEqual({ kind: "OpOk", value: 1 });
 });
 
-test("interpret: throttled abort inside Pending subscriber does not lock manager into cooldown ([OP-001])", async () => {
+test("interpret: throttled abort inside Pending subscriber does not lock manager into cooldown", async () => {
 	const manager = Op.interpret(delayedOp(20), { strategy: "throttled", duration: Duration.milliseconds(200) });
 	let shouldAbort = true;
 
@@ -2927,7 +2927,7 @@ test("interpret: throttled abort inside Pending subscriber does not lock manager
 	expect(second).toStrictEqual({ kind: "OpOk", value: 2 });
 });
 
-test("interpret: debounced leading abort inside Pending subscriber does not leave stray trailing timer ([OP-001])", async () => {
+test("interpret: debounced leading abort inside Pending subscriber does not leave stray trailing timer", async () => {
 	const manager = Op.interpret(delayedOp(10), {
 		strategy: "debounced",
 		duration: Duration.milliseconds(200),
@@ -2950,7 +2950,7 @@ test("interpret: debounced leading abort inside Pending subscriber does not leav
 	await expect(secondPromise).resolves.toStrictEqual({ kind: "OpOk", value: 2 });
 });
 
-test("interpret: debounced maxWait is enforced when a new burst begins while previous execution is in-flight ([OP-001])", async () => {
+test("interpret: debounced maxWait is enforced when a new burst begins while previous execution is in-flight", async () => {
 	let executions = 0;
 	const op = Op.make((_signal: AbortSignal) => (input: number) =>
 		new Promise<number>((resolve) => {
@@ -2982,7 +2982,7 @@ test("interpret: debounced maxWait is enforced when a new burst begins while pre
 	manager.abort();
 });
 
-test("interpret: queue preserves FIFO order when subscriber calls run re-entrantly on outcome ([OP-002])", async () => {
+test("interpret: queue preserves FIFO order when subscriber calls run re-entrantly on outcome", async () => {
 	const order: number[] = [];
 	const op = Op.make((_signal: AbortSignal) => (input: number) =>
 		new Promise<number>((resolve) => {
@@ -3006,7 +3006,7 @@ test("interpret: queue preserves FIFO order when subscriber calls run re-entrant
 	expect(order).toStrictEqual([1, 2, 3]);
 });
 
-test("interpret: concurrent queue preserves FIFO order when subscriber calls run re-entrantly on outcome ([OP-002])", async () => {
+test("interpret: concurrent queue preserves FIFO order when subscriber calls run re-entrantly on outcome", async () => {
 	const order: number[] = [];
 	const op = Op.make((_signal: AbortSignal) => (input: number) =>
 		new Promise<number>((resolve) => {
@@ -3030,7 +3030,7 @@ test("interpret: concurrent queue preserves FIFO order when subscriber calls run
 	expect(order).toStrictEqual([1, 2, 3]);
 });
 
-test("interpret: buffered does not evict waiting item when subscriber calls run re-entrantly on outcome ([OP-002])", async () => {
+test("interpret: buffered does not evict waiting item when subscriber calls run re-entrantly on outcome", async () => {
 	const manager = Op.interpret(delayedOp(10), { strategy: "buffered", size: 1 });
 	let p3: Deferred<Op.Outcome<string, number>> | undefined;
 
@@ -3076,7 +3076,7 @@ test("interpret: aborting from a pending subscriber settles each strategy's call
 	}
 });
 
-test("reset: settles in-flight caller promise before notifying Idle subscribers in buffered and once ([OP-002])", async () => {
+test("reset: settles in-flight caller promise before notifying Idle subscribers in buffered and once", async () => {
 	const bufferedEvents: string[] = [];
 	const bufferedManager = Op.interpret(delayedOp(50), { strategy: "buffered", size: 1 });
 	const bp = bufferedManager.run(1);
@@ -3112,7 +3112,7 @@ test("reset: settles in-flight caller promise before notifying Idle subscribers 
 	expect(onceEvents).toStrictEqual(["caller-settled", "subscriber-microtask"]);
 });
 
-test("interpret: concurrent clamps non-positive or NaN concurrency to 1 instead of deadlocking ([OP-003])", async () => {
+test("interpret: concurrent clamps non-positive or NaN concurrency to 1 instead of deadlocking", async () => {
 	const manager = Op.interpret(delayedOp(5), { strategy: "concurrent", concurrency: 0, overflow: "queue" });
 	const result = await Promise.race([
 		Deferred.to.Promise(manager.run(42)),
@@ -3122,7 +3122,7 @@ test("interpret: concurrent clamps non-positive or NaN concurrency to 1 instead 
 	expect(result).toStrictEqual({ kind: "OpOk", value: 42 });
 });
 
-test("interpret: queue clamps non-positive maxSize to 1 so replace-last never returns DroppedNil ([OP-003])", async () => {
+test("interpret: queue clamps non-positive maxSize to 1 so replace-last never returns DroppedNil", async () => {
 	const manager = Op.interpret(delayedOp(20), { strategy: "queue", maxSize: 0, overflow: "replace-last" });
 	const p1 = manager.run(1);
 	const p2 = manager.run(2);

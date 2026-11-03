@@ -5,7 +5,7 @@ description: Parse, convert, and calculate with arbitrary-precision integers.
 
 <!-- BUNDLE_SIZE:START -->
 
-> 1.90 kB minified + gzipped
+> 1.89 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

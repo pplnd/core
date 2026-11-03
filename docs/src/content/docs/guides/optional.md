@@ -5,7 +5,7 @@ description: Read and update nullable properties or array positions through a re
 
 <!-- BUNDLE_SIZE:START -->
 
-> 1.88 kB minified + gzipped
+> 1.86 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

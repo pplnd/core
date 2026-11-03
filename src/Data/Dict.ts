@@ -92,7 +92,8 @@ const DictFrom = {
 const DictTo = {
 	/**
 	 * Converts a dictionary to a plain record.
-	 * Protects against prototype pollution when keys equal `__proto__`.
+	 * Prevents this record from gaining an inherited value when a Map key is `"__proto__"` (Map keys
+	 * are externally sourced data); ordinary keys pass through unchanged.
 	 *
 	 * @example
 	 * ```ts

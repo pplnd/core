@@ -12,14 +12,6 @@ const makeFailed = <const E>(error: E): Task.Validation<E, never> => Task.make(C
 const makeFailedAll = <E>(errors: NonEmptyArr<E>): Task.Validation<E, never> =>
 	Task.make(CoreValidation.make.failedAll(errors));
 
-const setProperty = <T extends Record<string, unknown>>(target: T, key: string, value: unknown): void => {
-	if (key === "__proto__") {
-		Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
-	} else {
-		(target as Record<string, unknown>)[key] = value;
-	}
-};
-
 export const TaskValidation = {
 	make: {
 		/**
@@ -347,7 +339,7 @@ export const TaskValidation = {
 			Task.map(CoreValidation.tapError<E>(sideEffect))(task),
 
 	/**
-	 * Combines a record of Task.Validations into a single Task.Validation of a record.
+	 * Combines a record of Task.Validations into a single Task.Validation of a record. Own string and symbol keys are processed in key order; inherited fields are not supported.
 	 * Evaluates fields in parallel and accumulates all validation errors.
 	 *
 	 * @example
@@ -369,11 +361,11 @@ export const TaskValidation = {
 			Deferred.from.Promise((() => {
 				type E = T[keyof T] extends Task.Validation<infer Err, unknown> ? Err : never;
 				type R = { [K in keyof T]: T[K] extends Task.Validation<unknown, infer A> ? A : never; };
-				const keys = Object.keys(fields);
+				const keys = Reflect.ownKeys(fields);
 				const len = keys.length;
 				const promises = new Array<Promise<Validation<unknown, unknown>>>(len);
 				for (let i = 0; i < len; i++) {
-					promises[i] = Deferred.to.Promise(fields[keys[i]](signal));
+					promises[i] = Deferred.to.Promise(fields[keys[i] as keyof T](signal));
 				}
 				return Promise.all(promises).then((results) => {
 					const record = {} as R;
@@ -381,7 +373,7 @@ export const TaskValidation = {
 					for (let i = 0; i < len; i++) {
 						const res = results[i];
 						if (CoreValidation.is.passed(res)) {
-							setProperty(record as Record<string, unknown>, keys[i], res.value);
+							record[keys[i] as keyof R] = res.value as R[keyof R];
 						} else {
 							for (let j = 0; j < res.errors.length; j++) {
 								errors.push(res.errors[j] as E);

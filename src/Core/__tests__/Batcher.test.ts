@@ -635,18 +635,27 @@ test("real-world: one-to-many relation workflow using Dict.groupBy", async () =>
 	expect(p3Comments).toStrictEqual(Batcher.Outcome.make.missing("p3"));
 });
 
-test("boundary: maxBatchSize and concurrency handle non-integers, NaN, and negative values safely", async () => {
+test("boundary: invalid maxBatchSize and concurrency clamp to single-key sequential chunks", async () => {
+	let inFlight = 0;
+	let maxInFlight = 0;
 	const batches: (readonly number[])[] = [];
-	const batcher = Batcher.make((keys: readonly number[]) => () => {
+	const track = (keys: readonly number[]) => {
+		inFlight++;
+		maxInFlight = Math.max(maxInFlight, inFlight);
 		batches.push(keys);
 		const map = new Map(keys.map((k) => [k, k * 2]));
-		return Deferred.from.Promise(Promise.resolve(Result.make.ok(map)));
-	}, { maxBatchSize: 1.5, concurrency: NaN });
+		return Deferred.from.Promise(
+			Promise.resolve(Result.make.ok(map)).then((result) => {
+				inFlight--;
+				return result;
+			}),
+		);
+	};
 
+	const batcher = Batcher.make((keys: readonly number[]) => () => track(keys), { maxBatchSize: 1.5, concurrency: NaN });
 	await Promise.all([batcher.load(1), batcher.load(2), batcher.load(3)]);
-
-	expect(batches).toHaveLength(1);
-	expect(batches[0]).toStrictEqual([1, 2, 3]);
+	expect(batches).toStrictEqual([[1], [2], [3]]);
+	expect(maxInFlight).toBe(1);
 
 	const batches2: (readonly number[])[] = [];
 	const batcher2 = Batcher.make((keys: readonly number[]) => () => {
@@ -657,8 +666,27 @@ test("boundary: maxBatchSize and concurrency handle non-integers, NaN, and negat
 
 	await Promise.all([batcher2.load(10), batcher2.load(20)]);
 
-	expect(batches2).toHaveLength(1);
-	expect(batches2[0]).toStrictEqual([10, 20]);
+	expect(batches2).toStrictEqual([[10], [20]]);
+});
+
+test("boundary: invalid concurrency clamps to sequential chunk dispatch", async () => {
+	let inFlight = 0;
+	let maxInFlight = 0;
+	const batcher = Batcher.make((keys: readonly number[]) => () => {
+		inFlight++;
+		maxInFlight = Math.max(maxInFlight, inFlight);
+		const map = new Map(keys.map((k) => [k, k * 2]));
+		return Deferred.from.Promise(
+			Promise.resolve(Result.make.ok(map)).then((result) => {
+				inFlight--;
+				return result;
+			}),
+		);
+	}, { maxBatchSize: 1, concurrency: 0 });
+
+	await Promise.all([batcher.load(1), batcher.load(2), batcher.load(3)]);
+
+	expect(maxInFlight).toBe(1);
 });
 
 test("boundary: handles falsy keys and falsy values without conflation", async () => {

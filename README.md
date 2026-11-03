@@ -24,15 +24,14 @@ discipline:
 - Retrying requests, enforcing timeouts, and wiring cancellation requires juggling `AbortController`
   instances, timers, and mutable boolean flags.
 
-`pipelined` provides pragmatic data structures and curried functions designed for everyday
-application code. Everything is a plain JavaScript object with a `kind` discriminator — no classes,
-no `instanceof` checks, no prototype modification, and no functional programming prerequisites.
-Functions accept their data last, so multi-step operations read top-to-bottom in a `pipe`.
+`pipelined` provides types and functions for everyday application code. Types such as `Result` and
+`Maybe` use plain objects with a `kind` discriminator. Functions accept their data last, so
+multi-step operations read top-to-bottom in a `pipe`.
 
 <!-- BUNDLE_OVERVIEW:START -->
 
-It has zero dependencies, ships ESM and CommonJS builds, and tree-shakes down to ~27 B–6.25 kB
-gzipped for individual modules and 23.83 kB for the entire package.
+It has zero dependencies, ships ESM and CommonJS builds, and tree-shakes down to ~27 B–6.23 kB
+gzipped for individual modules and 23.77 kB for the entire package.
 
 <!-- BUNDLE_OVERVIEW:END -->
 
@@ -61,11 +60,13 @@ type ConfigError =
 const parseConfig = (raw: string): Result<ConfigError, Config> =>
   pipe(
     Result.tryCatch(
-      () => JSON.parse(raw) as Record<string, unknown>,
+      (): unknown => JSON.parse(raw),
       { onError: (err): ConfigError => ({ kind: "InvalidJson", message: String(err) }) },
     ),
     Result.ensure(
-      (data): data is { apiKey: string; port?: number } => typeof data.apiKey === "string",
+      (data): data is { apiKey: string; port?: unknown } =>
+        typeof data === "object" && data !== null && "apiKey" in data
+        && typeof data.apiKey === "string",
       (): ConfigError => ({ kind: "MissingField", field: "apiKey" }),
     ),
     Result.map((data) => ({
@@ -84,8 +85,7 @@ if (Result.is.ok(outcome)) {
 ```
 
 The compiler enforces that `outcome.value` is only accessible after checking
-`Result.is.ok(outcome)`. If validation fails, the typed error is preserved without runtime
-exceptions.
+`Result.is.ok(outcome)`. If parsing or validation fails, the pipeline returns a typed error.
 
 ### Optional values without null checks (Maybe)
 
@@ -111,15 +111,14 @@ parseDiscount("150"); // "No discount"
 parseDiscount("abc"); // "No discount"
 ```
 
-Any step that evaluates to `None` skips the rest of the chain. The fallback executes once at the end
-of the pipeline.
+When a step returns `None`, later transformations are skipped and the fallback supplies the result.
 
 ### Lazy async workflows and cancellation (Task.Result)
 
 Standard promises start executing immediately upon creation and reject with `unknown`.
-`Task.Result<E, A>` is a lazy async function `(signal?: AbortSignal) => Promise<Result<E, A>>`.
-Nothing runs until you invoke it, errors remain typed in the signature, and cancellation propagates
-through every chained request automatically:
+`Task.Result<E, A>` is a lazy function `(signal?: AbortSignal) => Deferred<Result<E, A>>`. Its
+`Deferred` can be awaited. Nothing runs until you invoke the task, errors remain typed, and chained
+tasks receive the signal. Each task must pass that signal to work that supports cancellation:
 
 ```ts
 import { pipe, Result, Task } from "@pplnd/core";
@@ -171,9 +170,9 @@ const run = userWithPosts("42");
 const outcome = await run(controller.signal);
 
 if (Result.is.ok(outcome)) {
-  render(outcome.value); // { id: "42", name: "...", posts: [...] }
+  console.log(outcome.value); // { id: "42", name: "...", posts: [...] }
 } else {
-  showError(outcome.error.message); // ApiError, not unknown
+  console.error(outcome.error.message); // ApiError, not unknown
 }
 ```
 
@@ -291,7 +290,7 @@ const searchOp = Op.make(
 );
 
 const search = Op.interpret(searchOp, {
-  strategy: "restartable", // new keystroke cancels the previous in-flight request
+  strategy: "restartable", // newer runs replace older ones and signal them to abort
   retry: RetryPolicy.exponential({
     attempts: 3,
     initial: Duration.milliseconds(200),
@@ -303,12 +302,13 @@ const search = Op.interpret(searchOp, {
 });
 
 search.subscribe((state) => {
-  if (Op.is.pending(state)) showSpinner();
-  if (Op.Outcome.is.ok(state)) showResults(state.value);
-  if (Op.Outcome.is.err(state)) showError(state.error.kind);
+  if (Op.is.pending(state)) console.log("Searching...");
+  if (Op.Outcome.is.ok(state)) console.log(state.value);
+  if (Op.Outcome.is.err(state)) console.error(state.error.kind);
 });
 
-input.addEventListener("input", (e) => search.run(e.currentTarget.value));
+const input = document.querySelector<HTMLInputElement>("#search");
+input?.addEventListener("input", () => search.run(input.value));
 ```
 
 For form submissions, swapping `strategy: "restartable"` to `strategy: "exclusive"` automatically
@@ -321,8 +321,8 @@ Decoupling application components with untyped event emitters can cause runtime 
 listener throws, and emitting events inside listeners can overflow the call stack through
 uncontrolled recursion.
 
-`EventBus` provides compile-time message types, listener error isolation, and FIFO queue drainage
-for re-entrant events:
+`EventBus` provides compile-time message types and a FIFO queue for re-entrant events. Subscriber
+callbacks handle expected failures; an uncaught exception propagates to the emitter:
 
 ```ts
 import { EventBus } from "@pplnd/core";
@@ -409,19 +409,20 @@ Acquiring multiple handles — such as database connections, sockets, or distrib
 nested `try/finally` blocks. If an intermediate setup step fails or an operation aborts midway,
 already-opened handles can leak.
 
-`Resource<E, A>` packages acquisition and cleanup into a bracket. When multiple resources are
-grouped with `Resource.all`, they are acquired sequentially and automatically released in reverse
-(LIFO) order upon completion, error, or cancellation:
+`Resource<E, A>` pairs acquisition with cleanup. When resources are grouped with `Resource.all`,
+they are acquired sequentially and released in reverse order when the work settles, including after
+an error. Cancellation is cooperative: work must respond to its signal before cleanup can begin.
+Release tasks must not throw or reject:
 
 ```ts
-import { pipe, Resource, Task } from "@pplnd/core";
+import { Resource, Task } from "@pplnd/core";
 
 type AppError =
   | { kind: "DbError"; message: string }
   | { kind: "CacheError"; message: string };
 
 type DbClient = {
-  query: (sql: string) => Promise<{ id: string; name: string }>;
+  query: (sql: string, parameters: readonly string[]) => Promise<{ id: string; name: string }>;
   close: () => Promise<void>;
 };
 type CacheClient = {
@@ -460,7 +461,7 @@ const syncUserProfile = (userId: string) =>
     run: ({ db, cache }) =>
       Task.Result.tryCatch(
         async () => {
-          const user = await db.query(`SELECT * FROM users WHERE id = '${userId}'`);
+          const user = await db.query("SELECT * FROM users WHERE id = $1", [userId]);
           await cache.set(`user:${userId}`, JSON.stringify(user));
           return user;
         },
@@ -470,7 +471,7 @@ const syncUserProfile = (userId: string) =>
 
 const fetchAndCacheUser = syncUserProfile("usr_101");
 const result = await fetchAndCacheUser;
-// cache.quit() and db.close() are guaranteed to have run in reverse order
+// cache.quit() and db.close() were attempted in reverse order
 ```
 
 ### Nominal type safety for IDs and validated strings (Brand)
@@ -566,13 +567,13 @@ unnecessary `Maybe` wrapper.
 | Lazy async workflows with automatic `AbortSignal` propagation      | `Task.Result`, `Task` |
 | Managing request race conditions, retries, timeouts, and locks     | `Op`                  |
 | In-memory typed event dispatching, sequence funnels & queue safety | `EventBus`            |
-| Automatic setup and guaranteed LIFO teardown of connections/locks  | `Resource`            |
+| Setup and reverse-order cleanup of connections and locks           | `Resource`            |
 | Type-safe finite state machines & validated transitions            | `Machine`             |
 | Declarative DAG task scheduling & cycle detection                  | `Graph`               |
 | Infallible async synchronization latch for tasks                   | `Deferred`            |
 | Circuit breaker pattern for protecting failing upstream services   | `CircuitBreaker`      |
-| Multi-step workflows across services with automatic LIFO rollback  | `Transaction`         |
-| High-throughput request batching, deduplication, and caching       | `Batcher`             |
+| Multi-step workflows with optional reverse-order compensation      | `Transaction`         |
+| Request batching and deduplication within a batch                  | `Batcher`             |
 | Pure state transitions, tokenizers, and parsers                    | `State`               |
 | Dependency injection and contextual configuration without drilling | `Reader`              |
 
@@ -616,16 +617,14 @@ unnecessary `Maybe` wrapper.
 
 ## Package Architecture and Performance
 
-All entry points are published with `"sideEffects": false` and structured as static constant objects
-without class prototypes or closure side-effects. Modern bundlers (Vite, Rollup, webpack, esbuild,
-Next.js) automatically tree-shake unused functions and modules, bundling only the specific symbols
-imported by your application.
+The package declares `"sideEffects": false`, allowing supported bundlers to remove unused exports.
+Actual bundle sizes depend on the bundler, its settings, and the imports your application uses.
 
 <!-- BUNDLE_TABLE:START -->
 
 ### Standalone Module Footprint (Tree-Shaken)
 
-When imported individually, only the targeted module is bundled into your application:
+These measurements include each listed import and its dependencies, minified and gzipped:
 
 | Import Pattern | Minified + Gzipped |
 | :------------- | :----------------- |
@@ -633,28 +632,26 @@ When imported individually, only the targeted module is bundled into your applic
 | `flow`         | **173 B**          |
 | `Brand`        | **27 B**           |
 | `Duration`     | **150 B**          |
-| `Maybe`        | **1.56 kB**        |
-| `Result`       | **1.56 kB**        |
-| `Validation`   | **1.56 kB**        |
-| `RemoteData`   | **1.87 kB**        |
-| `Machine`      | **2.06 kB**        |
-| `EventBus`     | **1.21 kB**        |
-| `Batcher`      | **2.96 kB**        |
-| `Resource`     | **2.10 kB**        |
-| `Graph`        | **2.83 kB**        |
-| `Task`         | **4.37 kB**        |
-| `Transaction`  | **2.52 kB**        |
-| `Op`           | **6.20 kB**        |
+| `Maybe`        | **1.55 kB**        |
+| `Result`       | **1.55 kB**        |
+| `Validation`   | **1.55 kB**        |
+| `RemoteData`   | **1.85 kB**        |
+| `Machine`      | **2.02 kB**        |
+| `EventBus`     | **1.26 kB**        |
+| `Batcher`      | **2.95 kB**        |
+| `Resource`     | **2.05 kB**        |
+| `Graph`        | **2.82 kB**        |
+| `Task`         | **4.33 kB**        |
+| `Transaction`  | **2.49 kB**        |
+| `Op`           | **6.19 kB**        |
 | `Lens`         | **233 B**          |
-| `Arr`          | **6.25 kB**        |
-| `Rec`          | **2.50 kB**        |
-| `Dict`         | **2.43 kB**        |
-| `Str`          | **2.20 kB**        |
+| `Arr`          | **6.23 kB**        |
+| `Rec`          | **2.52 kB**        |
+| `Dict`         | **2.44 kB**        |
+| `Str`          | **2.18 kB**        |
 
 <!-- BUNDLE_TABLE:END -->
 
-Data helpers use pre-allocated arrays and index loops where built-in methods add callback or
-allocation overhead, and delegate to native C++ methods like `.slice()` where the engine is faster.
 See [Performance and benchmarks](https://pplnd.dev/appendix/benchmarks) for the benchmark suite and
 results.
 

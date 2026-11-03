@@ -5,7 +5,7 @@ description: Transform and inspect string-keyed plain objects in pipelines.
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.50 kB minified + gzipped
+> 2.52 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

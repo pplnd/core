@@ -737,6 +737,18 @@ test("struct: returns passed({}) when given an empty object", () => {
 	expect(res).toStrictEqual(Validation.make.passed({}));
 });
 
+test("struct: copies symbol-keyed passed fields and accumulates symbol-keyed failures", () => {
+	const token = Symbol("token");
+	const res = Validation.struct({ value: Validation.make.passed(42), [token]: Validation.make.passed("extra") });
+	expect(res).toStrictEqual(Validation.make.passed({ value: 42, [token]: "extra" }));
+
+	const failing = Validation.struct({
+		value: Validation.make.passed(42),
+		[token]: Validation.make.failed("boom" as const),
+	});
+	expect(failing).toStrictEqual(Validation.make.failed("boom"));
+});
+
 // --- to.Result with combineErrors ---
 
 test("to.Result: converts Passed to Ok with combineErrors", () => {
@@ -889,21 +901,4 @@ test("keyed: ignores inherited prototype properties across all helpers", () => {
 	expect(Validation.keyed.is.failed(keyedObj)).toBe(false);
 	expect(Validation.keyed.getPassed(keyedObj)).toStrictEqual(Maybe.make.some({ a: "ok" }));
 	expect(Validation.keyed.getErrors(keyedObj)).toStrictEqual(Maybe.make.none());
-});
-
-test("struct: safely handles __proto__ property without prototype pollution", () => {
-	const protoFields: Record<string, Validation<unknown, unknown>> = {};
-	Object.defineProperty(protoFields, "__proto__", {
-		value: Validation.make.passed({ polluted: true }),
-		enumerable: true,
-		configurable: true,
-		writable: true,
-	});
-	protoFields.a = Validation.make.passed(1);
-
-	const res = Validation.struct(protoFields);
-	expect(Validation.is.passed(res)).toBe(true);
-	const value = Validation.getOrElse(() => ({}) as Record<string, unknown>)(res);
-	expect(Object.hasOwn(value, "__proto__")).toBe(true);
-	expect(({} as Record<string, unknown>).polluted).toBeUndefined();
 });

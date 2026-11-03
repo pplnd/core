@@ -7,14 +7,6 @@ import { Task } from "./Task.ts";
 const makeSome = <A>(value: A): Task.Maybe<A> => Task.make(CoreMaybe.make.some(value));
 const makeNone = <A = never>(): Task.Maybe<A> => Task.make(CoreMaybe.make.none());
 
-const setProperty = <T extends Record<string, unknown>>(target: T, key: string, value: unknown): void => {
-	if (key === "__proto__") {
-		Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
-	} else {
-		(target as Record<string, unknown>)[key] = value;
-	}
-};
-
 const mapTaskMaybe = <A, B>(transform: (value: A) => B) => (task: Task.Maybe<A>): Task.Maybe<B> =>
 	Task.map(CoreMaybe.map(transform))(task);
 
@@ -293,12 +285,11 @@ export const TaskMaybe = {
 	 * ```
 	 */
 	assign:
-		<K extends string, A, B>(key: K, transform: (value: A) => Task.Maybe<B>) =>
+		<K extends string, A extends object, B>(key: K extends keyof A ? never : K, transform: (value: A) => Task.Maybe<B>) =>
 		(task: Task.Maybe<A>): Task.Maybe<A & { [P in K]: B; }> =>
 			chainTaskMaybe<A, A & { [P in K]: B; }>((acc) =>
 				mapTaskMaybe<B, A & { [P in K]: B; }>((val) => {
-					const accumulator = { ...(acc as unknown as Record<string, unknown>) } as A & { [P in K]: B; };
-					setProperty(accumulator as Record<string, unknown>, key, val);
+					const accumulator = { ...(acc as unknown as Record<string, unknown>), [key]: val } as A & { [P in K]: B; };
 					return accumulator;
 				})(transform(acc))
 			)(task),
@@ -318,7 +309,7 @@ export const TaskMaybe = {
 		Task.chain<Maybe<A>, Maybe<A | B>>((maybe) => (CoreMaybe.is.none(maybe) ? fallback() : Task.make(maybe)))(task),
 
 	/**
-	 * Combines a record of Task.Maybes into a single Task.Maybe of a record.
+	 * Combines a record of Task.Maybes into a single Task.Maybe of a record. Own string and symbol keys are processed in key order; inherited fields are not supported.
 	 * Evaluates fields in parallel and returns None if any task resolves to None.
 	 *
 	 * @example
@@ -336,11 +327,11 @@ export const TaskMaybe = {
 		(signal) =>
 			Deferred.from.Promise((() => {
 				type R = { [K in keyof T]: T[K] extends Task.Maybe<infer A> ? A : never; };
-				const keys = Object.keys(fields);
+				const keys = Reflect.ownKeys(fields);
 				const len = keys.length;
 				const promises = new Array<Promise<Maybe<unknown>>>(len);
 				for (let i = 0; i < len; i++) {
-					promises[i] = Deferred.to.Promise(fields[keys[i]](signal));
+					promises[i] = Deferred.to.Promise(fields[keys[i] as keyof T](signal));
 				}
 				return Promise.all(promises).then((results) => {
 					const record = {} as R;
@@ -349,7 +340,7 @@ export const TaskMaybe = {
 						if (CoreMaybe.is.none(res)) {
 							return res;
 						}
-						setProperty(record as Record<string, unknown>, keys[i], res.value);
+						record[keys[i] as keyof R] = res.value as R[keyof R];
 					}
 					return CoreMaybe.make.some(record);
 				});

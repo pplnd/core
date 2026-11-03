@@ -122,7 +122,7 @@ export function buildBundleTables(sizeMap: Map<string, SizeItem>): string {
 
 	return `### Standalone Module Footprint (Tree-Shaken)
 
-When imported individually, only the targeted module is bundled into your application:
+These measurements include each listed import and its dependencies, minified and gzipped:
 
 | Import Pattern | Minified + Gzipped |
 | :--- | :--- |

@@ -208,7 +208,10 @@ export const Reader = {
 	 * ```
 	 */
 	assign:
-		<K extends string, R2, A, B>(key: K, transform: (value: A) => Reader<R2, B>) =>
+		<K extends string, R2, A extends object, B>(
+			key: K extends keyof A ? never : K,
+			transform: (value: A) => Reader<R2, B>,
+		) =>
 		<R1 = never>(reader: Reader<R1, A>): Reader<R1 & R2, A & { [P in K]: B; }> =>
 			chainReader<A, R2, A & { [P in K]: B; }>((a) =>
 				mapReader<B, A & { [P in K]: B; }>((

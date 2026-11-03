@@ -5,7 +5,7 @@ description: Parse and serialize JSON with Result values for errors.
 
 <!-- BUNDLE_SIZE:START -->
 
-> 1.75 kB minified + gzipped
+> 1.74 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

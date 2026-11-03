@@ -117,7 +117,7 @@ test("property: loadMany preserves exact input order and discrete per-key outcom
 	);
 });
 
-test("property: non-integer or non-positive maxBatchSize safely defaults to Infinity without chunking", async () => {
+test("property: non-integer or non-positive maxBatchSize clamps to single-key chunks", async () => {
 	await fc.assert(
 		fc.asyncProperty(
 			fc.array(fc.integer({ min: 0, max: 100 }), { minLength: 2, maxLength: 10 }),
@@ -134,8 +134,10 @@ test("property: non-integer or non-positive maxBatchSize safely defaults to Infi
 
 				await Promise.all(keys.map((k) => batcher.load(k)));
 
-				expect(chunks).toHaveLength(1);
-				expect(chunks[0]).toHaveLength(keys.length);
+				expect(chunks).toHaveLength(keys.length);
+				for (const chunk of chunks) {
+					expect(chunk).toHaveLength(1);
+				}
 			},
 		),
 	);

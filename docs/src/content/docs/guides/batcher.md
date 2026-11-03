@@ -5,7 +5,7 @@ description: Combine nearby key lookups into bulk requests and handle found, mis
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.96 kB minified + gzipped
+> 2.95 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -95,11 +95,11 @@ const descriptions = outcomes.map((outcome) =>
 | `batcher.flush()`                   | Dispatches queued keys and waits for pending chunks. | `Deferred<void>`.                               |
 
 The options `maxBatchSize` and `concurrency` limit chunk size and simultaneous fetches. Both default
-to unbounded; nonpositive and non-integer values are also treated as unbounded. `window` sets a
-collection delay; without it, dispatch is scheduled as a microtask. An explicit zero window uses a
-timer. Reaching `maxBatchSize` flushes the current queue immediately, so a subsequent lookup can
-start another batch for the same key. `serializeKey` can group structurally equivalent object keys;
-the bulk fetch receives the first key in each group.
+to unbounded. A nonpositive or non-integer `maxBatchSize` or `concurrency` clamps to 1; omit the
+option for unbounded behavior. `window` sets a collection delay; without it, dispatch is scheduled
+as a microtask. An explicit zero window uses a timer. Reaching `maxBatchSize` flushes the current
+queue immediately, so a subsequent lookup can start another batch for the same key. `serializeKey`
+can group structurally equivalent object keys; the bulk fetch receives the first key in each group.
 
 ### Reading Outcomes
 

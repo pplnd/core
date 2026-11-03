@@ -5,7 +5,7 @@ description: Run dependent asynchronous steps and compensate completed steps aft
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.52 kB minified + gzipped
+> 2.49 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

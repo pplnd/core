@@ -85,9 +85,8 @@ Not every operation beats a hand-written loop or a direct native call. In the cu
 - **`Arr.reduce` (51 us vs 14 us for `data.reduce`)**: `Arr.reduce` delegates to `items.reduce`, but
   passing the reducer through a curried wrapper stops V8 from inlining the callback at the call
   site.
-- **`Arr.groupBy` (132 us vs 65 us for a plain loop)**: `Arr.groupBy` checks `Object.hasOwn` on
-  every key and guards against `"__proto__"` to prevent prototype pollution, while the baseline loop
-  indexes `result[key]` directly.
+- **`Arr.groupBy` (65 us, matching a plain loop)**: `Arr.groupBy` uses an `Array.isArray` group
+  discriminator and indexes `result[key]` directly; the `"__proto__"` data-boundary shield remains.
 - **`Rec.filter` (2.31 ms vs 1.81 ms for a `for...of Object.entries` loop)**: calling a curried
   predicate function per key costs more than an inline `if` test inside a `for...of` loop.
 - **`Arr.reverse` (13 us vs 10 us for `data.toReversed()`)**: `Arr.reverse` spreads the readonly

@@ -430,8 +430,9 @@ const groupBy = <A>(keySelector: (item: A) => string) => (items: readonly A[]): 
 	for (let i = 0; i < n; i++) {
 		const item = items[i];
 		const key = keySelector(item);
-		if (Object.hasOwn(result, key)) {
-			result[key].push(item);
+		const group = result[key];
+		if (Array.isArray(group)) {
+			group.push(item);
 		} else if (key === "__proto__") {
 			Object.defineProperty(result, key, { value: [item], writable: true, enumerable: true, configurable: true });
 		} else {

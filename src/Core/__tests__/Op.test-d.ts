@@ -472,7 +472,7 @@ test("negative: flags missing cases, illegal property access, and variant incomp
 	const _nilAsOk: Op.Ok<number> = Op.Outcome.make.nil("aborted");
 });
 
-test("interpret options: explicit undefined for retry and timeout preserves exact error and state unions ([OP-004])", () => {
+test("interpret options: explicit undefined for retry and timeout preserves exact error and state unions", () => {
 	const mgr = Op.interpret(delayedOp, { strategy: "restartable", timeout: undefined, retry: undefined });
 	expectTypeOf(mgr.state).toEqualTypeOf<Op.RestartableState<string, number>>();
 	expectTypeOf(mgr.run).returns.toEqualTypeOf<
@@ -480,7 +480,7 @@ test("interpret options: explicit undefined for retry and timeout preserves exac
 	>();
 });
 
-test("interpret options: dynamic union properties on concurrent, keyed, and queue widen state and outcome unions ([OP-004])", () => {
+test("interpret options: dynamic union properties on concurrent, keyed, and queue widen state and outcome unions", () => {
 	const overflow: Op.Overflow = constTruthyBool() ? "drop" : "queue";
 	const concurrentMgr = Op.interpret(delayedOp, { strategy: "concurrent", concurrency: 2, overflow });
 	expectTypeOf(concurrentMgr.state).toEqualTypeOf<

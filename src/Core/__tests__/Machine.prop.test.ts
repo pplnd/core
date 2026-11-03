@@ -15,29 +15,27 @@ type CounterState =
 type CounterEvents = { INC: void; DEC: void; RESET: void; NOOP: void; };
 
 const counterMachine = Machine.make<CounterState, CounterEvents>({
-	states: {
-		zero: {
-			on: {
-				INC: () => Machine.state("positive", { count: 1 }),
-				DEC: () => Machine.state("negative", { count: -1 }),
-				RESET: (s) => s,
-			},
+	zero: {
+		on: {
+			INC: () => Machine.state("positive", { count: 1 }),
+			DEC: () => Machine.state("negative", { count: -1 }),
+			RESET: (s) => s,
 		},
-		positive: {
-			on: {
-				INC: (s) => Machine.state("positive", { count: s.value.count + 1 }),
-				DEC: (s) =>
-					s.value.count - 1 === 0 ? Machine.state("zero") : Machine.state("positive", { count: s.value.count - 1 }),
-				RESET: () => Machine.state("zero"),
-			},
+	},
+	positive: {
+		on: {
+			INC: (s) => Machine.state("positive", { count: s.value.count + 1 }),
+			DEC: (s) =>
+				s.value.count - 1 === 0 ? Machine.state("zero") : Machine.state("positive", { count: s.value.count - 1 }),
+			RESET: () => Machine.state("zero"),
 		},
-		negative: {
-			on: {
-				INC: (s) =>
-					s.value.count + 1 === 0 ? Machine.state("zero") : Machine.state("negative", { count: s.value.count + 1 }),
-				DEC: (s) => Machine.state("negative", { count: s.value.count - 1 }),
-				RESET: () => Machine.state("zero"),
-			},
+	},
+	negative: {
+		on: {
+			INC: (s) =>
+				s.value.count + 1 === 0 ? Machine.state("zero") : Machine.state("negative", { count: s.value.count + 1 }),
+			DEC: (s) => Machine.state("negative", { count: s.value.count - 1 }),
+			RESET: () => Machine.state("zero"),
 		},
 	},
 });
@@ -152,13 +150,11 @@ test("send: evaluates all dispatched events in strict arrival order", () => {
 		type AccumulatorEvents = { ADD: { readonly amount: number; }; };
 
 		const accMachine = Machine.make<AccumulatorState, AccumulatorEvents>({
-			states: {
-				active: {
-					on: {
-						ADD: (s, { amount }) => {
-							recorded.push(amount);
-							return Machine.state("active", { total: s.value.total + amount });
-						},
+			active: {
+				on: {
+					ADD: (s, { amount }) => {
+						recorded.push(amount);
+						return Machine.state("active", { total: s.value.total + amount });
 					},
 				},
 			},

@@ -798,6 +798,15 @@ test("struct: returns some({}) when given empty object", () => {
 	expect(res).toStrictEqual(Maybe.make.some({}));
 });
 
+test("struct: copies symbol-keyed fields and short-circuits on a symbol-keyed None", () => {
+	const token = Symbol("token");
+	const res = Maybe.struct({ value: Maybe.make.some(42), [token]: Maybe.make.some("extra") });
+	expect(res).toStrictEqual(Maybe.make.some({ value: 42, [token]: "extra" }));
+
+	const failing = Maybe.struct({ value: Maybe.make.some(42), [token]: Maybe.make.none() });
+	expect(failing).toStrictEqual(Maybe.make.none());
+});
+
 // --- sequence.Result ---
 
 test("sequence.Result: swaps Some(Ok) to Ok(Some)", () => {
@@ -817,24 +826,6 @@ test("sequence.Result: swaps None to Ok(None)", () => {
 
 test("assign: safely handles __proto__ property without prototype pollution", () => {
 	const res = pipe(Maybe.make.some({ a: 1 }), Maybe.assign("__proto__", () => Maybe.make.some({ polluted: true })));
-	expect(Maybe.is.some(res)).toBe(true);
-	const value = Maybe.getOrElse(() => ({ a: 0 }))(res);
-	expect(Object.hasOwn(value, "__proto__")).toBe(true);
-	const emptyTarget: Record<string, unknown> = {};
-	expect(emptyTarget.polluted).toBeUndefined();
-});
-
-test("struct: safely handles __proto__ property without prototype pollution", () => {
-	const protoFields: Record<string, Maybe<unknown>> = {};
-	Object.defineProperty(protoFields, "__proto__", {
-		value: Maybe.make.some({ polluted: true }),
-		enumerable: true,
-		configurable: true,
-		writable: true,
-	});
-	protoFields.a = Maybe.make.some(1);
-
-	const res = Maybe.struct(protoFields);
 	expect(Maybe.is.some(res)).toBe(true);
 	const value = Maybe.getOrElse(() => ({ a: 0 }))(res);
 	expect(Object.hasOwn(value, "__proto__")).toBe(true);

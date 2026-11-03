@@ -88,14 +88,6 @@ const getMs = (duration: Duration): number => Duration.to.milliseconds(duration)
 const makeTask = <A>(value: A): Task<A> => () => Deferred.from.Promise(globalThis.Promise.resolve(value));
 const syncTask = <A>(fn: () => A): Task<A> => () => Deferred.from.Promise(globalThis.Promise.resolve(fn()));
 
-const setProperty = <T extends Record<string, unknown>>(target: T, key: string, value: unknown): void => {
-	if (key === "__proto__") {
-		Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
-	} else {
-		(target as Record<string, unknown>)[key] = value;
-	}
-};
-
 const raceTask = (<T extends readonly Task<unknown>[]>(tasks: readonly [...T]): Task<unknown> => {
 	const len = tasks.length;
 	if (len === 0) {
@@ -263,7 +255,9 @@ export const Task = {
 
 	/**
 	 * Runs multiple Tasks in parallel and collects their results.
-	 * An optional `concurrency` option limits the number of tasks executing at any given time.
+	 * An optional `concurrency` option limits the number of tasks executing at any given time;
+	 * a provided nonpositive or non-integer value clamps to 1, and omitting the option runs all
+	 * tasks unbounded.
 	 * An optional `signal` passed at the call site is forwarded to every task, including queued tasks.
 	 *
 	 * @see {@link Task.sequential} to run an array of Tasks one after another in order.
@@ -283,8 +277,13 @@ export const Task = {
 		fromPromise((signal) => {
 			type Results = { [K in keyof T]: T[K] extends Task<infer A> ? A : never; };
 			const concurrency = options?.concurrency;
+			const maxConcurrency = concurrency === undefined
+				? undefined
+				: Number.isInteger(concurrency) && concurrency > 0
+				? concurrency
+				: 1;
 			const len = tasks.length;
-			if (concurrency === undefined || !Number.isInteger(concurrency) || concurrency <= 0 || len <= concurrency) {
+			if (maxConcurrency === undefined || len <= maxConcurrency) {
 				const promises = new Array<Promise<unknown>>(len);
 				for (let i = 0; i < len; i++) {
 					promises[i] = toPromise(tasks[i], signal);
@@ -302,7 +301,7 @@ export const Task = {
 				}
 			};
 
-			const workerCount = Math.min(concurrency, len);
+			const workerCount = Math.min(maxConcurrency!, len);
 			const workers = new Array<Promise<void>>(workerCount);
 			for (let i = 0; i < workerCount; i++) {
 				workers[i] = worker();
@@ -603,6 +602,8 @@ export const Task = {
 
 	/**
 	 * Evaluates a new Task using the current accumulator and attaches the output to a new key.
+	 * The key must not already exist on the accumulator — use `map` to update an existing field.
+	 * The accumulator is expected to be a plain object (own enumerable properties).
 	 *
 	 * @example
 	 * ```ts
@@ -613,12 +614,12 @@ export const Task = {
 	 * ```
 	 */
 	assign:
-		<K extends string, A, B>(key: K, transform: (value: A) => Task<B>) => (task: Task<A>): Task<A & { [P in K]: B; }> =>
+		<K extends string, A extends object, B>(key: K extends keyof A ? never : K, transform: (value: A) => Task<B>) =>
+		(task: Task<A>): Task<A & { [P in K]: B; }> =>
 			fromPromise((signal) =>
 				toPromise(task, signal).then((a) =>
 					toPromise(transform(a), signal).then((b) => {
-						const accumulator = { ...(a as unknown as Record<string, unknown>) } as A & { [P in K]: B; };
-						setProperty(accumulator as Record<string, unknown>, key, b);
+						const accumulator = { ...(a as unknown as Record<string, unknown>), [key]: b } as A & { [P in K]: B; };
 						return accumulator;
 					})
 				)

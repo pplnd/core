@@ -5,7 +5,7 @@ description: Publish typed events, observe them, and match sequences within an a
 
 <!-- BUNDLE_SIZE:START -->
 
-> 1.21 kB minified + gzipped
+> 1.26 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -53,9 +53,7 @@ type ParcelEvents = {
   dispatched: { destination: string };
 };
 
-const parcels = EventBus.make<ParcelEvents>({
-  onError: (error) => console.error("Parcel subscriber failed:", error),
-});
+const parcels = EventBus.make<ParcelEvents>();
 const stop = EventBus.subscribe(
   parcels,
   ["received", "scanned", "dispatched"],
@@ -102,9 +100,37 @@ completes and receive its final message; `collect` receives the gathered payload
 
 ## Failure Behavior and Edge Cases
 
-Without `onError`, a subscriber exception escapes `EventBus.emit` and stops the remaining delivery.
-When `onError` returns normally, the bus reports the exception and continues to the next subscriber.
-If the error handler throws, its exception propagates to the emitter.
+Subscriber callbacks must handle expected failures. If a callback throws, the exception escapes
+`EventBus.emit`, stops remaining delivery, and clears queued re-entrant messages. Use
+`Result.tryCatch` for fallible synchronous work. For asynchronous work, run a `Task.Result` and
+handle its result inside the subscriber; the bus does not await it.
+
+Forwarding a message back to a bus it already visited in the same emission throws an error naming
+the bus and the message kind, because the same message object would otherwise circulate forever.
+This stops cycles like `A → B → A` on the first repeat instead of delivering indefinitely. Two
+arrangements remain valid: bidirectional forwards whose `only` filters never overlap, and diamond
+fan-in, where one message legitimately reaches a target through several paths. A subscriber that
+intentionally re-injects a message should emit a copy (`{ ...msg }`) or defer to a new emission
+(`queueMicrotask(() => EventBus.emit(...))`); a new message object or a new emission starts a fresh
+cycle check.
+
+For example, a parcel subscriber can report a storage failure without interrupting other
+subscribers:
+
+```ts
+import { EventBus, Result } from "@pplnd/core";
+
+type ParcelEvents = { dispatched: { destination: string } };
+const parcels = EventBus.make<ParcelEvents>();
+
+EventBus.subscribe(parcels, "dispatched").tap(({ value }) => {
+  const saved = Result.tryCatch(
+    () => localStorage.setItem("lastDestination", value.destination),
+    { onError: (error) => `Could not save destination: ${String(error)}` },
+  );
+  if (Result.is.err(saved)) console.error(saved.error);
+});
+```
 
 Unsubscribing takes effect immediately: a subscriber removed before its turn does not receive the
 current message. A callback already running finishes normally. Subscriptions added during delivery

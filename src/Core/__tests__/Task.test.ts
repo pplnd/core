@@ -1,3 +1,4 @@
+import { getEventListeners } from "node:events";
 import { expect, test } from "vitest";
 import { pipe } from "../../Composition/pipe.ts";
 import { Duration } from "../../Types/Duration.ts";
@@ -226,10 +227,25 @@ test("all: preserves order when concurrency option is provided", async () => {
 	expect(result).toStrictEqual(["slow", "fast", "medium"]);
 });
 
-test("all: treats invalid concurrency values as unbounded", async () => {
+test("all: clamps invalid concurrency values to sequential execution", async () => {
 	for (const concurrency of [1.5, NaN, Infinity, 0, -1]) {
-		const result = await Task.all([Task.make("first"), Task.make("second")], { concurrency })();
-		expect(result).toStrictEqual(["first", "second"]);
+		let inFlight = 0;
+		let maxInFlight = 0;
+		const counting = (): Task<string> => () => {
+			inFlight++;
+			maxInFlight = Math.max(maxInFlight, inFlight);
+			return Deferred.from.Promise(
+				Promise.resolve("value").then((v) => {
+					inFlight--;
+					return v;
+				}),
+			);
+		};
+
+		const result = await Task.all([counting(), counting(), counting()], { concurrency })();
+
+		expect(result).toStrictEqual(["value", "value", "value"]);
+		expect(maxInFlight).toBe(1);
 	}
 });
 
@@ -1103,10 +1119,10 @@ test("assign: safely handles __proto__ property without prototype pollution", as
 });
 
 // ---------------------------------------------------------------------------
-// Open Findings Regression Suite ([TASK-001] - [TASK-005])
+// Regression Suite
 // ---------------------------------------------------------------------------
 
-test("repeat: clamps non-finite times (NaN) to empty array and truncates positive floats ([TASK-001])", async () => {
+test("repeat: clamps non-finite times (NaN) to empty array and truncates positive floats", async () => {
 	const controller = new AbortController();
 	let nanCalls = 0;
 	const nanTask = fromPromise(() => {
@@ -1128,7 +1144,7 @@ test("repeat: clamps non-finite times (NaN) to empty array and truncates positiv
 	expect(floatResult).toStrictEqual([1, 2]);
 });
 
-test("poll: clamps non-finite attempts (NaN) to 1 and truncates positive floats ([TASK-001])", async () => {
+test("poll: clamps non-finite attempts (NaN) to 1 and truncates positive floats", async () => {
 	let nanCalls = 0;
 	const nanTask = fromPromise(() => Promise.resolve(++nanCalls));
 	const nanResult = await pipe(nanTask, Task.poll({ until: (n) => n >= 5, attempts: Number.NaN }))();
@@ -1142,7 +1158,7 @@ test("poll: clamps non-finite attempts (NaN) to 1 and truncates positive floats 
 	expect(floatResult).toBe(2);
 });
 
-test("abortable: removes outerSignal listener on completion and clears finished controller ([TASK-003])", async () => {
+test("abortable: removes outerSignal listener on completion and clears finished controller", async () => {
 	const outerController = new AbortController();
 	let capturedSignal: AbortSignal | undefined;
 	const { task, abort } = Task.abortable((signal) => {
@@ -1162,7 +1178,7 @@ test("abortable: removes outerSignal listener on completion and clears finished 
 	expect(capturedSignal?.aborted).toBe(false);
 });
 
-test("poll: respects signal aborted during delay even when task resolves to undefined ([TASK-005])", async () => {
+test("poll: respects signal aborted during delay even when task resolves to undefined", async () => {
 	const controller = new AbortController();
 	let calls = 0;
 	const undefinedTask: Task<undefined> = fromPromise(() => {
@@ -1180,4 +1196,64 @@ test("poll: respects signal aborted during delay even when task resolves to unde
 
 	expect(result).toBeUndefined();
 	expect(calls).toBe(1);
+});
+
+test("repeat: clamps non-finite (Infinity) and nonpositive times to an empty array", async () => {
+	for (const times of [Number.POSITIVE_INFINITY, 0, -1]) {
+		let calls = 0;
+		const counting = fromPromise(() => Promise.resolve(++calls));
+
+		const result = await pipe(counting, Task.repeat({ times }))();
+
+		expect(calls).toBe(0);
+		expect(result).toStrictEqual([]);
+	}
+});
+
+test("poll: clamps non-finite attempts (Infinity) to a single run", async () => {
+	let calls = 0;
+	const counting = fromPromise(() => Promise.resolve(++calls));
+
+	const result = await pipe(counting, Task.poll({ until: (n) => n >= 5, attempts: Number.POSITIVE_INFINITY }))();
+
+	expect(calls).toBe(1);
+	expect(result).toBe(1);
+});
+
+test("abortable: superseding call removes the previous outer listener", async () => {
+	const outerController = new AbortController();
+	const { task } = Task.abortable((signal) =>
+		new Promise<number>((resolve) => {
+			if (signal.aborted) {
+				resolve(-1);
+				return;
+			}
+			signal.addEventListener("abort", () => resolve(-1), { once: true });
+		})
+	);
+
+	const first = task(outerController.signal);
+	const second = task(outerController.signal);
+
+	// The superseding call removed the first call's listener before starting its own.
+	expect(getEventListeners(outerController.signal, "abort")).toHaveLength(1);
+	await expect(first).resolves.toBe(-1);
+
+	outerController.abort();
+	await expect(second).resolves.toBe(-1);
+
+	// Both the fired once-listener and the completion cleanup leave no listeners behind.
+	expect(getEventListeners(outerController.signal, "abort")).toHaveLength(0);
+});
+
+test("repeat: returns an empty result without running when the signal is already aborted", async () => {
+	const controller = new AbortController();
+	controller.abort();
+	let calls = 0;
+	const counting = fromPromise(() => Promise.resolve(++calls));
+
+	const result = await pipe(counting, Task.repeat({ times: 3 }))(controller.signal);
+
+	expect(calls).toBe(0);
+	expect(result).toStrictEqual([]);
 });

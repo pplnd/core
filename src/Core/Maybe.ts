@@ -41,13 +41,7 @@ const makeNone = (): Maybe.None => _none;
 const isSome = <A>(maybe: Maybe<A>): maybe is Maybe.Some<A> => maybe.kind === "Some";
 const isNone = <A>(maybe: Maybe<A>): maybe is Maybe.None => maybe.kind === "None";
 
-const setProperty = <T extends Record<string, unknown>>(target: T, key: string, value: unknown): void => {
-	if (key === "__proto__") {
-		Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
-	} else {
-		(target as Record<string, unknown>)[key] = value;
-	}
-};
+type StructValueOf<T> = T extends Maybe.Some<infer A> ? A : never;
 
 // =============================================================================
 // Public Export
@@ -447,6 +441,8 @@ export const Maybe = {
 
 	/**
 	 * Evaluates a new Maybe using the current accumulator and attaches the output to a new key.
+	 * The key must not already exist on the accumulator — use `map` to update an existing field.
+	 * The accumulator is expected to be a plain object (own enumerable properties).
 	 *
 	 * @see {@link Maybe.assignTo} to initialize a pipeline accumulator record.
 	 *
@@ -459,7 +455,7 @@ export const Maybe = {
 	 * ```
 	 */
 	assign:
-		<K extends string, A, B>(key: K, transform: (value: A) => Maybe<B>) =>
+		<K extends string, A extends object, B>(key: K extends keyof A ? never : K, transform: (value: A) => Maybe<B>) =>
 		(maybe: Maybe<A>): Maybe<A & { [P in K]: B; }> => {
 			if (!isSome(maybe)) {
 				return maybe;
@@ -468,13 +464,14 @@ export const Maybe = {
 			if (!isSome(res)) {
 				return res;
 			}
-			const accumulator = { ...(maybe.value as unknown as Record<string, unknown>) } as A & { [P in K]: B; };
-			setProperty(accumulator as Record<string, unknown>, key, res.value);
+			const accumulator = { ...(maybe.value as unknown as Record<string, unknown>), [key]: res.value } as
+				& A
+				& { [P in K]: B; };
 			return makeSome(accumulator);
 		},
 
 	/**
-	 * Combines a record of Maybes into a single Maybe of a record.
+	 * Combines a record of Maybes into a single Maybe of a record. Own string and symbol keys are processed in key order; inherited fields are not supported.
 	 * Evaluates fields in key order and short-circuits on the first None.
 	 *
 	 * @see {@link Maybe.assign} to combine values sequentially with inter-field dependencies.
@@ -487,18 +484,17 @@ export const Maybe = {
 	 * }); // Some({ name: "Alice", age: 30 })
 	 * ```
 	 */
-	struct: <T extends Record<string, Maybe<unknown>>>(
-		fields: T,
-	): Maybe<{ [K in keyof T]: T[K] extends Maybe<infer A> ? A : never; }> => {
-		const result = {} as { [K in keyof T]: T[K] extends Maybe<infer A> ? A : never; };
-		for (const key in fields) {
-			if (Object.hasOwn(fields, key)) {
-				const res = fields[key];
-				if (isNone(res)) {
-					return res;
-				}
-				setProperty(result as Record<string, unknown>, key, res.value);
+	struct: <T extends Record<string, Maybe<unknown>>>(fields: T): Maybe<{ [K in keyof T]: StructValueOf<T[K]>; }> => {
+		type Out = { [K in keyof T]: StructValueOf<T[K]>; };
+		const result = {} as Out;
+		const keys = Reflect.ownKeys(fields);
+		for (let i = 0; i < keys.length; i++) {
+			const key = keys[i];
+			const res = fields[key as keyof T];
+			if (isNone(res)) {
+				return res;
 			}
+			result[key as keyof Out] = res.value as Out[keyof Out];
 		}
 		return makeSome(result);
 	},

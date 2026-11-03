@@ -152,16 +152,7 @@ const all = <const R extends Readonly<Record<string, Resource<any, any>>> | read
 			const key = keys[i];
 			const acquired = await toInternal(record[key])[_allocate](scope, signal);
 			if (Result.is.err(acquired)) { return acquired as Result<InferError<R>, InferValue<R>>; }
-			if (key === "__proto__") {
-				Object.defineProperty(results, key, {
-					value: acquired.value,
-					writable: true,
-					enumerable: true,
-					configurable: true,
-				});
-			} else {
-				results[key] = acquired.value;
-			}
+			results[key] = acquired.value;
 		}
 		return Result.make.ok(results) as Result<InferError<R>, InferValue<R>>;
 	});

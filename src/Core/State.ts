@@ -257,7 +257,10 @@ export const State = {
 	 * ```
 	 */
 	assign:
-		<K extends string, S, A, B>(key: K, transform: (value: A) => State<S, B>) =>
+		<K extends string, S, A extends object, B>(
+			key: K extends keyof A ? never : K,
+			transform: (value: A) => State<S, B>,
+		) =>
 		(state: State<S, A>): State<S, A & { [P in K]: B; }> =>
 			chainState<A, S, A & { [P in K]: B; }>((a) =>
 				mapState<B, A & { [P in K]: B; }>((

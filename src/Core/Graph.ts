@@ -103,7 +103,7 @@ export namespace Graph {
 	export type MakeOptions = {
 		/**
 		 * Maximum number of asynchronous tasks permitted to execute concurrently.
-		 * Defaults to unbounded concurrency. Nonpositive and non-integer values are also unbounded.
+		 * Defaults to unbounded concurrency. Nonpositive and non-integer values clamp to 1.
 		 */
 		readonly concurrency?: number;
 	};
@@ -411,10 +411,11 @@ function runGraph<E, Out, Input>(
 				signal.addEventListener("abort", onCallerAbort, { once: true });
 			}
 
-			const concurrency =
-				options?.concurrency !== undefined && Number.isInteger(options.concurrency) && options.concurrency > 0
-					? options.concurrency
-					: Infinity;
+			const concurrency = options?.concurrency === undefined
+				? Infinity
+				: Number.isInteger(options.concurrency) && options.concurrency > 0
+				? options.concurrency
+				: 1;
 
 			// oxlint-disable-next-line prefer-const
 			let drain: () => void;

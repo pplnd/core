@@ -103,8 +103,8 @@ export namespace Batcher {
 		readonly serializeKey?: (key: K) => string | number;
 
 		/**
-		 * Maximum number of keys dispatched per batch query. Defaults to unbounded. Nonpositive and
-		 * non-integer values are also unbounded.
+		 * Maximum number of keys dispatched per batch query. Defaults to unbounded. A provided
+		 * nonpositive or non-integer value clamps to 1; omit the option for unbounded batches.
 		 */
 		readonly maxBatchSize?: number;
 
@@ -116,7 +116,7 @@ export namespace Batcher {
 
 		/**
 		 * Maximum number of chunked batch queries allowed to run concurrently in flight.
-		 * Defaults to unbounded concurrency. Nonpositive and non-integer values are also unbounded.
+		 * Defaults to unbounded concurrency. Nonpositive and non-integer values clamp to 1.
 		 */
 		readonly concurrency?: number;
 	};
@@ -205,14 +205,16 @@ const makeBatcher = <K, E, V>(
 	type PendingKeySlot = { readonly key: K; readonly callers: CallerEntry[]; batch?: ActiveBatch; };
 
 	const serialize = options.serializeKey ?? defaultSerialize;
-	const maxBatchSize =
-		options.maxBatchSize !== undefined && Number.isInteger(options.maxBatchSize) && options.maxBatchSize > 0
-			? options.maxBatchSize
-			: Infinity;
-	const concurrency =
-		options.concurrency !== undefined && Number.isInteger(options.concurrency) && options.concurrency > 0
-			? options.concurrency
-			: Infinity;
+	const maxBatchSize = options.maxBatchSize === undefined
+		? Infinity
+		: Number.isInteger(options.maxBatchSize) && options.maxBatchSize > 0
+		? options.maxBatchSize
+		: 1;
+	const concurrency = options.concurrency === undefined
+		? Infinity
+		: Number.isInteger(options.concurrency) && options.concurrency > 0
+		? options.concurrency
+		: 1;
 
 	let queue = new Map<KeyHash, PendingKeySlot>();
 	let scheduled = false;

@@ -177,6 +177,17 @@ test("struct: preserves heterogeneous error unions and object shapes", () => {
 	expectTypeOf(structured).toEqualTypeOf<Result<"ERR_A" | "ERR_B", { a: number; b: string; }>>();
 });
 
+test("struct: extracts channels from concrete variants with a never fallback", () => {
+	const okOnly = Result.struct({ value: Result.make.ok(42) });
+	expectTypeOf(okOnly).toEqualTypeOf<Result<never, { value: number; }>>();
+
+	const empty = Result.struct({});
+	expectTypeOf(empty).toEqualTypeOf<Result<never, {}>>();
+
+	const errOnly = Result.struct({ value: Result.make.err("boom" as const) });
+	expectTypeOf(errOnly).toEqualTypeOf<Result<"boom", { value: never; }>>();
+});
+
 test("assign & assignTo: accumulates pipeline object record correctly", () => {
 	const resA: Result<"ERR_A", number> = constTruthyBool() ? Result.make.ok(1) : Result.make.err("ERR_A");
 
@@ -187,6 +198,24 @@ test("assign & assignTo: accumulates pipeline object record correctly", () => {
 	);
 	expectTypeOf(bound).toEqualTypeOf<Result<"ERR_A" | "ERR_B", { a: number; } & { b: string; }>>();
 	expectTypeOf(bound).toMatchTypeOf<Result<"ERR_A" | "ERR_B", { a: number; b: string; }>>();
+});
+
+test("assign: appends new keys only — existing keys and primitive accumulators are rejected", () => {
+	const resA: Result<"ERR_A", number> = constTruthyBool() ? Result.make.ok(1) : Result.make.err("ERR_A");
+
+	const bound = pipe(
+		resA,
+		Result.assignTo("a"),
+		Result.assign("b", ({ a }) => (a > 0 ? Result.make.ok(a + 1) : Result.make.err("ERR_B" as const))),
+	);
+	expectTypeOf(bound).toEqualTypeOf<Result<"ERR_A" | "ERR_B", { a: number; } & { b: number; }>>();
+
+	// @ts-expect-error — "a" already exists on the accumulator; use map to update a field
+	const updated = pipe(Result.make.ok({ a: 1 }), Result.assign("a", () => Result.make.ok(2)));
+	expectTypeOf(updated).toBeObject();
+
+	// @ts-expect-error — the accumulator must be an object, not a primitive
+	expectTypeOf(Result.assign("label", (n: number) => Result.make.ok(n))).toBeFunction();
 });
 
 test("negative: flags missing match handlers, invalid transforms, and variant incompatibilities", () => {

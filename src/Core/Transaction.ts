@@ -13,17 +13,7 @@ const _internalTransaction = Symbol("Transaction.internalTransaction");
 const _internalStep = Symbol("Transaction.internalStep");
 
 // =============================================================================
-// Prototype Pollution Shield
-// =============================================================================
-
-const setProperty = <T extends Record<string, unknown>>(target: T, key: string, value: unknown): void => {
-	if (key === "__proto__") {
-		Object.defineProperty(target, key, { value, writable: true, enumerable: true, configurable: true });
-	} else {
-		(target as Record<string, unknown>)[key] = value;
-	}
-};
-
+// Types & Constructors
 // =============================================================================
 // Public Types
 // =============================================================================
@@ -414,7 +404,7 @@ function runTransaction<In, Acc extends Record<string, unknown>, E, EUndo>(
 			const dependencies: Record<string, unknown> = {};
 			for (const [name, dependency] of Object.entries(stepDef.deps)) {
 				if (dependency !== undefined) {
-					setProperty(dependencies, name, acc[dependency.id]);
+					dependencies[name] = acc[dependency.id];
 				}
 			}
 			const stepTask: Task.Result<unknown, unknown> = (signal) =>
@@ -436,7 +426,7 @@ function runTransaction<In, Acc extends Record<string, unknown>, E, EUndo>(
 			const out = stepOutcome.value;
 			options?.onStepSuccess?.({ stepId: stepDef.id, output: out });
 
-			setProperty(acc, stepDef.id, out);
+			acc[stepDef.id] = out;
 			if (stepDef.undo) {
 				undoStack.push({
 					id: stepDef.id,

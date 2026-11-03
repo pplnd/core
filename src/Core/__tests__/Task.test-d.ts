@@ -86,6 +86,18 @@ test("assign & assignTo: accumulates pipeline object record correctly", () => {
 	expectTypeOf(bound).toMatchTypeOf<Task<{ a: number; b: string; }>>();
 });
 
+test("assign: appends new keys only — existing keys and primitive accumulators are rejected", () => {
+	const bound = pipe(Task.make(42), Task.assignTo("a"), Task.assign("b", ({ a }) => Task.make(a + 1)));
+	expectTypeOf(bound).toEqualTypeOf<Task<{ a: number; } & { b: number; }>>();
+
+	// @ts-expect-error — "a" already exists on the accumulator; use map to update a field
+	const updated = pipe(Task.make({ a: 1 }), Task.assign("a", () => Task.make(2)));
+	expectTypeOf(updated).toBeObject();
+
+	// @ts-expect-error — the accumulator must be an object, not a primitive
+	expectTypeOf(Task.assign("label", (n: number) => Task.make(n))).toBeFunction();
+});
+
 test("memoize: preserves return type while caching result", () => {
 	const memoized = Task.memoize(Task.make(42));
 	expectTypeOf(memoized).toEqualTypeOf<Task<number>>();

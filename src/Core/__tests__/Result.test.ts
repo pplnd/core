@@ -779,6 +779,15 @@ test("struct: returns ok({}) when given an empty object", () => {
 	expect(res).toStrictEqual(Result.make.ok({}));
 });
 
+test("struct: copies symbol-keyed fields and short-circuits on a symbol-keyed Err", () => {
+	const token = Symbol("token");
+	const res = Result.struct({ value: Result.make.ok(42), [token]: Result.make.ok("extra") });
+	expect(res).toStrictEqual(Result.make.ok({ value: 42, [token]: "extra" }));
+
+	const failing = Result.struct({ value: Result.make.ok(42), [token]: Result.make.err("boom" as const) });
+	expect(failing).toStrictEqual(Result.make.err("boom"));
+});
+
 // --- sequence.Maybe ---
 
 test("sequence.Maybe: swaps Ok(Some) to Some(Ok)", () => {
@@ -963,23 +972,4 @@ test("assign: operates on un-narrowed union type without CFA narrowing", () => {
 		: Result.make.err("err");
 	const resErr = pipe(naturalErr, Result.assign("b", ({ a }) => Result.make.ok(a + 1)));
 	expect(resErr).toStrictEqual(Result.make.err("err"));
-});
-
-test("struct: safely handles __proto__ property without prototype pollution", () => {
-	const protoFields: Record<string, Result<string, unknown>> = {};
-	Object.defineProperty(protoFields, "__proto__", {
-		value: Result.make.ok({ polluted: true }),
-		enumerable: true,
-		configurable: true,
-		writable: true,
-	});
-	protoFields.a = Result.make.ok(1);
-
-	const res = Result.struct(protoFields);
-	expect(Result.is.ok(res)).toBe(true);
-	const emptyFallback: Record<string, unknown> = {};
-	const value = Result.getOrElse(() => emptyFallback)(res);
-	expect(Object.hasOwn(value, "__proto__")).toBe(true);
-	const target: Record<string, unknown> = {};
-	expect(target.polluted).toBeUndefined();
 });

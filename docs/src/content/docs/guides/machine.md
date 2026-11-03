@@ -5,7 +5,7 @@ description: Define state transitions and run state-scoped effects with an actor
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.06 kB minified + gzipped
+> 2.02 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -65,7 +65,6 @@ type UploadEvents = {
 };
 
 const uploadMachine = Machine.make<UploadState, UploadEvents>({
-  states: {
     idle: {
       on: { START: (_state, file) => Machine.state("uploading", file) },
     },
@@ -98,8 +97,7 @@ const uploadMachine = Machine.make<UploadState, UploadEvents>({
         CANCEL: () => Machine.state("idle"),
       },
     },
-  },
-});
+  });
 
 const describe = Machine.match<UploadState, string>({
   idle: () => "Select a file",
@@ -110,7 +108,6 @@ const describe = Machine.match<UploadState, string>({
 
 const actor = Machine.interpret(uploadMachine, {
   initial: Machine.state("idle"),
-  onError: (error, context) => console.error(context?.phase, error),
 });
 const unsubscribe = actor.subscribe((state) => console.log(pipe(state, describe)));
 
@@ -131,20 +128,20 @@ work ignores its signal. To use a machine as a reducer without entry or exit eff
 | Signature                     | What it does                                | Return type or behavior              |
 | :---------------------------- | :------------------------------------------ | :----------------------------------- |
 | `Machine.state(kind, value?)` | Creates a state, optionally with a payload. | A state with a `kind` discriminator. |
-| `Machine.make(config)`        | Defines a state transition table.           | `Machine<States, Events>`            |
+| `Machine.make(states)`        | Defines a state transition table.           | `Machine<States, Events>`            |
 | `Machine.is(kind)`            | Checks a state's kind.                      | Type guard.                          |
 | `Machine.match(cases)`        | Handles each state kind.                    | The matching handler's result.       |
 
 ### Transitioning and Running
 
-| Signature                             | What it does                                        | Behavior                                   |
-| :------------------------------------ | :-------------------------------------------------- | :----------------------------------------- |
-| `Machine.transition(machine, event)`  | Computes the next state from a supplied state.      | Does not run entry or exit effects.        |
-| `Machine.to.reducer(machine)`         | Creates a `(state, event) => state` reducer.        | Pass the initial state to `useReducer`.    |
-| `Machine.interpret(machine, options)` | Starts a stateful actor and runs the initial entry. | Options include `onError` and an EventBus. |
-| `actor.send(event)` / `getState()`    | Sends an event / reads the current state.           | Re-entrant sends are queued.               |
-| `actor.subscribe(fn)`                 | Observes state changes.                             | Returns an unsubscribe function.           |
-| `actor.abort()` / `isRunning()`       | Stops the actor / checks whether it is running.     | Abort runs active cleanup and exit.        |
+| Signature                             | What it does                                        | Behavior                                |
+| :------------------------------------ | :-------------------------------------------------- | :-------------------------------------- |
+| `Machine.transition(machine, event)`  | Computes the next state from a supplied state.      | Does not run entry or exit effects.     |
+| `Machine.to.reducer(machine)`         | Creates a `(state, event) => state` reducer.        | Pass the initial state to `useReducer`. |
+| `Machine.interpret(machine, options)` | Starts a stateful actor and runs the initial entry. | Options include an EventBus.            |
+| `actor.send(event)` / `getState()`    | Sends an event / reads the current state.           | Re-entrant sends are queued.            |
+| `actor.subscribe(fn)`                 | Observes state changes.                             | Returns an unsubscribe function.        |
+| `actor.abort()` / `isRunning()`       | Stops the actor / checks whether it is running.     | Abort runs active cleanup and exit.     |
 
 ## Failure Behavior and Edge Cases
 
@@ -160,7 +157,6 @@ type UploadEvents = { SAME: void; UPDATE: void };
 let entries = 0;
 
 const machine = Machine.make<UploadState, UploadEvents>({
-  states: {
     uploading: {
       entry: () => { entries += 1; },
       on: {
@@ -168,8 +164,7 @@ const machine = Machine.make<UploadState, UploadEvents>({
         UPDATE: (state) => Machine.state("uploading", { progress: state.value.progress + 1 }),
       },
     },
-  },
-});
+  });
 const actor = Machine.interpret(machine, { initial: Machine.state("uploading", { progress: 0 }) });
 // Initial entry: entries is 1.
 actor.send({ kind: "SAME" });            // entries is still 1.
@@ -177,13 +172,13 @@ actor.send({ kind: "UPDATE" });          // New object: entries is 2.
 actor.abort();
 ```
 
-`Machine.transition` lets a transition handler's exception escape. In `Machine.interpret`, if an
-`onError` handler is provided, synchronous exceptions from transitions, entry, exit, cleanup, and
-listeners are reported to `onError`; if `onError` is omitted or itself throws, the exception
-propagates after completing any active state transition. Handle rejected promises inside an async
-effect, as in the upload example. `subscribe` reports subsequent changes; read `getState()` for the
-initial state. After `actor.abort()`, later events are ignored and `getState()` retains the last
-state.
+`Machine.transition` lets a transition handler's exception escape. `Machine.interpret` propagates
+synchronous exceptions from transitions, entry, exit, cleanup, and listeners after completing any
+active state transition or cleanup. Callbacks must handle expected failures themselves; use `Result`
+for synchronous work and `Task.Result` for asynchronous work. Handle rejected promises inside an
+async effect, as in the upload example. `subscribe` reports subsequent changes; read `getState()`
+for the initial state. After `actor.abort()`, later events are ignored and `getState()` retains the
+last state.
 
 `actor.send()` normally returns the state after processing the event. If called from a transition,
 entry or exit effect, or subscriber while another event is being processed, it queues the event and

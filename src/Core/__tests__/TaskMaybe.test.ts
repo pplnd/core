@@ -410,6 +410,15 @@ test("struct: returns None if any key yields None", async () => {
 	expect(result).toStrictEqual(Maybe.make.none());
 });
 
+test("struct: copies symbol-keyed fields and short-circuits on a symbol-keyed None", async () => {
+	const token = Symbol("token");
+	const res = await Task.Maybe.struct({ value: Task.Maybe.make.some(42), [token]: Task.Maybe.make.some("extra") })();
+	expect(res).toStrictEqual(Maybe.make.some({ value: 42, [token]: "extra" }));
+
+	const failing = await Task.Maybe.struct({ value: Task.Maybe.make.some(42), [token]: Task.Maybe.make.none() })();
+	expect(failing).toStrictEqual(Maybe.make.none());
+});
+
 test("struct: assigns to interface type", async () => {
 	interface MaybeUser {
 		name: string;
@@ -462,23 +471,6 @@ test("assign: safely handles __proto__ property without prototype pollution", as
 		Task.Maybe.make.some({ a: 1 }),
 		Task.Maybe.assign("__proto__", () => Task.Maybe.make.some({ polluted: true })),
 	)();
-	expect(Maybe.is.some(res)).toBe(true);
-	const value = Maybe.getOrElse((): Record<string, unknown> => ({}))(res);
-	expect(Object.hasOwn(value, "__proto__")).toBe(true);
-	expect("polluted" in {}).toBe(false);
-});
-
-test("struct: safely handles __proto__ property without prototype pollution", async () => {
-	const protoFields: Record<string, Task.Maybe<unknown>> = {};
-	Object.defineProperty(protoFields, "__proto__", {
-		value: Task.Maybe.make.some({ polluted: true }),
-		enumerable: true,
-		configurable: true,
-		writable: true,
-	});
-	protoFields.a = Task.Maybe.make.some(1);
-
-	const res = await Task.Maybe.struct(protoFields)();
 	expect(Maybe.is.some(res)).toBe(true);
 	const value = Maybe.getOrElse((): Record<string, unknown> => ({}))(res);
 	expect(Object.hasOwn(value, "__proto__")).toBe(true);
