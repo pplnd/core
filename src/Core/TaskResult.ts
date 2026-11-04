@@ -3,6 +3,7 @@ import { clampTimerDelay } from "../internal/timers.ts";
 import { waitForDelay } from "../internal/waitForDelay.ts";
 import { Duration } from "../Types/Duration.ts";
 import type { RetryPolicy } from "../Types/RetryPolicy.ts";
+import { Aborted } from "./Aborted.ts";
 import { Deferred } from "./Deferred.ts";
 import { type Maybe, Maybe as CoreMaybe } from "./Maybe.ts";
 import { type Result, Result as CoreResult } from "./Result.ts";
@@ -546,8 +547,8 @@ export const TaskResult = {
 	 *   a provided nonpositive or non-integer value clamps to 1, and omitting the option runs all
 	 *   tasks unbounded.
 	 * - Short-circuits on the first `Err`: cancels all currently active tasks and avoids starting queued tasks.
-	 * - If caller's `signal` is already aborted, returns `Task.Aborted` immediately without starting work.
-	 * - If caller's `signal` aborts during execution, cancels active work and settles immediately with `Task.Aborted`.
+	 * - If caller's `signal` is already aborted, returns `Aborted` immediately without starting work.
+	 * - If caller's `signal` aborts during execution, cancels active work and settles immediately with `Aborted`.
 	 *
 	 * @see {@link Task.Result.sequential} to run an array of fallible tasks one at a time in order.
 	 * @see {@link Task.Result.allSettled} to collect all outcomes without short-circuiting on failure.
@@ -565,22 +566,22 @@ export const TaskResult = {
 			tasks: readonly [...T],
 			options?: { concurrency?: number; },
 		): Task.Result<
-			TaskErrOf<T[number]> | Task.Aborted,
+			TaskErrOf<T[number]> | Aborted,
 			{ [K in keyof T]: T[K] extends Task.Result<unknown, infer A> ? A : never; }
 		> =>
 		(callerSignal) =>
 			Deferred.from.Promise(
 				new Promise<
 					Result<
-						TaskErrOf<T[number]> | Task.Aborted,
+						TaskErrOf<T[number]> | Aborted,
 						{ [K in keyof T]: T[K] extends Task.Result<unknown, infer A> ? A : never; }
 					>
 				>((resolve) => {
-					type AllE = TaskErrOf<T[number]> | Task.Aborted;
+					type AllE = TaskErrOf<T[number]> | Aborted;
 					type Results = { [K in keyof T]: T[K] extends Task.Result<unknown, infer A> ? A : never; };
 
 					if (callerSignal?.aborted) {
-						resolve(CoreResult.make.err({ kind: "TaskAborted", reason: callerSignal.reason }));
+						resolve(CoreResult.make.err(Aborted.make(callerSignal.reason)));
 						return;
 					}
 
@@ -610,7 +611,7 @@ export const TaskResult = {
 					};
 
 					onCallerAbort = () => {
-						settle(CoreResult.make.err({ kind: "TaskAborted", reason: callerSignal!.reason }));
+						settle(CoreResult.make.err(Aborted.make(callerSignal!.reason)));
 					};
 
 					if (callerSignal) {
@@ -674,7 +675,7 @@ export const TaskResult = {
 		<T extends readonly Task.Result<unknown, unknown>[]>(
 			tasks: readonly [...T],
 		): Task.Result<
-			TaskErrOf<T[number]> | Task.Aborted,
+			TaskErrOf<T[number]> | Aborted,
 			{ [K in keyof T]: T[K] extends Task.Result<unknown, infer A> ? A : never; }
 		> =>
 		(signal) => TaskResult.all(tasks, { concurrency: 1 })(signal),

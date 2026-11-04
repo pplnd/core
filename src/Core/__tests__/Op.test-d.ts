@@ -7,6 +7,7 @@ import type { Deferred } from "../Deferred.ts";
 import type { Maybe } from "../Maybe.ts";
 import { Op } from "../Op.ts";
 import type { Result } from "../Result.ts";
+import { Task } from "../Task.ts";
 
 interface User {
 	id: string;
@@ -18,78 +19,83 @@ interface Payload {
 	name: string;
 }
 
-const delayedOp = Op.make((_signal: AbortSignal) => (n: number) => Promise.resolve(n), { onError: String });
+const delayedOp = Op.make((n: number) => Task.Result.tryCatch(() => Promise.resolve(n), { onError: String }));
 
 test("make: infers precise types across zero-argument, multi-argument, and explicit signatures", () => {
-	const zeroArgOp = Op.make((_signal) => () => Promise.resolve(42), { onError: String });
+	const zeroArgOp = Op.make(() => Task.Result.tryCatch(() => Promise.resolve(42), { onError: String }));
 	expectTypeOf(zeroArgOp).toEqualTypeOf<Op<[], string, number>>();
 
-	const multiArgOp = Op.make((_signal) => (name: string, age: number) => Promise.resolve(`${name}:${age}`), {
-		onError: String,
-	});
+	const multiArgOp = Op.make((name: string, age: number) =>
+		Task.Result.tryCatch(() => Promise.resolve(`${name}:${age}`), { onError: String })
+	);
 	expectTypeOf(multiArgOp).toEqualTypeOf<Op<[name: string, age: number], string, string>>();
 
-	const explicitOp = Op.make<[id: string], User, string>((_signal) => (id) => Promise.resolve({ id, name: "User" }), {
-		onError: String,
-	});
+	const explicitOp = Op.make((id: string) =>
+		Task.Result.tryCatch(() => Promise.resolve({ id, name: "User" }), { onError: String })
+	);
 	expectTypeOf(explicitOp).toEqualTypeOf<Op<[id: string], string, User>>();
 
 	const searchApi = (payload: Payload): Promise<{ success: boolean; id: string; }> =>
 		Promise.resolve({ success: true, id: payload.id });
 
-	const opFromFn = Op.make((_signal) => searchApi, { onError: String });
+	const opFromFn = Op.make((payload: Payload) => Task.Result.tryCatch(() => searchApi(payload), { onError: String }));
 	expectTypeOf(opFromFn).toEqualTypeOf<Op<[payload: Payload], string, { success: boolean; id: string; }>>();
 
-	const payloadOp = Op.make((_signal) => (payload: Payload) => Promise.resolve({ success: true, id: payload.id }), {
-		onError: String,
-	});
+	const payloadOp = Op.make((payload: Payload) =>
+		Task.Result.tryCatch(() => Promise.resolve({ success: true, id: payload.id }), { onError: String })
+	);
 	expectTypeOf(payloadOp).toEqualTypeOf<Op<[payload: Payload], string, { success: boolean; id: string; }>>();
 
-	const explicitPayloadOp = Op.make<Payload, User, string>(
-		(_signal) => (payload) => Promise.resolve({ id: payload.id, name: payload.name }),
-		{ onError: String },
+	const explicitPayloadOp = Op.make((payload: Payload) =>
+		Task.Result.tryCatch(() => Promise.resolve({ id: payload.id, name: payload.name }), { onError: String })
 	);
 	expectTypeOf(explicitPayloadOp).toEqualTypeOf<Op<[Payload], string, User>>();
 
 	function wrap<Args extends readonly unknown[], Out>(fn: (...args: Args) => Out) {
-		return Op.make((_signal) => fn, { onError: String });
+		return Op.make((...args: Args) => Task.Result.tryCatch(() => Promise.resolve(fn(...args)), { onError: String }));
 	}
 	const wrappedOp = wrap((a: string, b: number) => `${a}:${b}`);
 	expectTypeOf(wrappedOp).toEqualTypeOf<Op<[a: string, b: number], string, string>>();
 
-	const namedOp = Op.make((_signal) => () => Promise.resolve(42), { id: "test-op", onError: String });
+	const namedTask = () => Task.Result.tryCatch(() => Promise.resolve(42), { onError: String });
+	const namedOp = Op.make(namedTask, { id: "test-op" });
 	expectTypeOf(namedOp.id).toEqualTypeOf<string | undefined>();
 	expectTypeOf(namedOp[Symbol.toStringTag]).toEqualTypeOf<string | undefined>();
 
 	// @ts-expect-error — id must be string
-	Op.make((_signal) => () => Promise.resolve(42), { id: 123, onError: String });
+	Op.make(namedTask, { id: 123 });
 
-	// @ts-expect-error — Op requires an onError handler
-	Op.make((_signal) => () => Promise.resolve(42));
+	// @ts-expect-error — the factory must return a Task.Result, not a bare promise
+	Op.make(() => Promise.resolve(42));
 });
 
-test("lift: infers unknown error type and preserves argument/return shapes", () => {
-	const zeroArgLift = Op.lift((_signal) => () => Promise.resolve(42));
+test("make tryCatch: infers unknown error type and preserves argument/return shapes", () => {
+	const liftedTask = () => Task.Result.tryCatch(() => Promise.resolve(42), { onError: (error) => error });
+	const zeroArgLift = Op.make(liftedTask);
 	expectTypeOf(zeroArgLift).toEqualTypeOf<Op<[], unknown, number>>();
 	expectTypeOf(zeroArgLift.id).toEqualTypeOf<string | undefined>();
 
-	const namedLift = Op.lift((_signal) => () => Promise.resolve(42), { id: "lifted-op" });
+	const namedLift = Op.make(liftedTask, { id: "lifted-op" });
 	expectTypeOf(namedLift.id).toEqualTypeOf<string | undefined>();
 
 	// @ts-expect-error — id must be string
-	Op.lift((_signal) => () => Promise.resolve(42), { id: 123 });
+	Op.make(liftedTask, { id: 123 });
 
-	const singleArgLift = Op.lift((_signal) => (n: number) => Promise.resolve(n * 2));
+	const singleArgLift = Op.make((n: number) =>
+		Task.Result.tryCatch(() => Promise.resolve(n * 2), { onError: (error) => error })
+	);
 	expectTypeOf(singleArgLift).toEqualTypeOf<Op<[n: number], unknown, number>>();
 
-	const explicitLift = Op.lift<Payload, User>((_signal) => (payload) =>
-		Promise.resolve({ id: payload.id, name: payload.name })
+	const explicitLift = Op.make((payload: Payload) =>
+		Task.Result.tryCatch(() => Promise.resolve({ id: payload.id, name: payload.name }), { onError: (error) => error })
 	);
 	expectTypeOf(explicitLift).toEqualTypeOf<Op<[Payload], unknown, User>>();
 
 	const apiFn = (payload: Payload): Promise<{ success: boolean; id: string; }> =>
 		Promise.resolve({ success: true, id: payload.id });
-	const liftFromFn = Op.lift((_signal) => apiFn);
+	const liftFromFn = Op.make((payload: Payload) =>
+		Task.Result.tryCatch(() => apiFn(payload), { onError: (error) => error })
+	);
 	expectTypeOf(liftFromFn).toEqualTypeOf<Op<[payload: Payload], unknown, { success: boolean; id: string; }>>();
 });
 
@@ -246,9 +252,9 @@ test("interpret options: widens state union with Retrying and widens error with 
 	const policyManager = Op.interpret(delayedOp, { strategy: "restartable", retry: directPolicy });
 	expectTypeOf(policyManager.state).toEqualTypeOf<Op.RestartableState<string, number> | Op.Retrying<string>>();
 
-	const timeoutOp = Op.make((_signal: AbortSignal) => (_input: number) => Promise.resolve(42), {
-		onError: (_err) => "op_error" as const,
-	});
+	const timeoutOp = Op.make((_input: number) =>
+		Task.Result.tryCatch(() => Promise.resolve(42), { onError: () => "op_error" as const })
+	);
 	const timeoutManager = Op.interpret(timeoutOp, {
 		strategy: "restartable",
 		timeout: { duration: Duration.milliseconds(10), onTimeout: () => "timeout_error" as const },
@@ -409,14 +415,16 @@ test("wire: wires manager Ok outcome to a side effect callback", () => {
 });
 
 test("manager arity: enforces zero-argument and multi-argument signatures at compile time", () => {
-	const zeroArgOp = Op.lift((_signal) => () => Promise.resolve(42));
+	const zeroArgOp = Op.make(() => Task.Result.tryCatch(() => Promise.resolve(42), { onError: (error) => error }));
 	const zeroArgManager = Op.interpret(zeroArgOp, { strategy: "once" });
 	expectTypeOf(zeroArgManager.run).parameters.toEqualTypeOf<[]>();
 
 	// @ts-expect-error — zero-arg manager rejects arguments
 	zeroArgManager.run(123);
 
-	const multiArgOp = Op.lift((_signal) => (name: string, count: number) => Promise.resolve(`${name}:${count}`));
+	const multiArgOp = Op.make((name: string, count: number) =>
+		Task.Result.tryCatch(() => Promise.resolve(`${name}:${count}`), { onError: (error) => error })
+	);
 	const multiArgManager = Op.interpret(multiArgOp, { strategy: "restartable" });
 	expectTypeOf(multiArgManager.run).parameters.toEqualTypeOf<[name: string, count: number]>();
 

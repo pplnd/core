@@ -65,8 +65,6 @@ type _TaskResult<E, A> = Task<CoreResult<E, A>>;
 type _TaskValidation<E, A> = Task<CoreValidation<E, A>>;
 
 export namespace Task {
-	/** Queued tasks were not started because the signal was aborted. */
-	export type Aborted = { readonly kind: "TaskAborted"; readonly reason: unknown; };
 	export type LabeledTask<L extends string, A> = Task<A> & { readonly label: L; };
 	export type Maybe<A> = _TaskMaybe<A>;
 	export type Result<E, A> = _TaskResult<E, A>;

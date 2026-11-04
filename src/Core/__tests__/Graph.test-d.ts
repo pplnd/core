@@ -2,6 +2,7 @@ import { constTruthyBool } from "#test-utils";
 import { expectTypeOf, test } from "vitest";
 import { Duration } from "../../Types/Duration.ts";
 import { RetryPolicy } from "../../Types/RetryPolicy.ts";
+import { Aborted } from "../Aborted.ts";
 import { Deferred } from "../Deferred.ts";
 import { Graph } from "../Graph.ts";
 import { Result } from "../Result.ts";
@@ -32,8 +33,8 @@ test("node: a standalone node has no run input", () => {
 
 test("run: infallible nodes still expose cancellation", () => {
 	const node = Graph.node("count", () => Task.Result.make.ok(1));
-	const task = Graph.run(Graph.make(node));
-	expectTypeOf(task).toEqualTypeOf<Deferred<Result<Graph.Aborted, number>>>();
+	const task = Graph.run()(Graph.make(node));
+	expectTypeOf(task).toEqualTypeOf<Deferred<Result<Aborted, number>>>();
 });
 
 test("node: infers contextual dependency outputs and accumulates error unions", () => {
@@ -84,11 +85,11 @@ test("make & run: compiles and preserves error and output channels", () => {
 	const graph = Graph.make(perms);
 	expectTypeOf(graph).toEqualTypeOf<Graph<"e_perm" | "e_user", string[]>>();
 
-	const task = Graph.run(graph);
-	expectTypeOf(task).toEqualTypeOf<Deferred<Result<"e_perm" | "e_user" | Graph.Aborted, string[]>>>();
+	const task = Graph.run()(graph);
+	expectTypeOf(task).toEqualTypeOf<Deferred<Result<"e_perm" | "e_user" | Aborted, string[]>>>();
 
-	const taskWithConcurrency = Graph.run(Graph.make(perms, { concurrency: 2 }));
-	expectTypeOf(taskWithConcurrency).toEqualTypeOf<Deferred<Result<"e_perm" | "e_user" | Graph.Aborted, string[]>>>();
+	const taskWithConcurrency = Graph.run()(Graph.make(perms, { concurrency: 2 }));
+	expectTypeOf(taskWithConcurrency).toEqualTypeOf<Deferred<Result<"e_perm" | "e_user" | Aborted, string[]>>>();
 
 	const retryingNode = Graph.node(
 		"with-retry",
@@ -110,7 +111,7 @@ test("make & run: compiles and preserves error and output channels", () => {
 	Graph.make("not_a_node");
 
 	// @ts-expect-error — run expects a Graph instance
-	Graph.run("not_a_graph");
+	Graph.run()("not_a_graph");
 });
 
 test("make and run: infer input through dependencies and retain dynamic input contracts", () => {
@@ -126,18 +127,18 @@ test("make and run: infer input through dependencies and retain dynamic input co
 	});
 	const graph = Graph.make(report);
 	expectTypeOf(graph).toEqualTypeOf<Graph<never, string, ReportInput>>();
-	expectTypeOf(Graph.run(graph, { customerId: "a" })).toEqualTypeOf<Deferred<Result<Graph.Aborted, string>>>();
+	expectTypeOf(Graph.run({ customerId: "a" })(graph)).toEqualTypeOf<Deferred<Result<Aborted, string>>>();
 	// @ts-expect-error A required graph input cannot be omitted.
-	Graph.run(graph);
+	Graph.run()(graph);
 	// @ts-expect-error The input must contain customerId.
-	Graph.run(graph, {});
+	Graph.run({})(graph);
 
 	const dynamic: Record<string, Graph.AnyNode<ReportInput>> = { customer };
 	const dynamicTarget = Graph.node("dynamic", dynamic, ({ ctx: { input } }) => Task.Result.make.ok(input.customerId));
 	const dynamicGraph = Graph.make(dynamicTarget);
-	Graph.run(dynamicGraph, { customerId: "a" });
+	Graph.run({ customerId: "a" })(dynamicGraph);
 	// @ts-expect-error Dynamic dependencies retain their required input.
-	Graph.run(dynamicGraph);
+	Graph.run()(dynamicGraph);
 
 	const erased: Record<string, Graph.AnyNode> = { customer };
 	const erasedTarget = Graph.node("erased", erased, () => Task.Result.make.ok("done"));
@@ -160,9 +161,9 @@ test("make: combines input requirements from independent nodes", () => {
 		return Task.Result.make.ok(`${deps.customer}:${deps.locale}:${deps.version}`);
 	});
 	const graph = Graph.make(target);
-	Graph.run(graph, { id: "1", locale: "en" });
+	Graph.run({ id: "1", locale: "en" })(graph);
 	// @ts-expect-error Both input fields are required.
-	Graph.run(graph, { id: "1" });
+	Graph.run({ id: "1" })(graph);
 });
 
 test("node: infers dependency outputs when the node adds an input requirement", () => {
@@ -181,11 +182,9 @@ test("node: infers dependency outputs when the node adds an input requirement", 
 		},
 	);
 	const graph = Graph.make(report);
-	expectTypeOf(Graph.run(graph, { customerId: "1", locale: "en" })).toEqualTypeOf<
-		Deferred<Result<Graph.Aborted, string>>
-	>();
+	expectTypeOf(Graph.run({ customerId: "1", locale: "en" })(graph)).toEqualTypeOf<Deferred<Result<Aborted, string>>>();
 	// @ts-expect-error The report needs the locale as well as customerId.
-	Graph.run(graph, { customerId: "1" });
+	Graph.run({ customerId: "1" })(graph);
 });
 
 test("nodeFactory: shares input while retaining typed dependency and output inference", () => {
@@ -210,10 +209,10 @@ test("nodeFactory: shares input while retaining typed dependency and output infe
 		},
 	);
 	const graph = Graph.make(report);
-	expectTypeOf(Graph.run(graph, { id: "a", locale: "en" })).toEqualTypeOf<Deferred<Result<Graph.Aborted, string>>>();
+	expectTypeOf(Graph.run({ id: "a", locale: "en" })(graph)).toEqualTypeOf<Deferred<Result<Aborted, string>>>();
 	Graph.make(customer);
 	// @ts-expect-error A run must provide the full factory input.
-	Graph.run(graph, { id: "a" });
+	Graph.run({ id: "a" })(graph);
 
 	const other = Graph.nodeFactory<{ readonly tenant: number; }>()(
 		"other",
@@ -237,8 +236,8 @@ test("nodeFactory: infers task-level retry and timeout error channels", () => {
 	const report = node("report", { source }, ({ ctx, deps }) => Task.Result.make.ok(`${ctx.input.path}:${deps.source}`));
 	expectTypeOf(source.id).toEqualTypeOf<"source">();
 	expectTypeOf<Graph.ErrorOf<typeof source>>().toEqualTypeOf<"timeout">();
-	expectTypeOf(Graph.run(Graph.make(report), { path: "report" })).toEqualTypeOf<
-		Deferred<Result<"timeout" | Graph.Aborted, string>>
+	expectTypeOf(Graph.run({ path: "report" })(Graph.make(report))).toEqualTypeOf<
+		Deferred<Result<"timeout" | Aborted, string>>
 	>();
 });
 

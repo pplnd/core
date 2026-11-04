@@ -6,30 +6,35 @@ import { Deferred } from "../Deferred.ts";
 import { Maybe } from "../Maybe.ts";
 import { Op } from "../Op.ts";
 import { Result } from "../Result.ts";
+import { Task } from "../Task.ts";
 
 // --- Helpers ---
 
 /** Op that resolves with the input value after an optional delay. */
 const delayedOp = (delayMs = 0): Op<[input: number], string, number> =>
-	Op.make((signal: AbortSignal) => (input: number) =>
-		new Promise<number>((resolve, reject) => {
-			const id = setTimeout(() => resolve(input), delayMs);
-			signal.addEventListener("abort", () => {
-				clearTimeout(id);
-				reject(new Error("abort"));
-			}, { once: true });
-		}), { onError: (e) => String(e) });
+	Op.make((input: number) =>
+		Task.Result.tryCatch((signal) =>
+			new Promise<number>((resolve, reject) => {
+				const id = setTimeout(() => resolve(input), delayMs);
+				signal?.addEventListener("abort", () => {
+					clearTimeout(id);
+					reject(new Error("abort"));
+				}, { once: true });
+			}), { onError: (e) => String(e) })
+	);
 
 /** Op that always rejects with `error` after an optional delay. */
 const failingOp = (error: string, delayMs = 0): Op<[input: number], string, number> =>
-	Op.make((signal: AbortSignal) => (_input: number) =>
-		new Promise<never>((_resolve, reject) => {
-			const id = setTimeout(() => reject(new Error(error)), delayMs);
-			signal.addEventListener("abort", () => {
-				clearTimeout(id);
-				reject(new Error("abort"));
-			}, { once: true });
-		}), { onError: (e) => (e as Error).message });
+	Op.make((_input: number) =>
+		Task.Result.tryCatch((signal) =>
+			new Promise<never>((_resolve, reject) => {
+				const id = setTimeout(() => reject(new Error(error)), delayMs);
+				signal?.addEventListener("abort", () => {
+					clearTimeout(id);
+					reject(new Error("abort"));
+				}, { once: true });
+			}), { onError: (e) => (e as Error).message })
+	);
 
 /**
  * Subscribes to a manager, calls run(input), and collects states until a terminal one arrives.
@@ -55,7 +60,7 @@ const runAndCollect = <Args extends readonly unknown[], E, A, S extends Op.State
 // --- Op.make ---
 
 test("make: does not expose _factory as an enumerable or public property", () => {
-	const op = Op.make((_signal) => () => Promise.resolve(1), { onError: String });
+	const op = Op.make(() => Task.Result.tryCatch(() => Promise.resolve(1), { onError: String }));
 	// @ts-expect-error — _factory is an internal implementation detail and must not be accessible on Op
 	const hiddenFactory = op._factory;
 	expect(hiddenFactory).toBeUndefined();
@@ -65,22 +70,22 @@ test("make: does not expose _factory as an enumerable or public property", () =>
 });
 
 test("make: supports optional id and sets Symbol.toStringTag", () => {
-	const anonymous = Op.make((_signal) => () => Promise.resolve(1), { onError: String });
+	const anonymous = Op.make(() => Task.Result.tryCatch(() => Promise.resolve(1), { onError: String }));
 	expect(anonymous.id).toBeUndefined();
 	expect(Object.prototype.toString.call(anonymous)).toBe("[object Op]");
 
-	const named = Op.make((_signal) => () => Promise.resolve(1), { id: "fetch-data", onError: String });
+	const named = Op.make(() => Task.Result.tryCatch(() => Promise.resolve(1), { onError: String }), { id: "fetch-data" });
 	expect(named.id).toBe("fetch-data");
 	expect(Object.prototype.toString.call(named)).toBe("[object Op(fetch-data)]");
 });
 
 test("make: infers Op<[]> when factory takes no input", () => {
-	const op = Op.make((_signal) => () => Promise.resolve(42), { onError: String });
+	const op = Op.make(() => Task.Result.tryCatch(() => Promise.resolve(42), { onError: String }));
 	expect(op).toBeDefined();
 });
 
 test("make: manager.run accepts no arguments when factory takes no input", async () => {
-	const op = Op.make((_signal) => () => Promise.resolve(99), { onError: String });
+	const op = Op.make(() => Task.Result.tryCatch(() => Promise.resolve(99), { onError: String }));
 	const manager = Op.interpret(op, { strategy: "once" });
 	// run() with no args must type-check and resolve Ok
 	const result = await manager.run();
@@ -88,7 +93,9 @@ test("make: manager.run accepts no arguments when factory takes no input", async
 });
 
 test("make: infers multi-arg action parameters", async () => {
-	const op = Op.make((_signal) => (name: string, age: number) => Promise.resolve(`${name}:${age}`), { onError: String });
+	const op = Op.make((name: string, age: number) =>
+		Task.Result.tryCatch(() => Promise.resolve(`${name}:${age}`), { onError: String })
+	);
 	const manager = Op.interpret(op, { strategy: "once" });
 	const result = await manager.run("Alice", 30);
 	expect(result).toStrictEqual(Op.Outcome.make.ok("Alice:30"));
@@ -96,20 +103,20 @@ test("make: infers multi-arg action parameters", async () => {
 
 test("make: supports generic wrapper functions with generic Args and Out", () => {
 	function wrap<Args extends readonly unknown[], Out>(fn: (...args: Args) => Out) {
-		return Op.make((_signal) => fn, { onError: String });
+		return Op.make((...args: Args) => Task.Result.tryCatch(() => Promise.resolve(fn(...args)), { onError: String }));
 	}
 	const op = wrap((a: string, b: number) => `${a}:${b}`);
 	expect(op).toBeDefined();
 });
 
-test("make: supports explicit generic type arguments <Args, A, E>", async () => {
+test("make: infers Op type from annotated factory parameters", async () => {
 	interface User {
 		id: string;
 		name: string;
 	}
-	const op = Op.make<[id: string], User, string>((_signal) => (id) => Promise.resolve({ id, name: "User" }), {
-		onError: String,
-	});
+	const op = Op.make((id: string) =>
+		Task.Result.tryCatch(() => Promise.resolve<User>({ id, name: "User" }), { onError: String })
+	);
 	const manager = Op.interpret(op, { strategy: "once" });
 	const result = await manager.run("42");
 	expect(result).toStrictEqual(Op.Outcome.make.ok({ id: "42", name: "User" }));
@@ -123,18 +130,20 @@ test("make: single typed object argument", async () => {
 	const searchApi = (payload: Payload): Promise<{ success: boolean; id: string; }> =>
 		Promise.resolve({ success: true, id: payload.id });
 
-	const opFromFn = Op.make((_signal) => searchApi, { onError: String });
+	const opFromFn = Op.make((...args: Parameters<typeof searchApi>) =>
+		Task.Result.tryCatch(() => searchApi(...args), { onError: String })
+	);
 	expect(opFromFn).toBeDefined();
 
-	const op = Op.make((_signal) => (payload: Payload) => Promise.resolve({ success: true, id: payload.id }), {
-		onError: String,
-	});
+	const op = Op.make((payload: Payload) =>
+		Task.Result.tryCatch(() => Promise.resolve({ success: true, id: payload.id }), { onError: String })
+	);
 	const manager = Op.interpret(op, { strategy: "once" });
 	const result = await manager.run({ id: "123", name: "Alice" });
 	expect(result).toStrictEqual(Op.Outcome.make.ok({ success: true, id: "123" }));
 });
 
-test("make: explicit single object generic parameter <Payload, User>", async () => {
+test("make: annotates Payload argument and User result types", async () => {
 	interface Payload {
 		id: string;
 		name: string;
@@ -143,72 +152,77 @@ test("make: explicit single object generic parameter <Payload, User>", async () 
 		id: string;
 		name: string;
 	}
-	const op = Op.make<Payload, User, string>(
-		(_signal) => (payload) => Promise.resolve({ id: payload.id, name: payload.name }),
-		{ onError: String },
+	const op = Op.make((payload: Payload) =>
+		Task.Result.tryCatch(() => Promise.resolve<User>({ id: payload.id, name: payload.name }), { onError: String })
 	);
 	const manager = Op.interpret(op, { strategy: "once" });
 	const result = await manager.run({ id: "42", name: "Alice" });
 	expect(result).toStrictEqual(Op.Outcome.make.ok({ id: "42", name: "Alice" }));
 });
 
-test("make: explicit function type parameter <typeof apiFn>", async () => {
+test("make: infers parameters from a function type via Parameters<typeof apiFn>", async () => {
 	interface Payload {
 		id: string;
 	}
 	const searchApi = (payload: Payload): Promise<{ success: boolean; id: string; }> =>
 		Promise.resolve({ success: true, id: payload.id });
 
-	const op = Op.make<typeof searchApi, string>((_signal) => searchApi, { onError: String });
+	const op = Op.make((...args: Parameters<typeof searchApi>) =>
+		Task.Result.tryCatch(() => searchApi(...args), { onError: String })
+	);
 	const manager = Op.interpret(op, { strategy: "once" });
 	const result = await manager.run({ id: "99" });
 	expect(result).toStrictEqual(Op.Outcome.make.ok({ success: true, id: "99" }));
 });
 
-test("make: explicit void generic parameter <void, number>", async () => {
-	const op = Op.make<void, number, string>((_signal) => () => Promise.resolve(100), { onError: String });
+test("make: zero-argument factory infers Op<[], string, number>", async () => {
+	const op = Op.make(() => Task.Result.tryCatch(() => Promise.resolve(100), { onError: String }));
 	const manager = Op.interpret(op, { strategy: "once" });
 	const result = await manager.run();
 	expect(result).toStrictEqual(Op.Outcome.make.ok(100));
 });
 
-test("make: supports synchronous actions returning Out directly without Promise wrapper", async () => {
-	const op = Op.make((_signal) => (n: number) => n * 2, { onError: String });
+test("make: supports infallible synchronous actions via Task.Result.make.ok", async () => {
+	const op = Op.make((n: number) => Task.Result.make.ok(n * 2));
 	const manager = Op.interpret(op, { strategy: "once" });
 	const result = await manager.run(21);
 	expect(result).toStrictEqual(Op.Outcome.make.ok(42));
 });
 
-// --- Op.lift ---
+// --- Op.make: plain function equivalence (formerly Op.lift) ---
 
-test("lift: creates an op from a plain async function", async () => {
-	const op = Op.lift((_signal) => (n: number) => Promise.resolve(n * 2));
+test("make: creates an op from a plain async function", async () => {
+	const op = Op.make((n: number) => Task.Result.tryCatch(() => Promise.resolve(n * 2), { onError: (error) => error }));
 	const manager = Op.interpret(op, { strategy: "restartable" });
 	const outcome = await manager.run(5);
 	expect(Op.Outcome.is.ok(outcome)).toBe(true);
 	expect((outcome as Op.Ok<number>).value).toBe(10);
 });
 
-test("lift: captures rejection as Err with unknown error type", async () => {
-	const op = Op.lift((_signal) => (_: number) => Promise.reject(new Error("boom")));
+test("make: captures rejection as Err with unknown error type", async () => {
+	const op = Op.make((_: number) =>
+		Task.Result.tryCatch(() => Promise.reject(new Error("boom")), { onError: (error) => error })
+	);
 	const manager = Op.interpret(op, { strategy: "restartable" });
 	const outcome = await manager.run(0);
 	expect(Op.Outcome.is.err(outcome)).toBe(true);
 	expect((outcome as Op.Err<Error>).error.message).toBe("boom");
 });
 
-test("lift: passes signal to async function", async () => {
+test("make: passes signal to async function", async () => {
 	let capturedSignal: AbortSignal | undefined;
-	const op = Op.lift((signal: AbortSignal) => (_: number) => {
-		capturedSignal = signal;
-		return Promise.resolve(0);
-	});
+	const op = Op.make((_: number) =>
+		Task.Result.tryCatch((signal) => {
+			capturedSignal = signal;
+			return Promise.resolve(0);
+		}, { onError: (error) => error })
+	);
 	const manager = Op.interpret(op, { strategy: "restartable" });
 	await manager.run(0);
 	expect(capturedSignal).toBeInstanceOf(AbortSignal);
 });
 
-test("lift: supports explicit single object generic parameter <Payload, User>", async () => {
+test("make: supports explicit single object parameter types for plain async functions", async () => {
 	interface Payload {
 		id: string;
 		name: string;
@@ -217,49 +231,59 @@ test("lift: supports explicit single object generic parameter <Payload, User>", 
 		id: string;
 		name: string;
 	}
-	const op = Op.lift<Payload, User>((_signal) => (payload) => Promise.resolve({ id: payload.id, name: payload.name }));
+	const op = Op.make((payload: Payload) =>
+		Task.Result.tryCatch(() => Promise.resolve<User>({ id: payload.id, name: payload.name }), {
+			onError: (error) => error,
+		})
+	);
 	const manager = Op.interpret(op, { strategy: "once" });
 	const result = await manager.run({ id: "101", name: "Bob" });
 	expect(result).toStrictEqual(Op.Outcome.make.ok({ id: "101", name: "Bob" }));
 });
 
-test("lift: supports explicit function type parameter <typeof apiFn>", async () => {
+test("make: supports function parameters inferred from an API function", async () => {
 	interface Payload {
 		id: string;
 	}
 	const searchApi = (payload: Payload): Promise<{ success: boolean; id: string; }> =>
 		Promise.resolve({ success: true, id: payload.id });
 
-	const op = Op.lift<typeof searchApi>((_signal) => searchApi);
+	const op = Op.make((...args: Parameters<typeof searchApi>) =>
+		Task.Result.tryCatch(() => searchApi(...args), { onError: (error) => error })
+	);
 	const manager = Op.interpret(op, { strategy: "once" });
 	const result = await manager.run({ id: "202" });
 	expect(result).toStrictEqual(Op.Outcome.make.ok({ success: true, id: "202" }));
 });
 
-test("lift: supports synchronous action returning Out directly", async () => {
-	const op = Op.lift((_signal) => (n: number) => n * 3);
+test("make: supports synchronous expressions in a task factory", async () => {
+	const op = Op.make((n: number) => Task.Result.tryCatch(() => Promise.resolve(n * 3), { onError: (error) => error }));
 	const manager = Op.interpret(op, { strategy: "once" });
 	const result = await manager.run(10);
 	expect(result).toStrictEqual(Op.Outcome.make.ok(30));
 });
 
-test("lift: supports optional id and sets Symbol.toStringTag", () => {
-	const anonymous = Op.lift((_signal) => () => Promise.resolve(1));
+test("make: plain factory supports optional id and sets Symbol.toStringTag", () => {
+	const anonymous = Op.make(() => Task.Result.tryCatch(() => Promise.resolve(1), { onError: (error) => error }));
 	expect(anonymous.id).toBeUndefined();
 	expect(Object.prototype.toString.call(anonymous)).toBe("[object Op]");
 
-	const named = Op.lift((_signal) => () => Promise.resolve(1), { id: "lifted-fetch" });
+	const named = Op.make(() => Task.Result.tryCatch(() => Promise.resolve(1), { onError: (error) => error }), {
+		id: "lifted-fetch",
+	});
 	expect(named.id).toBe("lifted-fetch");
 	expect(Object.prototype.toString.call(named)).toBe("[object Op(lifted-fetch)]");
 });
 
 test("interpret: supports optional instance id and sets Symbol.toStringTag on Manager and KeyedManager", () => {
-	const anonymousOp = Op.lift((_signal) => () => Promise.resolve(1));
+	const anonymousOp = Op.make(() => Task.Result.tryCatch(() => Promise.resolve(1), { onError: (error) => error }));
 	const defaultManager = Op.interpret(anonymousOp, { strategy: "once" });
 	expect(defaultManager.id).toBeUndefined();
 	expect(Object.prototype.toString.call(defaultManager)).toBe("[object Op.Manager]");
 
-	const namedOp = Op.lift((_signal) => () => Promise.resolve(1), { id: "op-base" });
+	const namedOp = Op.make(() => Task.Result.tryCatch(() => Promise.resolve(1), { onError: (error) => error }), {
+		id: "op-base",
+	});
 	const managerWithoutInstanceId = Op.interpret(namedOp, { strategy: "once" });
 	expect(managerWithoutInstanceId.id).toBeUndefined();
 	expect(Object.prototype.toString.call(managerWithoutInstanceId)).toBe("[object Op.Manager[op-base]]");
@@ -448,11 +472,13 @@ test("is.queued: returns true only for Queued state", async () => {
 
 test("is.retrying: returns true only for Retrying state", async () => {
 	let attempt = 0;
-	const op = Op.make((_signal: AbortSignal) => (_: number) => {
-		attempt++;
-		if (attempt < 2) { return Promise.reject(new Error("fail")); }
-		return Promise.resolve(42);
-	}, { onError: (e) => String(e) });
+	const op = Op.make((_: number) =>
+		Task.Result.tryCatch(() => {
+			attempt++;
+			if (attempt < 2) { return Promise.reject(new Error("fail")); }
+			return Promise.resolve(42);
+		}, { onError: (e) => String(e) })
+	);
 	const manager = Op.interpret(op, {
 		strategy: "restartable",
 		retry: RetryPolicy.constant({ attempts: 2, delay: Duration.milliseconds(0) }),
@@ -751,10 +777,12 @@ test("interpret: restartable subscribe fires immediately with current non-Idle s
 
 test("interpret: restartable with retry emits Retrying between attempts", async () => {
 	let calls = 0;
-	const op = Op.make((_signal: AbortSignal) => (_: number) => {
-		calls++;
-		return Promise.reject(new Error("fail"));
-	}, { onError: (e) => (e as Error).message });
+	const op = Op.make((_: number) =>
+		Task.Result.tryCatch(() => {
+			calls++;
+			return Promise.reject(new Error("fail"));
+		}, { onError: (e) => (e as Error).message })
+	);
 	const manager = Op.interpret(op, {
 		strategy: "restartable",
 		retry: RetryPolicy.constant({ attempts: 3, delay: Duration.milliseconds(0) }),
@@ -769,10 +797,12 @@ test("interpret: restartable with retry emits Retrying between attempts", async 
 
 test("interpret: restartable with retry stops retrying on Ok", async () => {
 	let calls = 0;
-	const op = Op.make((_signal: AbortSignal) => (_: number) => {
-		calls++;
-		return calls < 2 ? Promise.reject(new Error("not yet")) : Promise.resolve(99);
-	}, { onError: (e) => (e as Error).message });
+	const op = Op.make((_: number) =>
+		Task.Result.tryCatch(() => {
+			calls++;
+			return calls < 2 ? Promise.reject(new Error("not yet")) : Promise.resolve(99);
+		}, { onError: (e) => (e as Error).message })
+	);
 	const manager = Op.interpret(op, {
 		strategy: "restartable",
 		retry: RetryPolicy.constant({ attempts: 5, delay: Duration.milliseconds(0) }),
@@ -784,10 +814,12 @@ test("interpret: restartable with retry stops retrying on Ok", async () => {
 
 test("interpret: restartable with retry respects when guard", async () => {
 	let calls = 0;
-	const op = Op.make((_signal: AbortSignal) => (_: number) => {
-		calls++;
-		return Promise.reject(new Error("non-retryable"));
-	}, { onError: (e) => (e as Error).message });
+	const op = Op.make((_: number) =>
+		Task.Result.tryCatch(() => {
+			calls++;
+			return Promise.reject(new Error("non-retryable"));
+		}, { onError: (e) => (e as Error).message })
+	);
 	const manager = Op.interpret(op, {
 		strategy: "restartable",
 		retry: RetryPolicy.constant({ attempts: 5, delay: Duration.milliseconds(0), when: (e) => e !== "non-retryable" }),
@@ -821,15 +853,17 @@ test("interpret: restartable with timeout resolves Ok when op finishes in time",
 
 test("interpret: restartable retry and timeout wraps entire retry sequence with deadline", async () => {
 	let calls = 0;
-	const op = Op.make((signal: AbortSignal) => (_: number) =>
-		new Promise<never>((res, reject) => {
-			calls++;
-			const id = setTimeout(() => reject(new Error("fail")), 20);
-			signal.addEventListener("abort", () => {
-				clearTimeout(id);
-				reject(new Error("abort"));
-			}, { once: true });
-		}), { onError: (e) => (e as Error).message });
+	const op = Op.make((_: number) =>
+		Task.Result.tryCatch((signal) =>
+			new Promise<never>((res, reject) => {
+				calls++;
+				const id = setTimeout(() => reject(new Error("fail")), 20);
+				signal?.addEventListener("abort", () => {
+					clearTimeout(id);
+					reject(new Error("abort"));
+				}, { once: true });
+			}), { onError: (e) => (e as Error).message })
+	);
 	const manager = Op.interpret(op, {
 		strategy: "restartable",
 		retry: RetryPolicy.constant({ attempts: 10, delay: Duration.milliseconds(0) }),
@@ -1010,10 +1044,12 @@ test("interpret: debounced waits for idle period before running", async () => {
 
 test("interpret: debounced resets timer on new call and runs only latest input", async () => {
 	let calls = 0;
-	const op = Op.make((_signal: AbortSignal) => (input: number) => {
-		calls++;
-		return Promise.resolve(input);
-	}, { onError: String });
+	const op = Op.make((input: number) =>
+		Task.Result.tryCatch(() => {
+			calls++;
+			return Promise.resolve(input);
+		}, { onError: String })
+	);
 	const manager = Op.interpret(op, { strategy: "debounced", duration: Duration.milliseconds(20) });
 	const states: Op.DebouncedState<string, number>[] = [];
 	const done = new Promise<void>((resolve) => {
@@ -1054,15 +1090,17 @@ test("interpret: once emits Pending then Err on failure", async () => {
 
 test("interpret: once ignores subsequent calls and runs only first", async () => {
 	let calls = 0;
-	const op = Op.make((signal: AbortSignal) => (input: number) =>
-		new Promise<number>((resolve, reject) => {
-			calls++;
-			const id = setTimeout(() => resolve(input), 20);
-			signal.addEventListener("abort", () => {
-				clearTimeout(id);
-				reject(new Error("abort"));
-			}, { once: true });
-		}), { onError: String });
+	const op = Op.make((input: number) =>
+		Task.Result.tryCatch((signal) =>
+			new Promise<number>((resolve, reject) => {
+				calls++;
+				const id = setTimeout(() => resolve(input), 20);
+				signal?.addEventListener("abort", () => {
+					clearTimeout(id);
+					reject(new Error("abort"));
+				}, { once: true });
+			}), { onError: String })
+	);
 	const manager = Op.interpret(op, { strategy: "once" });
 	const states: Op.State<string, number>[] = [];
 	const done = new Promise<void>((resolve) => {
@@ -1101,10 +1139,12 @@ test("interpret: once abort emits Nil and subsequent calls are no-ops", () => {
 
 test("interpret: once with retry retries on Err then settles", async () => {
 	let calls = 0;
-	const op = Op.make((_signal: AbortSignal) => (_: number) => {
-		calls++;
-		return calls < 3 ? Promise.reject(new Error("not yet")) : Promise.resolve(99);
-	}, { onError: (e) => (e as Error).message });
+	const op = Op.make((_: number) =>
+		Task.Result.tryCatch(() => {
+			calls++;
+			return calls < 3 ? Promise.reject(new Error("not yet")) : Promise.resolve(99);
+		}, { onError: (e) => (e as Error).message })
+	);
 	const manager = Op.interpret(op, {
 		strategy: "once",
 		retry: RetryPolicy.constant({ attempts: 5, delay: Duration.milliseconds(0) }),
@@ -1348,10 +1388,12 @@ test("interpret: throttled subscribe after run started fires immediately with cu
 
 test("interpret: throttled trailing fires trailing call after cooldown", async () => {
 	let calls = 0;
-	const op = Op.make((_signal: AbortSignal) => (input: number) => {
-		calls++;
-		return Promise.resolve(input);
-	}, { onError: String });
+	const op = Op.make((input: number) =>
+		Task.Result.tryCatch(() => {
+			calls++;
+			return Promise.resolve(input);
+		}, { onError: String })
+	);
 	const manager = Op.interpret(op, { strategy: "throttled", duration: Duration.milliseconds(20), trailing: true });
 	const done = new Promise<void>((resolve) => {
 		manager.subscribe((s) => {
@@ -1567,10 +1609,12 @@ test("interpret: keyed exclusive subscriber fires with snapshot on each transiti
 
 test("interpret: keyed abort called inside subscriber upon seeing Pending prevents operation from executing", async () => {
 	let executed = false;
-	const op = Op.make((_signal: AbortSignal) => () => {
-		executed = true;
-		return Promise.resolve(42);
-	}, { onError: (e) => String(e) });
+	const op = Op.make(() =>
+		Task.Result.tryCatch(() => {
+			executed = true;
+			return Promise.resolve(42);
+		}, { onError: (e) => String(e) })
+	);
 	const manager = Op.interpret(op, { strategy: "keyed", key: () => "item" });
 	manager.subscribe((map) => {
 		if (map.get("item")?.kind === "Pending") {
@@ -1615,10 +1659,12 @@ test("interpret: debounced with leading fires immediately on first call", async 
 
 test("interpret: debounced with leading fires trailing call after quiet period", async () => {
 	let calls = 0;
-	const op = Op.make((_signal: AbortSignal) => (input: number) => {
-		calls++;
-		return Promise.resolve(input);
-	}, { onError: String });
+	const op = Op.make((input: number) =>
+		Task.Result.tryCatch(() => {
+			calls++;
+			return Promise.resolve(input);
+		}, { onError: String })
+	);
 	const manager = Op.interpret(op, { strategy: "debounced", duration: Duration.milliseconds(30), leading: true });
 
 	const p1 = manager.run(1); // leading fires with input 1
@@ -1652,10 +1698,12 @@ test("interpret: debounced with leading resolves intermediate calls with Evicted
 
 test("interpret: debounced with maxWait fires after maxWait without quiet period", async () => {
 	let calls = 0;
-	const op = Op.make((_signal: AbortSignal) => (input: number) => {
-		calls++;
-		return Promise.resolve(input);
-	}, { onError: String });
+	const op = Op.make((input: number) =>
+		Task.Result.tryCatch(() => {
+			calls++;
+			return Promise.resolve(input);
+		}, { onError: String })
+	);
 	const manager = Op.interpret(op, {
 		strategy: "debounced",
 		duration: Duration.milliseconds(500),
@@ -1777,10 +1825,12 @@ test("interpret: buffered with capacity holds waiting calls and evicts oldest wh
 
 test("interpret: buffered processes buffer in FIFO order", async () => {
 	const order: number[] = [];
-	const op = Op.make((_signal: AbortSignal) => (input: number) => {
-		order.push(input);
-		return Promise.resolve(input);
-	}, { onError: String });
+	const op = Op.make((input: number) =>
+		Task.Result.tryCatch(() => {
+			order.push(input);
+			return Promise.resolve(input);
+		}, { onError: String })
+	);
 	const manager = Op.interpret(op, { strategy: "buffered", size: 2 });
 
 	const p1 = manager.run(1); // starts immediately
@@ -1892,15 +1942,17 @@ test("interpret: queue with dedupe drops duplicate queued items", async () => {
 
 test("interpret: queue with concurrency runs multiple items in-flight simultaneously", async () => {
 	const startTimes: number[] = [];
-	const op = Op.make((signal: AbortSignal) => (input: number) =>
-		new Promise<number>((resolve, reject) => {
-			startTimes.push(Date.now());
-			const id = setTimeout(() => resolve(input), 30);
-			signal.addEventListener("abort", () => {
-				clearTimeout(id);
-				reject(new Error("abort"));
-			}, { once: true });
-		}), { onError: String });
+	const op = Op.make((input: number) =>
+		Task.Result.tryCatch((signal) =>
+			new Promise<number>((resolve, reject) => {
+				startTimes.push(Date.now());
+				const id = setTimeout(() => resolve(input), 30);
+				signal?.addEventListener("abort", () => {
+					clearTimeout(id);
+					reject(new Error("abort"));
+				}, { once: true });
+			}), { onError: String })
+	);
 	const manager = Op.interpret(op, { strategy: "queue", concurrency: 2 });
 
 	const [r1, r2, r3] = await Promise.all([manager.run(1), manager.run(2), manager.run(3)]);
@@ -1939,10 +1991,12 @@ test("interpret: queue with replace-last and dedupe produces DroppedNil and Evic
 
 test("interpret: queue with retry emits Retrying states between attempts", async () => {
 	let calls = 0;
-	const op = Op.make((_signal: AbortSignal) => (_: number) => {
-		calls++;
-		return Promise.reject(new Error("fail"));
-	}, { onError: (e) => (e as Error).message });
+	const op = Op.make((_: number) =>
+		Task.Result.tryCatch(() => {
+			calls++;
+			return Promise.reject(new Error("fail"));
+		}, { onError: (e) => (e as Error).message })
+	);
 	const manager = Op.interpret(op, {
 		strategy: "queue",
 		retry: RetryPolicy.constant({ attempts: 3, delay: Duration.milliseconds(0) }),
@@ -1957,10 +2011,12 @@ test("interpret: queue with retry emits Retrying states between attempts", async
 
 test("interpret: buffered with retry emits Retrying states between attempts", async () => {
 	let calls = 0;
-	const op = Op.make((_signal: AbortSignal) => (_: number) => {
-		calls++;
-		return Promise.reject(new Error("fail"));
-	}, { onError: (e) => (e as Error).message });
+	const op = Op.make((_: number) =>
+		Task.Result.tryCatch(() => {
+			calls++;
+			return Promise.reject(new Error("fail"));
+		}, { onError: (e) => (e as Error).message })
+	);
 	const manager = Op.interpret(op, {
 		strategy: "buffered",
 		retry: RetryPolicy.constant({ attempts: 3, delay: Duration.milliseconds(0) }),
@@ -1975,10 +2031,12 @@ test("interpret: buffered with retry emits Retrying states between attempts", as
 
 test("interpret: debounced leading with retry emits Retrying states between attempts", async () => {
 	let calls = 0;
-	const op = Op.make((_signal: AbortSignal) => (_: number) => {
-		calls++;
-		return Promise.reject(new Error("fail"));
-	}, { onError: (e) => (e as Error).message });
+	const op = Op.make((_: number) =>
+		Task.Result.tryCatch(() => {
+			calls++;
+			return Promise.reject(new Error("fail"));
+		}, { onError: (e) => (e as Error).message })
+	);
 	const manager = Op.interpret(op, {
 		strategy: "debounced",
 		duration: Duration.milliseconds(0),
@@ -1995,10 +2053,12 @@ test("interpret: debounced leading with retry emits Retrying states between atte
 
 test("interpret: debounced trailing with retry emits Retrying states between attempts", async () => {
 	let calls = 0;
-	const op = Op.make((_signal: AbortSignal) => (_: number) => {
-		calls++;
-		return Promise.reject(new Error("fail"));
-	}, { onError: (e) => (e as Error).message });
+	const op = Op.make((_: number) =>
+		Task.Result.tryCatch(() => {
+			calls++;
+			return Promise.reject(new Error("fail"));
+		}, { onError: (e) => (e as Error).message })
+	);
 	const manager = Op.interpret(op, {
 		strategy: "debounced",
 		duration: Duration.milliseconds(10),
@@ -2014,10 +2074,12 @@ test("interpret: debounced trailing with retry emits Retrying states between att
 
 test("interpret: throttled with retry emits Retrying states between attempts", async () => {
 	let calls = 0;
-	const op = Op.make((_signal: AbortSignal) => (_: number) => {
-		calls++;
-		return Promise.reject(new Error("fail"));
-	}, { onError: (e) => (e as Error).message });
+	const op = Op.make((_: number) =>
+		Task.Result.tryCatch(() => {
+			calls++;
+			return Promise.reject(new Error("fail"));
+		}, { onError: (e) => (e as Error).message })
+	);
 	const manager = Op.interpret(op, {
 		strategy: "throttled",
 		duration: Duration.milliseconds(0),
@@ -2033,10 +2095,12 @@ test("interpret: throttled with retry emits Retrying states between attempts", a
 
 test("interpret: concurrent with retry emits Retrying states between attempts", async () => {
 	let calls = 0;
-	const op = Op.make((_signal: AbortSignal) => (_: number) => {
-		calls++;
-		return Promise.reject(new Error("fail"));
-	}, { onError: (e) => (e as Error).message });
+	const op = Op.make((_: number) =>
+		Task.Result.tryCatch(() => {
+			calls++;
+			return Promise.reject(new Error("fail"));
+		}, { onError: (e) => (e as Error).message })
+	);
 	const manager = Op.interpret(op, {
 		strategy: "concurrent",
 		concurrency: 1,
@@ -2124,10 +2188,12 @@ test("interpret: keyed without key or perKey uses identity key and exclusive def
 
 test("interpret: restartable with retry policy emits Retrying with nextRetryIn", async () => {
 	let calls = 0;
-	const op = Op.make((_signal: AbortSignal) => (_: number) => {
-		calls++;
-		return Promise.reject(new Error("fail"));
-	}, { onError: (e) => (e as Error).message });
+	const op = Op.make((_: number) =>
+		Task.Result.tryCatch(() => {
+			calls++;
+			return Promise.reject(new Error("fail"));
+		}, { onError: (e) => (e as Error).message })
+	);
 	const manager = Op.interpret(op, {
 		strategy: "restartable",
 		retry: RetryPolicy.constant({ attempts: 3, delay: Duration.milliseconds(50) }),
@@ -2141,10 +2207,12 @@ test("interpret: restartable with retry policy emits Retrying with nextRetryIn",
 
 test("interpret: exclusive with retry policy emits Retrying with nextRetryIn", async () => {
 	let calls = 0;
-	const op = Op.make((_signal: AbortSignal) => (_: number) => {
-		calls++;
-		return Promise.reject(new Error("fail"));
-	}, { onError: (e) => (e as Error).message });
+	const op = Op.make((_: number) =>
+		Task.Result.tryCatch(() => {
+			calls++;
+			return Promise.reject(new Error("fail"));
+		}, { onError: (e) => (e as Error).message })
+	);
 	const manager = Op.interpret(op, {
 		strategy: "exclusive",
 		retry: RetryPolicy.constant({ attempts: 3, delay: Duration.milliseconds(50) }),
@@ -2344,7 +2412,7 @@ test("poll: stop handle cancels future runs", async () => {
 });
 
 test("poll: supports reusable poller handle and zero-arg ops", async () => {
-	const zeroOp = Op.make((_signal: AbortSignal) => () => Promise.resolve(99), { onError: String });
+	const zeroOp = Op.make(() => Task.Result.tryCatch(() => Promise.resolve(99), { onError: String }));
 	const zeroManager = Op.interpret(zeroOp, { strategy: "once" });
 	const poller = zeroManager.poll({ interval: Duration.milliseconds(10_000) });
 	const stop = poller();
@@ -2603,11 +2671,13 @@ test("interpret: restartable strategy with Duration minInterval", async () => {
 
 test("interpret: retry policy with Duration backoff", async () => {
 	let attempt = 0;
-	const op = Op.make((_signal: AbortSignal) => (_: number) => {
-		attempt++;
-		if (attempt < 2) { return Promise.reject(new Error("fail")); }
-		return Promise.resolve(42);
-	}, { onError: (e) => String(e) });
+	const op = Op.make((_: number) =>
+		Task.Result.tryCatch(() => {
+			attempt++;
+			if (attempt < 2) { return Promise.reject(new Error("fail")); }
+			return Promise.resolve(42);
+		}, { onError: (e) => String(e) })
+	);
 	const manager = Op.interpret(op, {
 		strategy: "restartable",
 		retry: RetryPolicy.constant({ attempts: 2, delay: Duration.milliseconds(5) }),
@@ -2618,11 +2688,13 @@ test("interpret: retry policy with Duration backoff", async () => {
 
 test("interpret: retry policy with Duration backoff function", async () => {
 	let attempt = 0;
-	const op = Op.make((_signal: AbortSignal) => (_: number) => {
-		attempt++;
-		if (attempt < 2) { return Promise.reject(new Error("fail")); }
-		return Promise.resolve(42);
-	}, { onError: (e) => String(e) });
+	const op = Op.make((_: number) =>
+		Task.Result.tryCatch(() => {
+			attempt++;
+			if (attempt < 2) { return Promise.reject(new Error("fail")); }
+			return Promise.resolve(42);
+		}, { onError: (e) => String(e) })
+	);
 	const manager = Op.interpret(op, {
 		strategy: "restartable",
 		retry: { attempts: 2, getDelay: (n) => Duration.milliseconds(n * 2) },
@@ -2632,10 +2704,12 @@ test("interpret: retry policy with Duration backoff function", async () => {
 });
 
 test("interpret: timeout policy with Duration", async () => {
-	const op = Op.make((signal: AbortSignal) => (_: number) =>
-		new Promise<number>((_resolve, reject) => {
-			signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
-		}), { onError: (e) => String(e) });
+	const op = Op.make((_: number) =>
+		Task.Result.tryCatch((signal) =>
+			new Promise<number>((_resolve, reject) => {
+				signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+			}), { onError: (e) => String(e) })
+	);
 	const manager = Op.interpret(op, {
 		strategy: "restartable",
 		timeout: { duration: Duration.milliseconds(5), onTimeout: () => "timeout" },
@@ -2704,9 +2778,9 @@ test("TimeoutOptions: supports default unknown error type and typed onTimeout ca
 });
 
 test("interpret: widens outcome error type when timeout option is present", async () => {
-	const op = Op.make((_signal: AbortSignal) => (_input: number) => Promise.resolve(42), {
-		onError: (_err) => "op_error" as const,
-	});
+	const op = Op.make((_input: number) =>
+		Task.Result.tryCatch(() => Promise.resolve(42), { onError: (_err) => "op_error" as const })
+	);
 	const manager = Op.interpret(op, {
 		strategy: "restartable",
 		timeout: { duration: Duration.milliseconds(10), onTimeout: () => "timeout_error" as const },
@@ -2747,10 +2821,12 @@ test("interpret: concurrent accepts concurrency option name and runs up to limit
 });
 
 test("interpret: throttled slow leading call resolves both leading and trailing caller promises", async () => {
-	const op = Op.make((_signal: AbortSignal) => (id: number) =>
-		new Promise<number>((resolve) => {
-			setTimeout(() => resolve(id), 50);
-		}), { onError: String });
+	const op = Op.make((id: number) =>
+		Task.Result.tryCatch(() =>
+			new Promise<number>((resolve) => {
+				setTimeout(() => resolve(id), 50);
+			}), { onError: String })
+	);
 	const manager = Op.interpret(op, { strategy: "throttled", duration: Duration.milliseconds(15), trailing: true });
 	const p1 = manager.run(1);
 	await new Promise((r) => setTimeout(r, 5));
@@ -2762,10 +2838,12 @@ test("interpret: throttled slow leading call resolves both leading and trailing 
 });
 
 test("interpret: debounced overlapping trailing executions resolve all caller promises", async () => {
-	const op = Op.make((_signal: AbortSignal) => (id: number) =>
-		new Promise<number>((resolve) => {
-			setTimeout(() => resolve(id), 50);
-		}), { onError: String });
+	const op = Op.make((id: number) =>
+		Task.Result.tryCatch(() =>
+			new Promise<number>((resolve) => {
+				setTimeout(() => resolve(id), 50);
+			}), { onError: String })
+	);
 	const manager = Op.interpret(op, { strategy: "debounced", duration: Duration.milliseconds(15) });
 	const p1 = manager.run(1);
 	await new Promise((r) => setTimeout(r, 25));
@@ -2798,11 +2876,13 @@ test("abort: on settled manager preserves settled Ok state", async () => {
 
 test("interpret: retries with RetryPolicy", async () => {
 	let attempts = 0;
-	const op = Op.make((_signal: AbortSignal) => (_input: number) => {
-		attempts++;
-		if (attempts < 2) { return Promise.reject(new Error("transient")); }
-		return Promise.resolve(42);
-	}, { onError: (e) => (e as Error).message });
+	const op = Op.make((_input: number) =>
+		Task.Result.tryCatch(() => {
+			attempts++;
+			if (attempts < 2) { return Promise.reject(new Error("transient")); }
+			return Promise.resolve(42);
+		}, { onError: (e) => (e as Error).message })
+	);
 	const manager = Op.interpret(op, {
 		strategy: "restartable",
 		retry: RetryPolicy.constant({ attempts: 2, delay: Duration.milliseconds(5) }),
@@ -2822,9 +2902,9 @@ test("reset: clears active cooldown timer on exclusive manager", async () => {
 });
 
 test("reset: clears active timer and aborts in-flight trailing on debounced manager", async () => {
-	const op = Op.make((_signal: AbortSignal) => (n: number) => new Promise<number>((r) => setTimeout(() => r(n), 40)), {
-		onError: String,
-	});
+	const op = Op.make((n: number) =>
+		Task.Result.tryCatch(() => new Promise<number>((r) => setTimeout(() => r(n), 40)), { onError: String })
+	);
 	const manager = Op.interpret(op, { strategy: "debounced", duration: Duration.milliseconds(50) });
 	const p1 = manager.run(1);
 	manager.reset();
@@ -2841,9 +2921,9 @@ test("reset: clears active timer and aborts in-flight trailing on debounced mana
 });
 
 test("reset: aborts in-flight execution and clears cooldown on throttled manager", async () => {
-	const op = Op.make((_signal: AbortSignal) => (n: number) => new Promise<number>((r) => setTimeout(() => r(n), 40)), {
-		onError: String,
-	});
+	const op = Op.make((n: number) =>
+		Task.Result.tryCatch(() => new Promise<number>((r) => setTimeout(() => r(n), 40)), { onError: String })
+	);
 	const manager = Op.interpret(op, { strategy: "throttled", duration: Duration.milliseconds(100) });
 	const p = manager.run(1);
 	await new Promise((r) => setTimeout(r, 10));
@@ -2948,10 +3028,12 @@ test("abort: on debounced manager with pending trailing call resolves caller pro
 test("retry: executes onRetry callback on each attempt before delay", async () => {
 	const events: Array<{ attempt: number; error: string; delay: Duration; }> = [];
 	let calls = 0;
-	const op = Op.make((_signal: AbortSignal) => (_: number) => {
-		calls++;
-		return calls < 3 ? Promise.reject(new Error(`err_${calls}`)) : Promise.resolve(99);
-	}, { onError: (e) => (e as Error).message });
+	const op = Op.make((_: number) =>
+		Task.Result.tryCatch(() => {
+			calls++;
+			return calls < 3 ? Promise.reject(new Error(`err_${calls}`)) : Promise.resolve(99);
+		}, { onError: (e) => (e as Error).message })
+	);
 
 	const manager = Op.interpret(op, {
 		strategy: "once",
@@ -2974,9 +3056,9 @@ test("retry: executes onRetry callback on each attempt before delay", async () =
 
 test("retry: does not invoke onRetry when first attempt succeeds", async () => {
 	let onRetryCalled = false;
-	const op = Op.make((_signal: AbortSignal) => (_: number) => Promise.resolve("ok"), {
-		onError: (e) => (e as Error).message,
-	});
+	const op = Op.make((_: number) =>
+		Task.Result.tryCatch(() => Promise.resolve("ok"), { onError: (e) => (e as Error).message })
+	);
 
 	const manager = Op.interpret(op, {
 		strategy: "restartable",
@@ -2997,10 +3079,12 @@ test("retry: does not invoke onRetry when first attempt succeeds", async () => {
 test("retry: accepts RetryPolicy directly in Op.interpret", async () => {
 	let calls = 0;
 	const events: Array<{ attempt: number; error: string; delay: Duration; }> = [];
-	const op = Op.make((_signal: AbortSignal) => (_: number) => {
-		calls++;
-		return calls < 3 ? Promise.reject(new Error("retry_me")) : Promise.resolve("done");
-	}, { onError: (e) => (e as Error).message });
+	const op = Op.make((_: number) =>
+		Task.Result.tryCatch(() => {
+			calls++;
+			return calls < 3 ? Promise.reject(new Error("retry_me")) : Promise.resolve("done");
+		}, { onError: (e) => (e as Error).message })
+	);
 
 	const policy = RetryPolicy.constant<string>({
 		attempts: 4,
@@ -3083,11 +3167,13 @@ test("interpret: debounced leading abort inside Pending subscriber does not leav
 
 test("interpret: debounced maxWait is enforced when a new burst begins while previous execution is in-flight", async () => {
 	let executions = 0;
-	const op = Op.make((_signal: AbortSignal) => (input: number) =>
-		new Promise<number>((resolve) => {
-			executions++;
-			setTimeout(() => resolve(input), 35);
-		}), { onError: String });
+	const op = Op.make((input: number) =>
+		Task.Result.tryCatch(() =>
+			new Promise<number>((resolve) => {
+				executions++;
+				setTimeout(() => resolve(input), 35);
+			}), { onError: String })
+	);
 	const manager = Op.interpret(op, {
 		strategy: "debounced",
 		duration: Duration.milliseconds(35),
@@ -3115,11 +3201,13 @@ test("interpret: debounced maxWait is enforced when a new burst begins while pre
 
 test("interpret: queue preserves FIFO order when subscriber calls run re-entrantly on outcome", async () => {
 	const order: number[] = [];
-	const op = Op.make((_signal: AbortSignal) => (input: number) =>
-		new Promise<number>((resolve) => {
-			order.push(input);
-			setTimeout(() => resolve(input), 10);
-		}), { onError: String });
+	const op = Op.make((input: number) =>
+		Task.Result.tryCatch(() =>
+			new Promise<number>((resolve) => {
+				order.push(input);
+				setTimeout(() => resolve(input), 10);
+			}), { onError: String })
+	);
 	const manager = Op.interpret(op, { strategy: "queue", concurrency: 1 });
 	let p3: Deferred<Op.Outcome<string, number>> | undefined;
 
@@ -3139,11 +3227,13 @@ test("interpret: queue preserves FIFO order when subscriber calls run re-entrant
 
 test("interpret: concurrent queue preserves FIFO order when subscriber calls run re-entrantly on outcome", async () => {
 	const order: number[] = [];
-	const op = Op.make((_signal: AbortSignal) => (input: number) =>
-		new Promise<number>((resolve) => {
-			order.push(input);
-			setTimeout(() => resolve(input), 10);
-		}), { onError: String });
+	const op = Op.make((input: number) =>
+		Task.Result.tryCatch(() =>
+			new Promise<number>((resolve) => {
+				order.push(input);
+				setTimeout(() => resolve(input), 10);
+			}), { onError: String })
+	);
 	const manager = Op.interpret(op, { strategy: "concurrent", concurrency: 1, overflow: "queue" });
 	let p3: Deferred<Op.Outcome<string, number>> | undefined;
 

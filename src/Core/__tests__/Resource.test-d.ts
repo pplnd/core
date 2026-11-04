@@ -28,15 +28,15 @@ test("use: passes acquired value to consume and unifies error channels", async (
 		(_n) => Task.make(undefined),
 	);
 
-	const program = Resource.use(resFallible, {
-		run: (n) => constTruthyBool() ? Task.Result.make.ok(n.toString()) : Task.Result.make.err(500),
-	});
+	const program = Resource.use({
+		run: (n: number) => constTruthyBool() ? Task.Result.make.ok(n.toString()) : Task.Result.make.err(500),
+	})(resFallible);
 	expectTypeOf(program).toEqualTypeOf<Deferred<Result<"acquire_err" | 500, string>>>();
 	const outcome = await program;
 	expectTypeOf(outcome).toEqualTypeOf<Result<"acquire_err" | 500, string>>();
 
 	// @ts-expect-error — consume callback must return Task.Result, not a primitive
-	Resource.use(resFallible, { run: (n) => n * 2 });
+	Resource.use({ run: (n: number) => n * 2 })(resFallible);
 });
 
 test("combine: sequences two resources and combines values and error channels", () => {

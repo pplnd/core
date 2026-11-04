@@ -16,7 +16,7 @@ test("property: linear chain evaluates to the cumulative fold of all nodes", asy
 			}
 
 			const graph = Graph.make(currentNode);
-			const outcome = await Graph.run(graph);
+			const outcome = await Graph.run()(graph);
 
 			const expectedSum = numbers.reduce((acc, n) => acc + n, 0);
 			expect(outcome).toStrictEqual(Result.make.ok(expectedSum));
@@ -44,7 +44,7 @@ test("property: diamond DAG guarantees single execution of root node across inpu
 		);
 
 		const graph = Graph.make(sinkNode);
-		const outcome = await Graph.run(graph);
+		const outcome = await Graph.run()(graph);
 
 		expect(rootCount).toBe(1);
 		expect(outcome).toStrictEqual(Result.make.ok((a + b) + (a * 2)));
@@ -72,7 +72,7 @@ test("property: any single failure short-circuits the entire graph to that Err",
 				const sink = Graph.node("sink", depsMap, ({ deps }) => Task.Result.make.ok(deps));
 
 				const graph = Graph.make(sink);
-				const outcome = await Graph.run(graph);
+				const outcome = await Graph.run()(graph);
 
 				expect(outcome).toStrictEqual(Result.make.err(errorMsg));
 			},
@@ -108,7 +108,7 @@ test("property: concurrency option bounds active in-flight tasks across DAG exec
 				const sink = Graph.node("sink", depsMap, ({ deps }) => Task.Result.make.ok(deps));
 				const graph = Graph.make(sink, { concurrency });
 
-				const outcome = await Graph.run(graph);
+				const outcome = await Graph.run()(graph);
 				expect(Result.is.ok(outcome)).toBe(true);
 				expect(maxInFlight).toBeLessThanOrEqual(concurrency);
 			},

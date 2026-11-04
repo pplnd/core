@@ -393,7 +393,7 @@ test("AbortSignal: immediately settles with BatcherErr if caller signal is pre-a
 	const batcher = Batcher.make(() => () => Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map()))));
 
 	const res = await batcher.load("k", controller.signal);
-	expect(res).toStrictEqual(Batcher.Outcome.make.err({ kind: "BatcherAborted", reason: controller.signal.reason }));
+	expect(res).toStrictEqual(Batcher.Outcome.make.err({ kind: "Aborted", reason: controller.signal.reason }));
 });
 
 test("AbortSignal: isolates aborted caller while sibling callers in batch settle normally", async () => {
@@ -447,9 +447,9 @@ test("AbortSignal: aborts an active batch only after every caller cancels", asyn
 	expect(batchSignal?.aborted).toBe(false);
 	third.abort("third");
 	expect(taskAborted).toBe(true);
-	await expect(a).resolves.toStrictEqual(Batcher.Outcome.make.err({ kind: "BatcherAborted", reason: "first" }));
-	await expect(b).resolves.toStrictEqual(Batcher.Outcome.make.err({ kind: "BatcherAborted", reason: "second" }));
-	await expect(c).resolves.toStrictEqual(Batcher.Outcome.make.err({ kind: "BatcherAborted", reason: "third" }));
+	await expect(a).resolves.toStrictEqual(Batcher.Outcome.make.err({ kind: "Aborted", reason: "first" }));
+	await expect(b).resolves.toStrictEqual(Batcher.Outcome.make.err({ kind: "Aborted", reason: "second" }));
+	await expect(c).resolves.toStrictEqual(Batcher.Outcome.make.err({ kind: "Aborted", reason: "third" }));
 	await expect(flushed).resolves.toBeUndefined();
 });
 
@@ -471,9 +471,7 @@ test("AbortSignal: keeps an active batch running for a remaining caller", async 
 	controller.abort("cancelled");
 	expect(batchSignal?.aborted).toBe(false);
 	finish();
-	await expect(cancelled).resolves.toStrictEqual(
-		Batcher.Outcome.make.err({ kind: "BatcherAborted", reason: "cancelled" }),
-	);
+	await expect(cancelled).resolves.toStrictEqual(Batcher.Outcome.make.err({ kind: "Aborted", reason: "cancelled" }));
 	await expect(remaining).resolves.toStrictEqual(Batcher.Outcome.make.ok("value:same"));
 	await expect(flushed).resolves.toBeUndefined();
 	controller.abort("after settlement");
@@ -503,7 +501,7 @@ test("AbortSignal: cancellation is isolated between concurrent chunks", async ()
 	expect(signals.get("first")?.aborted).toBe(true);
 	expect(signals.get("second")?.aborted).toBe(false);
 	finishers.get("second")?.();
-	await expect(first).resolves.toStrictEqual(Batcher.Outcome.make.err({ kind: "BatcherAborted", reason: "cancelled" }));
+	await expect(first).resolves.toStrictEqual(Batcher.Outcome.make.err({ kind: "Aborted", reason: "cancelled" }));
 	await expect(second).resolves.toStrictEqual(Batcher.Outcome.make.ok("value:second"));
 	await expect(flushed).resolves.toBeUndefined();
 });
@@ -518,9 +516,7 @@ test("AbortSignal: clears the collection timer when the last queued caller cance
 		const lookup = batcher.load("key", controller.signal);
 		expect(vi.getTimerCount()).toBe(1);
 		controller.abort("cancelled");
-		await expect(lookup).resolves.toStrictEqual(
-			Batcher.Outcome.make.err({ kind: "BatcherAborted", reason: "cancelled" }),
-		);
+		await expect(lookup).resolves.toStrictEqual(Batcher.Outcome.make.err({ kind: "Aborted", reason: "cancelled" }));
 		expect(vi.getTimerCount()).toBe(0);
 		const next = batcher.load("next");
 		expect(vi.getTimerCount()).toBe(1);
@@ -579,7 +575,7 @@ test("AbortSignal: skips chunk execution if all callers in a queued chunk abort 
 	const [res1, res2] = await Promise.all([p1, p2]);
 
 	expect(res1).toStrictEqual(Batcher.Outcome.make.ok(1));
-	expect(res2).toStrictEqual(Batcher.Outcome.make.err({ kind: "BatcherAborted", reason: c.signal.reason }));
+	expect(res2).toStrictEqual(Batcher.Outcome.make.err({ kind: "Aborted", reason: c.signal.reason }));
 	expect(executedChunks).toBe(1);
 });
 
@@ -773,7 +769,7 @@ test("AbortSignal: aborting an in-flight caller does not remove a newer queued l
 	await Promise.all([firstFlush, secondFlush]);
 	expect(batches).toStrictEqual([["sku"], ["sku"]]);
 	await expect(Deferred.to.Promise(first)).resolves.toStrictEqual(
-		Batcher.Outcome.make.err({ kind: "BatcherAborted", reason: "cancelled" }),
+		Batcher.Outcome.make.err({ kind: "Aborted", reason: "cancelled" }),
 	);
 	await expect(Deferred.to.Promise(second)).resolves.toStrictEqual(Batcher.Outcome.make.ok(2));
 });
@@ -792,5 +788,5 @@ test("AbortSignal: handles abort with undefined reason", async () => {
 	const batcher = Batcher.make(() => () => Deferred.from.Promise(Promise.resolve(Result.make.ok(new Map()))));
 
 	const res = await batcher.load("k", fakeSignal);
-	expect(res).toStrictEqual(Batcher.Outcome.make.err({ kind: "BatcherAborted", reason: undefined }));
+	expect(res).toStrictEqual(Batcher.Outcome.make.err({ kind: "Aborted", reason: undefined }));
 });

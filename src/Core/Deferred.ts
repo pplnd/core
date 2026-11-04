@@ -63,6 +63,71 @@ export const Deferred = {
 	},
 
 	/**
+	 * Transforms the resolved value of a `Deferred`.
+	 *
+	 * `Deferred` is the type every asynchronous run settles into: `Task.run`, `Op.Manager.run`,
+	 * `Resource.use`, and `Graph.run` all return one. Use `map` to reshape that settled value
+	 * without converting back to a `Promise`.
+	 *
+	 * @see {@link Deferred.chain} when the transform itself returns another `Deferred`.
+	 *
+	 * @example
+	 * ```ts
+	 * const total = pipe(
+	 *   Task.run()(loadCart()),
+	 *   Deferred.map((cart) => cart.items.length),
+	 * );
+	 * console.log(await total); // 3
+	 * ```
+	 */
+	map: <A, B>(transform: (value: A) => B) => (deferred: Deferred<A>): Deferred<B> =>
+		fromPromise(toPromise(deferred).then(transform)),
+
+	/**
+	 * Chains a `Deferred`-returning step after the current one resolves.
+	 *
+	 * The next step starts only after the previous value arrives, and only that value is
+	 * passed forward. Use `Deferred.all` to run independent steps concurrently.
+	 *
+	 * @see {@link Deferred.map} when the transform returns a plain value.
+	 * @see {@link Deferred.all} to combine independent `Deferred` values.
+	 *
+	 * @example
+	 * ```ts
+	 * const orders = pipe(
+	 *   Task.run()(loadUser("u_1")),
+	 *   Deferred.chain((user) => Task.run()(loadOrders(user.id))),
+	 * );
+	 * ```
+	 */
+	chain: <A, B>(transform: (value: A) => Deferred<B>) => (deferred: Deferred<A>): Deferred<B> =>
+		fromPromise(toPromise(deferred).then((value) => toPromise(transform(value)))),
+
+	/**
+	 * Runs a side effect with the resolved value and passes that value through unchanged.
+	 *
+	 * The callback must not throw. Use it to log, record metrics, or update a store after an
+	 * operation settles without breaking the chain.
+	 *
+	 * @see {@link Deferred.map} to transform the value instead of observing it.
+	 *
+	 * @example
+	 * ```ts
+	 * const outcome = pipe(
+	 *   Task.run()(chargeCard(payment)),
+	 *   Deferred.tap((receipt) => audit.record(receipt.id)),
+	 * );
+	 * ```
+	 */
+	tap: <A>(sideEffect: (value: A) => void) => (deferred: Deferred<A>): Deferred<A> =>
+		fromPromise(
+			toPromise(deferred).then((value) => {
+				sideEffect(value);
+				return value;
+			}),
+		),
+
+	/**
 	 * Combines an array or tuple of `Deferred` values into a single `Deferred` of a tuple.
 	 * Resolves when all input `Deferred`s resolve.
 	 *

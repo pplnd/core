@@ -21,8 +21,8 @@ test("run: synchronous cancellation during startup does not start remaining node
 		targetStarted = true;
 		return Task.Result.make.ok("done");
 	});
-	const result = await Graph.run(Graph.make(target), undefined, { signal: controller.signal });
-	expect(result).toStrictEqual(Result.make.err({ kind: "GraphAborted", reason: "no longer needed" }));
+	const result = await Graph.run(undefined, { signal: controller.signal })(Graph.make(target));
+	expect(result).toStrictEqual(Result.make.err({ kind: "Aborted", reason: "no longer needed" }));
 	expect(laterStarted).toBe(false);
 	expect(targetStarted).toBe(false);
 });
@@ -45,7 +45,7 @@ test("node: throws TypeError when no run callback is supplied", () => {
 test("node: supports empty deps object", async () => {
 	const node = Graph.node("emptyDeps", {}, () => Task.Result.make.ok(123));
 	const graph = Graph.make(node);
-	const result = await Graph.run(graph);
+	const result = await Graph.run()(graph);
 	expect(result).toStrictEqual(Result.make.ok(123));
 });
 
@@ -84,7 +84,7 @@ test("run: executes single root node successfully", async () => {
 	const node = Graph.node("root", () => Task.Result.make.ok(42));
 
 	const graph = Graph.make(node);
-	const result = await Graph.run(graph);
+	const result = await Graph.run()(graph);
 
 	expect(result).toStrictEqual(Result.make.ok(42));
 });
@@ -108,7 +108,7 @@ test("run: executes sequential dependency chain in order", async () => {
 	});
 
 	const graph = Graph.make(step3);
-	const outcome = await Graph.run(graph);
+	const outcome = await Graph.run()(graph);
 
 	expect(outcome).toStrictEqual(Result.make.ok(25));
 	expect(executionLog).toStrictEqual(["step1", "step2", "step3"]);
@@ -141,7 +141,7 @@ test("run: executes diamond dependency shared ancestor exactly once", async () =
 	);
 
 	const graph = Graph.make(sinkNode);
-	const outcome = await Graph.run(graph);
+	const outcome = await Graph.run()(graph);
 
 	expect(rootExecutions).toBe(1);
 	expect(outcome).toStrictEqual(Result.make.ok("Role of u123 and Balance of u123"));
@@ -176,7 +176,7 @@ test("run: short-circuits on node failure and aborts in-flight sibling tasks", a
 	);
 
 	const graph = Graph.make(sinkNode);
-	const outcome = await Graph.run(graph);
+	const outcome = await Graph.run()(graph);
 
 	expect(outcome).toStrictEqual(Result.make.err("network_failure"));
 	expect(siblingAborted).toBe(true);
@@ -198,14 +198,14 @@ test("run: cancels execution when caller AbortSignal triggers and settles with r
 	});
 
 	const graph = Graph.make(slowNode);
-	const taskPromise = Graph.run(graph, undefined, { signal: controller.signal });
+	const taskPromise = Graph.run(undefined, { signal: controller.signal })(graph);
 
 	setTimeout(() => {
 		controller.abort("caller cancelled");
 	}, 20);
 
 	const outcome = await taskPromise;
-	expect(outcome).toStrictEqual(Result.make.err({ kind: "GraphAborted", reason: "caller cancelled" }));
+	expect(outcome).toStrictEqual(Result.make.err({ kind: "Aborted", reason: "caller cancelled" }));
 	expect(nodeAborted).toBe(true);
 });
 
@@ -231,7 +231,7 @@ test("run: limits concurrent in-flight nodes when concurrency option is provided
 	const sink = Graph.node("sink", { step1, step2, step3, step4 }, ({ deps }) => Task.Result.make.ok(deps));
 
 	const graph = Graph.make(sink, { concurrency: 2 });
-	const outcome = await Graph.run(graph);
+	const outcome = await Graph.run()(graph);
 
 	expect(Result.is.ok(outcome)).toBe(true);
 	expect(maxConcurrent).toBeLessThanOrEqual(2);
@@ -260,7 +260,7 @@ test("node: applies retry policy on transient failure", async () => {
 	);
 
 	const graph = Graph.make(retryingNode);
-	const outcome = await Graph.run(graph);
+	const outcome = await Graph.run()(graph);
 
 	expect(attempts).toBe(3);
 	expect(outcome).toStrictEqual(Result.make.ok("recovered"));
@@ -291,7 +291,7 @@ test("node: applies retry policy with when filter and onRetry hook", async () =>
 	);
 
 	const graph = Graph.make(retryingNode);
-	const outcome = await Graph.run(graph);
+	const outcome = await Graph.run()(graph);
 
 	expect(outcome).toStrictEqual(Result.make.ok("recovered_with_hook"));
 	expect(attempts).toBe(3);
@@ -334,7 +334,7 @@ test("run: task-level policies report retries across nodes", async () => {
 	);
 
 	const graph = Graph.make(node2);
-	const outcome = await Graph.run(graph);
+	const outcome = await Graph.run()(graph);
 
 	expect(outcome).toStrictEqual(Result.make.ok("step1_ok_step2_ok"));
 	expect(node1Attempts).toBe(2);
@@ -370,7 +370,7 @@ test("node: applies timeout policy when execution exceeds duration", async () =>
 	);
 
 	const graph = Graph.make(slowNode);
-	const outcome = await Graph.run(graph);
+	const outcome = await Graph.run()(graph);
 
 	expect(outcome).toStrictEqual(Result.make.err("timed_out"));
 });
@@ -393,10 +393,10 @@ test("run: immediately aborts if caller signal is already aborted", async () => 
 	});
 
 	const graph = Graph.make(node);
-	const outcome = await Graph.run(graph, undefined, { signal: controller.signal });
+	const outcome = await Graph.run(undefined, { signal: controller.signal })(graph);
 
 	expect(Result.is.err(outcome)).toBe(true);
-	expect(outcome).toStrictEqual(Result.make.err({ kind: "GraphAborted", reason: "pre-aborted" }));
+	expect(outcome).toStrictEqual(Result.make.err({ kind: "Aborted", reason: "pre-aborted" }));
 	expect(executed).toBe(false);
 });
 
@@ -414,7 +414,7 @@ test("run: removes abort listener from caller signal upon graph completion", asy
 	const node = Graph.node("n", () => Task.Result.make.ok("success"));
 	const graph = Graph.make(node);
 
-	const outcome = await Graph.run(graph, undefined, { signal: controller.signal });
+	const outcome = await Graph.run(undefined, { signal: controller.signal })(graph);
 	expect(outcome).toStrictEqual(Result.make.ok("success"));
 	expect(removed).toBe(true);
 });
@@ -433,7 +433,7 @@ test("run: removes abort listener from caller signal upon graph failure", async 
 	const node = Graph.node("failing", () => Task.Result.make.err("err"));
 	const graph = Graph.make(node);
 
-	const outcome = await Graph.run(graph, undefined, { signal: controller.signal });
+	const outcome = await Graph.run(undefined, { signal: controller.signal })(graph);
 	expect(outcome).toStrictEqual(Result.make.err("err"));
 	expect(removed).toBe(true);
 });
@@ -458,7 +458,7 @@ test("run: clamps invalid concurrency values to sequential execution", async () 
 
 	for (const invalid of [1.5, NaN, -1, 0, Infinity]) {
 		maxInFlight = 0;
-		const result = await Graph.run(Graph.make(sink, { concurrency: invalid }));
+		const result = await Graph.run()(Graph.make(sink, { concurrency: invalid }));
 		expect(result).toStrictEqual(Result.make.ok("abc"));
 		expect(maxInFlight).toBe(1);
 	}
@@ -474,7 +474,7 @@ test("run: preserves side-effect isolation so downstream nodes never execute on 
 	});
 
 	const graph = Graph.make(downstreamNode);
-	const outcome = await Graph.run(graph);
+	const outcome = await Graph.run()(graph);
 
 	expect(outcome).toStrictEqual(Result.make.err("failure"));
 	expect(downstreamExecuted).toBe(false);
@@ -487,7 +487,7 @@ test("run: handles concurrent settlement and ignores redundant drains", async ()
 	const sink = Graph.node("sink", { step1, step2, step3 }, ({ deps }) => Task.Result.make.ok(deps));
 
 	const graph = Graph.make(sink);
-	const outcome = await Graph.run(graph);
+	const outcome = await Graph.run()(graph);
 	expect(Result.is.err(outcome)).toBe(true);
 });
 
@@ -497,7 +497,7 @@ test("composition: composes with Task.Result operators in pipelines", async () =
 
 	const graph = Graph.make(stepB);
 
-	const outcome = await Graph.run(graph);
+	const outcome = await Graph.run()(graph);
 
 	expect(outcome).toStrictEqual(Result.make.ok(30));
 });
@@ -517,8 +517,8 @@ test("run: starts immediately and keeps shared-node results independent between 
 	const length = Graph.node("length", { customer }, ({ deps }) => Task.Result.make.ok(deps.customer.length));
 	const target = Graph.node("report", { name, length }, ({ deps }) => Task.Result.make.ok(deps));
 	const graph = Graph.make(target, { concurrency: 2 });
-	const first = Graph.run(graph, { customerId: "a" });
-	const second = Graph.run(graph, { customerId: "bob" });
+	const first = Graph.run({ customerId: "a" })(graph);
+	const second = Graph.run({ customerId: "bob" })(graph);
 	expect(calls).toStrictEqual(["a", "bob"]);
 	await expect(first).resolves.toStrictEqual(Result.make.ok({ name: "A:a", length: 1 }));
 	await expect(second).resolves.toStrictEqual(Result.make.ok({ name: "BOB:bob", length: 3 }));
@@ -535,6 +535,6 @@ test("nodeFactory: creates reusable nodes sharing a run input contract", async (
 	);
 	const firstGraph = Graph.make(report);
 	const secondGraph = Graph.make(item);
-	await expect(Graph.run(firstGraph, { name: "notes" })).resolves.toStrictEqual(Result.make.ok("notes:5"));
-	await expect(Graph.run(secondGraph, { name: "report" })).resolves.toStrictEqual(Result.make.ok("report"));
+	await expect(Graph.run({ name: "notes" })(firstGraph)).resolves.toStrictEqual(Result.make.ok("notes:5"));
+	await expect(Graph.run({ name: "report" })(secondGraph)).resolves.toStrictEqual(Result.make.ok("report"));
 });

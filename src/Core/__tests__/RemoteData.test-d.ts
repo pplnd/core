@@ -2,6 +2,7 @@ import { constTruthyBool } from "#test-utils";
 import { expectTypeOf, test } from "vitest";
 import { pipe } from "../../Composition/pipe.ts";
 import type { Maybe } from "../Maybe.ts";
+import type { Op } from "../Op.ts";
 import { RemoteData } from "../RemoteData.ts";
 import { Result } from "../Result.ts";
 
@@ -197,4 +198,19 @@ test("negative: disallows missing match cases, invalid transforms, and cross-var
 test("converters: absent single-variant channels stay never", () => {
 	expectTypeOf(RemoteData.to.Maybe(RemoteData.make.loading())).toEqualTypeOf<Maybe<never>>();
 	expectTypeOf(RemoteData.from.Result(Result.make.err("failed"))).toEqualTypeOf<RemoteData<"failed", never>>();
+});
+
+test("from.OpState: carries the manager error and value channels", () => {
+	const state = null as unknown as Op.State<string, number>;
+	expectTypeOf(RemoteData.from.OpState(state)).toEqualTypeOf<RemoteData<string, number>>();
+});
+
+test("from.OpState: maps a settled outcome to the corresponding UI state", () => {
+	const state = null as unknown as Op.Outcome<string, number>;
+	expectTypeOf(pipe(state, RemoteData.from.OpState)).toEqualTypeOf<RemoteData<string, number>>();
+});
+
+test("from.OpState: rejects a value that is not an Op state", () => {
+	// @ts-expect-error — RemoteData.from.OpState only accepts Op.Idle, Pending, Queued, Retrying, or an Op.Outcome
+	expectTypeOf(RemoteData.from.OpState({ kind: "Loading" })).toBeNever();
 });

@@ -1,4 +1,5 @@
 import type { WithKind } from "../internal/InternalTypes";
+import { Aborted } from "./Aborted.ts";
 import { Deferred } from "./Deferred.ts";
 import { Result } from "./Result.ts";
 import { Task } from "./Task.ts";
@@ -32,9 +33,6 @@ export type Graph<E = unknown, Out = unknown, Input = void> = WithKind<"Graph"> 
 type NodeErrorOf<N> = N extends Graph.Node<any, infer E, any, any> ? E : never;
 
 export namespace Graph {
-	/** The caller cancelled a graph run. */
-	export type Aborted = { readonly kind: "GraphAborted"; readonly reason: unknown; };
-
 	/**
 	 * Represents a distinct, typed node in a Directed Acyclic Graph (DAG).
 	 *
@@ -360,146 +358,141 @@ const makeGraph = <Id extends string, E, Out, Input>(
  * Runs independent nodes concurrently, subject to the configured limit, and runs each shared
  * dependency once per graph execution. If a node returns an error, the graph settles with that
  * error and signals active tasks to abort. Tasks must respond to the signal to stop their work.
- * A caller's abort signal settles the graph with `Graph.Aborted` even if active tasks ignore it.
+ * A caller's abort signal settles the graph with `Aborted` even if active tasks ignore it.
  *
  * @see {@link Graph.make} to compile a target node into a validated graph.
  * @see {@link Graph.node} for defining upstream DAG nodes.
  *
+ * A graph with no input is run as `Graph.run()(graph)`. Pass `undefined` as the input when such a
+ * graph also needs run options: `Graph.run(undefined, { signal })(graph)`.
+ *
  * @example
  * ```ts
- * const outcome = await Graph.run(dashboardGraph, reportInput, { signal });
+ * const outcome = await Graph.run(reportInput)(dashboardGraph);
  * ```
  */
-function runGraph<E, Out>(
-	graph: Graph<E, Out, void>,
-	input?: undefined,
+function runGraph(): <E, Out>(graph: Graph<E, Out, void>) => Deferred<Result<E | Aborted, Out>>;
+function runGraph<Input>(
+	input: Input,
 	options?: Graph.RunOptions,
-): Deferred<Result<E | Graph.Aborted, Out>>;
-function runGraph<E, Out, Input>(
-	graph: Graph<E, Out, Input>,
-	input: NoInfer<Input>,
-	options?: Graph.RunOptions,
-): Deferred<Result<E | Graph.Aborted, Out>>;
-function runGraph<E, Out, Input>(
-	graph: Graph<E, Out, Input>,
-	input?: Input,
-	runOptions?: Graph.RunOptions,
-): Deferred<Result<E | Graph.Aborted, Out>> {
+): <E, Out>(graph: Graph<E, Out, Input>) => Deferred<Result<E | Aborted, Out>>;
+function runGraph<Input>(input?: Input, runOptions?: Graph.RunOptions) {
 	const callerSignal = runOptions?.signal;
-	return Deferred.from.Promise(
-		new Promise<Result<E | Graph.Aborted, Out>>((resolve) => {
-			const internal = toInternalGraph(graph)[_internalGraph];
-			const { target, rootNodes, dependentsMap, dependencyCountMap, depKeysMap, options } = internal;
+	return <E, Out>(graph: Graph<E, Out, Input>): Deferred<Result<E | Aborted, Out>> =>
+		Deferred.from.Promise(
+			new Promise<Result<E | Aborted, Out>>((resolve) => {
+				const internal = toInternalGraph(graph)[_internalGraph];
+				const { target, rootNodes, dependentsMap, dependencyCountMap, depKeysMap, options } = internal;
 
-			const internalController = new AbortController();
-			const activeSignal = internalController.signal;
+				const internalController = new AbortController();
+				const activeSignal = internalController.signal;
 
-			const results = new Map<Graph.AnyNode, unknown>();
-			const remainingDeps = new Map<Graph.AnyNode, number>(dependencyCountMap);
-			const queue: Graph.AnyNode[] = rootNodes.slice();
-			let queueHead = 0;
-			let inFlight = 0;
-			let isSettled = false;
+				const results = new Map<Graph.AnyNode, unknown>();
+				const remainingDeps = new Map<Graph.AnyNode, number>(dependencyCountMap);
+				const queue: Graph.AnyNode[] = rootNodes.slice();
+				let queueHead = 0;
+				let inFlight = 0;
+				let isSettled = false;
 
-			// oxlint-disable-next-line prefer-const
-			let onCallerAbort: () => void;
+				// oxlint-disable-next-line prefer-const
+				let onCallerAbort: () => void;
 
-			const settle = (result: Result<E | Graph.Aborted, Out>): void => {
-				if (isSettled) {
-					return;
-				}
-				isSettled = true;
-				if (callerSignal) {
-					callerSignal.removeEventListener("abort", onCallerAbort);
-				}
-				internalController.abort();
-				resolve(result);
-			};
-
-			if (callerSignal) {
-				const signal = callerSignal;
-				onCallerAbort = () => {
-					settle(Result.make.err({ kind: "GraphAborted", reason: signal.reason }));
-				};
-
-				if (signal.aborted) {
-					onCallerAbort();
-					return;
-				}
-				signal.addEventListener("abort", onCallerAbort, { once: true });
-			}
-
-			const concurrency = options?.concurrency === undefined
-				? Infinity
-				: Number.isInteger(options.concurrency) && options.concurrency > 0
-				? options.concurrency
-				: 1;
-
-			// oxlint-disable-next-line prefer-const
-			let drain: () => void;
-
-			const executeNode = async (node: Graph.AnyNode): Promise<void> => {
-				const nodeInternal = toInternalNode(node)[_internalNode];
-
-				// Assemble resolved inputs:
-				const depEntries = depKeysMap.get(node);
-				let inputs: Record<string, unknown> | undefined;
-				if (depEntries && depEntries.length > 0) {
-					inputs = {};
-					for (let i = 0; i < depEntries.length; i++) {
-						const [key, depNode] = depEntries[i];
-						inputs[key] = results.get(depNode);
-					}
-				}
-
-				const task: Task.Result<unknown, unknown> = (signal) =>
-					nodeInternal.run({ ctx: { input }, deps: inputs ?? {} })(signal);
-
-				const nodeOutcome = await Deferred.to.Promise(task(activeSignal));
-
-				inFlight--;
-
-				if (Result.is.ok(nodeOutcome)) {
-					results.set(node, nodeOutcome.value);
-
-					if (node === target) {
-						settle(Result.make.ok(nodeOutcome.value as Out));
+				const settle = (result: Result<E | Aborted, Out>): void => {
+					if (isSettled) {
 						return;
 					}
+					isSettled = true;
+					if (callerSignal) {
+						callerSignal.removeEventListener("abort", onCallerAbort);
+					}
+					internalController.abort();
+					resolve(result);
+				};
 
-					const dependents = dependentsMap.get(node)!;
-					for (let i = 0; i < dependents.length; i++) {
-						const dep = dependents[i];
-						const rem = remainingDeps.get(dep)! - 1;
-						remainingDeps.set(dep, rem);
-						if (rem === 0) {
-							queue.push(dep);
+				if (callerSignal) {
+					const signal = callerSignal;
+					onCallerAbort = () => {
+						settle(Result.make.err(Aborted.make(signal.reason)));
+					};
+
+					if (signal.aborted) {
+						onCallerAbort();
+						return;
+					}
+					signal.addEventListener("abort", onCallerAbort, { once: true });
+				}
+
+				const concurrency = options?.concurrency === undefined
+					? Infinity
+					: Number.isInteger(options.concurrency) && options.concurrency > 0
+					? options.concurrency
+					: 1;
+
+				// oxlint-disable-next-line prefer-const
+				let drain: () => void;
+
+				const executeNode = async (node: Graph.AnyNode): Promise<void> => {
+					const nodeInternal = toInternalNode(node)[_internalNode];
+
+					// Assemble resolved inputs:
+					const depEntries = depKeysMap.get(node);
+					let inputs: Record<string, unknown> | undefined;
+					if (depEntries && depEntries.length > 0) {
+						inputs = {};
+						for (let i = 0; i < depEntries.length; i++) {
+							const [key, depNode] = depEntries[i];
+							inputs[key] = results.get(depNode);
 						}
 					}
 
-					drain();
-				} else {
-					settle(Result.make.err(nodeOutcome.error as E));
-				}
-			};
+					const task: Task.Result<unknown, unknown> = (signal) =>
+						nodeInternal.run({ ctx: { input }, deps: inputs ?? {} })(signal);
 
-			drain = (): void => {
-				if (isSettled) {
-					return;
-				}
+					const nodeOutcome = await Deferred.to.Promise(task(activeSignal));
 
-				// A node can synchronously abort the caller while it starts.
-				// oxlint-disable-next-line no-unmodified-loop-condition
-				while (!isSettled && queueHead < queue.length && inFlight < concurrency) {
-					const node = queue[queueHead++];
-					inFlight++;
-					void executeNode(node);
-				}
-			};
+					inFlight--;
 
-			drain();
-		}),
-	);
+					if (Result.is.ok(nodeOutcome)) {
+						results.set(node, nodeOutcome.value);
+
+						if (node === target) {
+							settle(Result.make.ok(nodeOutcome.value as Out));
+							return;
+						}
+
+						const dependents = dependentsMap.get(node)!;
+						for (let i = 0; i < dependents.length; i++) {
+							const dep = dependents[i];
+							const rem = remainingDeps.get(dep)! - 1;
+							remainingDeps.set(dep, rem);
+							if (rem === 0) {
+								queue.push(dep);
+							}
+						}
+
+						drain();
+					} else {
+						settle(Result.make.err(nodeOutcome.error as E));
+					}
+				};
+
+				drain = (): void => {
+					if (isSettled) {
+						return;
+					}
+
+					// A node can synchronously abort the caller while it starts.
+					// oxlint-disable-next-line no-unmodified-loop-condition
+					while (!isSettled && queueHead < queue.length && inFlight < concurrency) {
+						const node = queue[queueHead++];
+						inFlight++;
+						void executeNode(node);
+					}
+				};
+
+				drain();
+			}),
+		);
 }
 
 // =============================================================================

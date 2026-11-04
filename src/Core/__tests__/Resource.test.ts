@@ -19,8 +19,8 @@ test("use: starts immediately and each use has its own scope", async () => {
 		},
 	);
 
-	const first = Resource.use(resource, { run: (value) => Task.Result.make.ok(value) });
-	const second = Resource.use(resource, { run: (value) => Task.Result.make.ok(value) });
+	const first = Resource.use({ run: (value: number) => Task.Result.make.ok(value) })(resource);
+	const second = Resource.use({ run: (value: number) => Task.Result.make.ok(value) })(resource);
 	expect(acquisitions).toBe(2);
 	const firstResult = await first;
 	const secondResult = await second;
@@ -35,7 +35,7 @@ test("use: starts immediately and each use has its own scope", async () => {
 
 test("make: creates a resource with the given acquire and release", async () => {
 	const resource = Resource.make(Task.Result.make.ok(42), (_n) => Task.make(undefined));
-	const result = await Resource.use(resource, { run: (n) => Task.Result.make.ok(n) });
+	const result = await Resource.use({ run: (n: number) => Task.Result.make.ok(n) })(resource);
 	expect(result).toStrictEqual({ kind: "Ok", value: 42 });
 });
 
@@ -45,7 +45,7 @@ test("make: creates a resource with the given acquire and release", async () => 
 
 test("from.Task: wraps an infallible Task as a successful acquire", async () => {
 	const resource = Resource.make(Task.Result.from.Task(Task.make(7)), (_n) => Task.make(undefined));
-	const result = await Resource.use(resource, { run: (n) => Task.Result.make.ok(n) });
+	const result = await Resource.use({ run: (n: number) => Task.Result.make.ok(n) })(resource);
 	expect(result).toStrictEqual({ kind: "Ok", value: 7 });
 	expectTypeOf(resource).toEqualTypeOf<Resource<never, number>>();
 });
@@ -56,7 +56,7 @@ test("from.Task: wraps an infallible Task as a successful acquire", async () => 
 
 test("use: passes the acquired value to the function", async () => {
 	const resource = Resource.make(Task.Result.make.ok(10), (_n) => Task.make(undefined));
-	const result = await Resource.use(resource, { run: (n) => Task.Result.make.ok(`value: ${n}`) });
+	const result = await Resource.use({ run: (n: number) => Task.Result.make.ok(`value: ${n}`) })(resource);
 	expect(result).toStrictEqual({ kind: "Ok", value: "value: 10" });
 });
 
@@ -67,7 +67,7 @@ test("use: calls release after the function succeeds", async () => {
 			released = true;
 			return Promise.resolve(undefined);
 		}, { onError: () => {} }));
-	await Resource.use(resource, { run: (_n) => Task.Result.make.ok(undefined) });
+	await Resource.use({ run: (_n: number) => Task.Result.make.ok(undefined) })(resource);
 	expect(released).toBe(true);
 });
 
@@ -78,7 +78,7 @@ test("use: calls release with the acquired value", async () => {
 			releasedWith = n;
 			return Promise.resolve(undefined);
 		}, { onError: () => {} }));
-	await Resource.use(resource, { run: (_n) => Task.Result.make.ok(undefined) });
+	await Resource.use({ run: (_n: number) => Task.Result.make.ok(undefined) })(resource);
 	expect(releasedWith).toBe(99);
 });
 
@@ -93,7 +93,7 @@ test("use: calls release even when the function returns Err", async () => {
 			released = true;
 			return Promise.resolve(undefined);
 		}, { onError: () => {} }));
-	const result = await Resource.use(resource, { run: (_n) => Task.Result.make.err("something went wrong") });
+	const result = await Resource.use({ run: (_n: number) => Task.Result.make.err("something went wrong") })(resource);
 	expect(released).toBe(true);
 	expect(result).toStrictEqual({ kind: "Err", error: "something went wrong" });
 });
@@ -105,7 +105,7 @@ test("use: does not call release when acquire fails", async () => {
 			released = true;
 			return Promise.resolve(undefined);
 		}, { onError: () => {} }));
-	const result = await Resource.use(resource, { run: (_n) => Task.Result.make.ok(undefined) });
+	const result = await Resource.use({ run: (_n: never) => Task.Result.make.ok(undefined) })(resource);
 	expect(released).toBe(false);
 	expect(result).toStrictEqual({ kind: "Err", error: "cannot connect" });
 });
@@ -113,27 +113,27 @@ test("use: does not call release when acquire fails", async () => {
 test("use: does not call the function when acquire fails", async () => {
 	let called = false;
 	const resource = Resource.make(Task.Result.make.err("cannot connect"), (_n) => Task.make(undefined));
-	await Resource.use(resource, {
-		run: (_n) => {
+	await Resource.use({
+		run: (_n: never) => {
 			called = true;
 			return Task.Result.make.ok(undefined);
 		},
-	});
+	})(resource);
 	expect(called).toBe(false);
 });
 
 test("use: propagates acquire error unchanged", async () => {
 	const resource = Resource.make(Task.Result.make.err("auth failed"), (_n) => Task.make(undefined));
-	const result = await Resource.use(resource, { run: (_n) => Task.Result.make.ok(undefined) });
+	const result = await Resource.use({ run: (_n: never) => Task.Result.make.ok(undefined) })(resource);
 	expect(result).toStrictEqual({ kind: "Err", error: "auth failed" });
 });
 
 test("use: infers union error type E1 | E2 without type annotations", async () => {
 	const acquireTask: Task.Result<"acquire-err", number> = Task.Result.make.ok(42);
 	const resource = Resource.make(acquireTask, (_n) => Task.make(undefined));
-	const resultTask = Resource.use(resource, {
-		run: (n): Task.Result<"use-err", string> => Task.Result.make.ok(`val: ${n}`),
-	});
+	const resultTask = Resource.use({
+		run: (n: number): Task.Result<"use-err", string> => Task.Result.make.ok(`val: ${n}`),
+	})(resource);
 	const result = await resultTask;
 	expect(result).toStrictEqual({ kind: "Ok", value: "val: 42" });
 	expectTypeOf(result).toEqualTypeOf<Result<"acquire-err" | "use-err", string>>();
@@ -146,7 +146,9 @@ test("use: infers union error type E1 | E2 without type annotations", async () =
 test("combine: presents both acquired values as a tuple", async () => {
 	const rA = Resource.make(Task.Result.make.ok(1), (_n) => Task.make(undefined));
 	const rB = Resource.make(Task.Result.make.ok("x"), (_s) => Task.make(undefined));
-	const result = await Resource.use(Resource.combine(rA, rB), { run: ([n, s]) => Task.Result.make.ok(`${n}+${s}`) });
+	const result = await Resource.use({ run: ([n, s]: readonly [number, string]) => Task.Result.make.ok(`${n}+${s}`) })(
+		Resource.combine(rA, rB),
+	);
 	expect(result).toStrictEqual({ kind: "Ok", value: "1+x" });
 });
 
@@ -162,7 +164,9 @@ test("combine: releases second resource before first", async () => {
 			order.push("release-B");
 			return Promise.resolve(undefined);
 		}, { onError: () => {} }));
-	await Resource.use(Resource.combine(rA, rB), { run: (_pair) => Task.Result.make.ok(undefined) });
+	await Resource.use({ run: (_pair: readonly [string, string]) => Task.Result.make.ok(undefined) })(
+		Resource.combine(rA, rB),
+	);
 	expect(order).toStrictEqual(["release-B", "release-A"]);
 });
 
@@ -174,7 +178,9 @@ test("combine: releases first resource when second acquire fails", async () => {
 			return Promise.resolve(undefined);
 		}, { onError: () => {} }));
 	const rB = Resource.make(Task.Result.make.err("B failed"), (_s) => Task.make(undefined));
-	const result = await Resource.use(Resource.combine(rA, rB), { run: (_pair) => Task.Result.make.ok(undefined) });
+	const result = await Resource.use({ run: (_pair: readonly [string, never]) => Task.Result.make.ok(undefined) })(
+		Resource.combine(rA, rB),
+	);
 	expect(releasedA).toBe(true);
 	expect(result).toStrictEqual({ kind: "Err", error: "B failed" });
 });
@@ -190,7 +196,9 @@ test("combine: does not call resourceB acquire when resourceA acquire fails", as
 		(_s) => Task.make(undefined),
 	);
 
-	const result = await Resource.use(Resource.combine(rA, rB), { run: (_pair) => Task.Result.make.ok(undefined) });
+	const result = await Resource.use({ run: (_pair: readonly [never, string]) => Task.Result.make.ok(undefined) })(
+		Resource.combine(rA, rB),
+	);
 
 	expect(calledB).toBe(false);
 	expect(result).toStrictEqual({ kind: "Err", error: "A failed" });
@@ -204,7 +212,7 @@ test("combine: infers union error type E1 | E2 for disparate error types", async
 	const combined = Resource.combine(rA, rB);
 
 	expectTypeOf(combined).toEqualTypeOf<Resource<"errA" | "errB", readonly [number, string]>>();
-	const result = await Resource.use(combined, { run: (pair) => Task.Result.make.ok(pair) });
+	const result = await Resource.use({ run: (pair: readonly [number, string]) => Task.Result.make.ok(pair) })(combined);
 	expect(result).toStrictEqual({ kind: "Ok", value: [1, "x"] });
 });
 
@@ -212,12 +220,12 @@ test("combine: does not call the function when first acquire fails", async () =>
 	let called = false;
 	const rA = Resource.make(Task.Result.make.err("A failed"), (_s) => Task.make(undefined));
 	const rB = Resource.make(Task.Result.make.ok("B"), (_s) => Task.make(undefined));
-	await Resource.use(Resource.combine(rA, rB), {
-		run: (_pair) => {
+	await Resource.use({
+		run: (_pair: readonly [never, string]) => {
 			called = true;
 			return Task.Result.make.ok(undefined);
 		},
-	});
+	})(Resource.combine(rA, rB));
 	expect(called).toBe(false);
 });
 
@@ -227,14 +235,14 @@ test("combine: does not call the function when first acquire fails", async () =>
 
 test("pipe: composes with Task.Result operations inside use", async () => {
 	const resource = Resource.make(Task.Result.make.ok(5), (_n) => Task.make(undefined));
-	const result = await Resource.use(resource, {
-		run: (n) =>
+	const result = await Resource.use({
+		run: (n: number) =>
 			pipe(
 				Task.Result.make.ok(n),
 				Task.Result.map((x) => x * 2),
 				Task.Result.chain((x) => x > 5 ? Task.Result.make.ok(x) : Task.Result.make.err("too small")),
 			),
-	});
+	})(resource);
 	expect(result).toStrictEqual({ kind: "Ok", value: 10 });
 });
 
@@ -245,7 +253,7 @@ test("use: works with fromTask resource", async () => {
 			released = true;
 			return Promise.resolve(undefined);
 		}, { onError: () => {} }));
-	const result = await Resource.use(resource, { run: (handle) => Task.Result.make.ok(`used: ${handle}`) });
+	const result = await Resource.use({ run: (handle: string) => Task.Result.make.ok(`used: ${handle}`) })(resource);
 	expect(result).toStrictEqual({ kind: "Ok", value: "used: handle" });
 	expect(released).toBe(true);
 });
@@ -268,13 +276,13 @@ test("use: propagates AbortSignal down to acquire f and release", async () => {
 	});
 
 	const controller = new AbortController();
-	const result = await Resource.use(resource, {
-		run: (n) => (signal) => {
+	const result = await Resource.use({
+		run: (n: number) => (signal) => {
 			fSignal = signal;
 			return Task.Result.make.ok(`val: ${n}`)(signal);
 		},
 		signal: controller.signal,
-	});
+	})(resource);
 
 	expect(result).toStrictEqual({ kind: "Ok", value: "val: 42" });
 	expect(acquireSignal).toBe(controller.signal);
@@ -307,10 +315,10 @@ test("combine: propagates AbortSignal down to both acquisitions and releases", a
 	const controller = new AbortController();
 	const combined = Resource.combine(resourceA, resourceB);
 
-	const result = await Resource.use(combined, {
-		run: ([a, b]) => Task.Result.make.ok(`${a}+${b}`),
+	const result = await Resource.use({
+		run: ([a, b]: readonly [string, string]) => Task.Result.make.ok(`${a}+${b}`),
 		signal: controller.signal,
-	});
+	})(combined);
 
 	expect(result).toStrictEqual({ kind: "Ok", value: "A+B" });
 	expect(acquireASignal).toBe(controller.signal);
@@ -333,7 +341,7 @@ test("map: transforms the acquired value and runs release when use completes", a
 
 	const mapped = pipe(resource, Resource.map((cfg) => cfg.port));
 
-	const result = await Resource.use(mapped, { run: (port) => Task.Result.make.ok(`connected to ${port}`) });
+	const result = await Resource.use({ run: (port: number) => Task.Result.make.ok(`connected to ${port}`) })(mapped);
 
 	expect(result).toStrictEqual({ kind: "Ok", value: "connected to 5432" });
 	expect(released).toBe(true);
@@ -349,7 +357,7 @@ test("map: runs release even when consume returns Err", async () => {
 
 	const mapped = pipe(resource, Resource.map((n) => `num:${n}`));
 
-	const result = await Resource.use(mapped, { run: (_s) => Task.Result.make.err("work failed") });
+	const result = await Resource.use({ run: (_s: string) => Task.Result.make.err("work failed") })(mapped);
 
 	expect(result).toStrictEqual({ kind: "Err", error: "work failed" });
 	expect(released).toBe(true);
@@ -365,7 +373,7 @@ test("map: chains multiple transforms in pipeline", async () => {
 
 	const mapped = pipe(resource, Resource.map((n) => n * 2), Resource.map((n) => `final:${n}`));
 
-	const result = await Resource.use(mapped, { run: (s) => Task.Result.make.ok(s) });
+	const result = await Resource.use({ run: (s: string) => Task.Result.make.ok(s) })(mapped);
 
 	expect(result).toStrictEqual({ kind: "Ok", value: "final:20" });
 	expect(released).toBe(true);
@@ -391,7 +399,7 @@ test("map: does not call transform or release when acquire fails", async () => {
 		}),
 	);
 
-	const result = await Resource.use(mapped, { run: (s) => Task.Result.make.ok(s) });
+	const result = await Resource.use({ run: (s: string) => Task.Result.make.ok(s) })(mapped);
 
 	expect(result).toStrictEqual({ kind: "Err", error: "acquire failed" });
 	expect(called).toBe(false);
@@ -419,12 +427,12 @@ test("chain: sequences dependent acquisition and releases in strict reverse LIFO
 
 	const chained = pipe(openTunnel, Resource.chain((tunnel) => connectDb(tunnel.port)));
 
-	const result = await Resource.use(chained, {
-		run: (db) => {
+	const result = await Resource.use({
+		run: (db: string) => {
 			order.push(`use:${db}`);
 			return Task.Result.make.ok("success");
 		},
-	});
+	})(chained);
 
 	expect(result).toStrictEqual({ kind: "Ok", value: "success" });
 	expect(order).toStrictEqual(["use:db-conn-on-9000", "close-db", "close-tunnel"]);
@@ -444,12 +452,12 @@ test("chain: partial acquisition rollback releases outer resource when inner acq
 	const chained = pipe(openTunnel, Resource.chain((tunnel) => connectDb(tunnel.port)));
 
 	let workCalled = false;
-	const result = await Resource.use(chained, {
-		run: (_db) => {
+	const result = await Resource.use({
+		run: (_db: never) => {
 			workCalled = true;
 			return Task.Result.make.ok("not reached");
 		},
-	});
+	})(chained);
 
 	expect(result).toStrictEqual({ kind: "Err", error: "db auth failed" });
 	expect(workCalled).toBe(false);
@@ -473,7 +481,7 @@ test("chain: runs both releases in reverse LIFO order when consume returns Err",
 
 	const chained = pipe(openOuter, Resource.chain((o) => openInner(o)));
 
-	const result = await Resource.use(chained, { run: (_val) => Task.Result.make.err("work failed") });
+	const result = await Resource.use({ run: (_val: string) => Task.Result.make.err("work failed") })(chained);
 
 	expect(result).toStrictEqual({ kind: "Err", error: "work failed" });
 	expect(order).toStrictEqual(["rel-inner", "rel-outer"]);
@@ -501,7 +509,7 @@ test("chain: sequences three dependent resources in LIFO order", async () => {
 
 	const chained = pipe(r1, Resource.chain(r2), Resource.chain(r3));
 
-	const result = await Resource.use(chained, { run: (n) => Task.Result.make.ok(`val:${n}`) });
+	const result = await Resource.use({ run: (n: number) => Task.Result.make.ok(`val:${n}`) })(chained);
 
 	expect(result).toStrictEqual({ kind: "Ok", value: "val:20" });
 	expect(order).toStrictEqual(["rel-3", "rel-2", "rel-1"]);
@@ -519,7 +527,7 @@ test("chain: does not invoke transform or inner acquire when outer acquire fails
 		}),
 	);
 
-	const result = await Resource.use(chained, { run: (n) => Task.Result.make.ok(n) });
+	const result = await Resource.use({ run: (n: number) => Task.Result.make.ok(n) })(chained);
 
 	expect(result).toStrictEqual({ kind: "Err", error: "outer failed" });
 	expect(transformCalled).toBe(false);
@@ -549,12 +557,12 @@ test("all: acquires a tuple of resources sequentially and releases in reverse or
 
 	const allTuple = Resource.all([r1, r2, r3]);
 
-	const result = await Resource.use(allTuple, {
-		run: ([one, two, three]) => {
+	const result = await Resource.use({
+		run: ([one, two, three]: readonly [number, string, boolean]) => {
 			order.push(`use:${one},${two},${three}`);
 			return Task.Result.make.ok("done");
 		},
-	});
+	})(allTuple);
 
 	expect(result).toStrictEqual({ kind: "Ok", value: "done" });
 	expect(order).toStrictEqual(["use:1,two,true", "rel-3", "rel-2", "rel-1"]);
@@ -588,7 +596,9 @@ test("all: rolls back already-acquired tuple resources in reverse order if a mid
 
 	const allTuple = Resource.all([r1, r2, r3, r4]);
 
-	const result = await Resource.use(allTuple, { run: (_items) => Task.Result.make.ok("unreachable") });
+	const result = await Resource.use({
+		run: (_items: readonly [number, number, never, number]) => Task.Result.make.ok("unreachable"),
+	})(allTuple);
 
 	expect(result).toStrictEqual({ kind: "Err", error: "r3 failed" });
 	expect(r4Called).toBe(false);
@@ -610,7 +620,9 @@ test("all: releases all tuple resources in reverse order when consume returns Er
 
 	const allTuple = Resource.all([r1, r2]);
 
-	const result = await Resource.use(allTuple, { run: (_items) => Task.Result.make.err("work error") });
+	const result = await Resource.use({ run: (_items: readonly [number, number]) => Task.Result.make.err("work error") })(
+		allTuple,
+	);
 
 	expect(result).toStrictEqual({ kind: "Err", error: "work error" });
 	expect(order).toStrictEqual(["rel-2", "rel-1"]);
@@ -618,7 +630,7 @@ test("all: releases all tuple resources in reverse order when consume returns Er
 
 test("all: empty tuple acquires empty array without error", async () => {
 	const empty = Resource.all([]);
-	const result = await Resource.use(empty, { run: (items) => Task.Result.make.ok(items.length) });
+	const result = await Resource.use({ run: (items: readonly []) => Task.Result.make.ok(items.length) })(empty);
 	expect(result).toStrictEqual({ kind: "Ok", value: 0 });
 });
 
@@ -646,12 +658,12 @@ test("all: acquires record resources in key order and releases in reverse LIFO o
 
 	const appInfra = Resource.all({ db, redis, s3 });
 
-	const result = await Resource.use(appInfra, {
-		run: ({ db: d, redis: r, s3: s }) => {
+	const result = await Resource.use({
+		run: ({ db: d, redis: r, s3: s }: { readonly db: string; readonly redis: string; readonly s3: string; }) => {
 			order.push(`use:${d},${r},${s}`);
 			return Task.Result.make.ok("ok");
 		},
-	});
+	})(appInfra);
 
 	expect(result).toStrictEqual({ kind: "Ok", value: "ok" });
 	expect(order).toStrictEqual(["use:db-handle,redis-handle,s3-handle", "rel-s3", "rel-redis", "rel-db"]);
@@ -680,7 +692,10 @@ test("all: rolls back already-acquired record resources in reverse order when a 
 
 	const appInfra = Resource.all({ db, redis, s3 });
 
-	const result = await Resource.use(appInfra, { run: (_infra) => Task.Result.make.ok("never reached") });
+	const result = await Resource.use({
+		run: (_infra: { readonly db: string; readonly redis: never; readonly s3: string; }) =>
+			Task.Result.make.ok("never reached"),
+	})(appInfra);
 
 	expect(result).toStrictEqual({ kind: "Err", error: "redis connection refused" });
 	expect(s3Acquired).toBe(false);
@@ -702,7 +717,9 @@ test("all: releases all record resources in reverse order when consume returns E
 
 	const appInfra = Resource.all({ a: resA, b: resB });
 
-	const result = await Resource.use(appInfra, { run: (_infra) => Task.Result.make.err("work error") });
+	const result = await Resource.use({
+		run: (_infra: { readonly a: string; readonly b: string; }) => Task.Result.make.err("work error"),
+	})(appInfra);
 
 	expect(result).toStrictEqual({ kind: "Err", error: "work error" });
 	expect(order).toStrictEqual(["rel-B", "rel-A"]);
@@ -755,12 +772,21 @@ test("pipe: end-to-end multi-layer infrastructure pipeline from API_ROADMAP.md",
 
 	const appInfra = Resource.all({ migration: migrationResource, redis: connectRedis("redis://127.0.0.1:6379") });
 
-	const result = await Resource.use(appInfra, {
-		run: ({ migration, redis }) => {
+	const result = await Resource.use({
+		run: (
+			{ migration, redis }: {
+				readonly migration: {
+					readonly tunnel: { readonly host: string; readonly localPort: number; };
+					readonly db: { readonly client: string; };
+					readonly lock: { readonly lockName: string; readonly heldOn: string; };
+				};
+				readonly redis: { readonly redis: string; };
+			},
+		) => {
 			lifecycle.push(`run-migration:${migration.db.client}-${redis.redis}`);
 			return Task.Result.make.ok("migrated_successfully");
 		},
-	});
+	})(appInfra);
 
 	expect(result).toStrictEqual({ kind: "Ok", value: "migrated_successfully" });
 	expect(lifecycle).toStrictEqual([

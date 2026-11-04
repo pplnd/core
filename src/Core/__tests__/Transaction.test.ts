@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { Duration } from "../../Types/Duration.ts";
 import { RetryPolicy } from "../../Types/RetryPolicy.ts";
+import { Aborted } from "../Aborted.ts";
 import { Deferred } from "../Deferred.ts";
 import { Result } from "../Result.ts";
 import { Task } from "../Task.ts";
@@ -20,8 +21,8 @@ test("run: starts immediately and isolates input and output between runs", async
 		},
 	);
 	const transaction = Transaction.make(transactionStep0);
-	const first = Transaction.run(transaction, { orderId: "first" });
-	const second = Transaction.run(transaction, { orderId: "second" });
+	const first = Transaction.run({ orderId: "first" })(transaction);
+	const second = Transaction.run({ orderId: "second" })(transaction);
 	expect(seen).toStrictEqual(["first", "second"]);
 	const firstResult = await first;
 	const secondResult = await second;
@@ -84,7 +85,7 @@ test("make: validates the identity of a broadly typed dependency", async () => {
 		return Transaction.make(reserve, dependent);
 	};
 
-	const result = await Transaction.run(build(reserve), { sku: "book" });
+	const result = await Transaction.run({ sku: "book" })(build(reserve));
 	expect(result).toStrictEqual(Result.make.ok({ reserve: "book", dependent: { dependency: "book", sku: "book" } }));
 	expect(() => build(other)).toThrow(/Dependency 'other' must precede step 'dependent'/);
 });
@@ -101,7 +102,7 @@ test("make: supports conditional and absent dependencies without skipping valida
 		);
 		return Transaction.make(first, dependent);
 	};
-	const result = await Transaction.run(build(true));
+	const result = await Transaction.run()(build(true));
 	expect(result).toStrictEqual(Result.make.ok({ first: "one", dependent: "one" }));
 	expect(() => build(false)).toThrow(/Dependency 'other' must precede step 'dependent'/);
 
@@ -110,7 +111,7 @@ test("make: supports conditional and absent dependencies without skipping valida
 		{ skipped: undefined },
 		({ deps: resolved }) => Task.Result.make.ok(Object.hasOwn(resolved, "skipped")),
 	);
-	const optionalResult = await Transaction.run(Transaction.make(optional));
+	const optionalResult = await Transaction.run()(Transaction.make(optional));
 	expect(optionalResult).toStrictEqual(Result.make.ok({ optional: false }));
 });
 
@@ -131,7 +132,7 @@ test("rollback: compensation receives dependency aliases and the same run input"
 		},
 	);
 	const notify = Transaction.step("notify", () => Task.Result.make.err("offline"));
-	const outcome = await Transaction.run(Transaction.make(upload, index, notify), { customer: "Mina" });
+	const outcome = await Transaction.run({ customer: "Mina" })(Transaction.make(upload, index, notify));
 
 	expect(outcome).toStrictEqual(
 		Result.make.err({ kind: "TransactionFailure", stepId: "notify", error: "offline", undoErrors: [] }),
@@ -156,7 +157,7 @@ test("forward: executes sequential steps without input and accumulates outputs",
 	});
 	const tx = Transaction.make(transactionStep0, transactionStep1);
 
-	const outcome = await Transaction.run(tx);
+	const outcome = await Transaction.run()(tx);
 
 	expect(outcome).toStrictEqual(Result.make.ok({ first: 10, second: "val_20" }));
 	expect(order).toStrictEqual(["run:first", "run:second(10)"]);
@@ -183,7 +184,7 @@ test("forward: threads initial input and prior step outputs across all steps", a
 	);
 	const tx = Transaction.make(transactionStep0, transactionStep1, transactionStep2);
 
-	const outcome = await Transaction.run(tx, { sku: "widget", qty: 3 });
+	const outcome = await Transaction.run({ sku: "widget", qty: 3 })(tx);
 
 	expect(outcome).toStrictEqual(
 		Result.make.ok({
@@ -237,7 +238,7 @@ test("rollback: invokes completed step undo handlers in strict LIFO order on fai
 	);
 	const tx = Transaction.make(transactionStep0, transactionStep1, transactionStep2);
 
-	const outcome = await Transaction.run(tx, { userId: "user_42" });
+	const outcome = await Transaction.run({ userId: "user_42" })(tx);
 
 	expect(outcome).toStrictEqual(
 		Result.make.err({ kind: "TransactionFailure", stepId: "step3", error: "step3_failed", undoErrors: [] }),
@@ -261,7 +262,7 @@ test("rollback: when step 1 fails, no undos are invoked and undoErrors is empty"
 	});
 	const tx = Transaction.make(transactionStep0);
 
-	const outcome = await Transaction.run(tx);
+	const outcome = await Transaction.run()(tx);
 
 	expect(outcome).toStrictEqual(
 		Result.make.err({ kind: "TransactionFailure", stepId: "first", error: "first_failed", undoErrors: [] }),
@@ -284,7 +285,7 @@ test("rollback: steps without undo are safely skipped during LIFO drainage", asy
 	const transactionStep3 = Transaction.step("s4", () => Task.Result.make.err("s4_failed"));
 	const tx = Transaction.make(transactionStep0, transactionStep1, transactionStep2, transactionStep3);
 
-	const outcome = await Transaction.run(tx);
+	const outcome = await Transaction.run()(tx);
 
 	expect(Result.is.err(outcome)).toBe(true);
 	expect(rollbacks).toStrictEqual(["s3", "s1"]);
@@ -315,7 +316,7 @@ test("rollback: continues draining remaining undos when intermediate undos retur
 	});
 	const tx = Transaction.make(transactionStep0, transactionStep1, transactionStep2, transactionStep3);
 
-	const outcome = await Transaction.run(tx);
+	const outcome = await Transaction.run()(tx);
 
 	expect(outcome).toStrictEqual(
 		Result.make.err({
@@ -345,16 +346,11 @@ test("abort: returns Err immediately if signal is already aborted before startin
 	});
 	const tx = Transaction.make(transactionStep0);
 
-	const outcome = await Transaction.run(tx, undefined, { signal: controller.signal });
+	const outcome = await Transaction.run(undefined, { signal: controller.signal })(tx);
 
 	expect(stepExecuted).toBe(false);
 	expect(outcome).toStrictEqual(
-		Result.make.err({
-			kind: "TransactionFailure",
-			stepId: "s1",
-			error: { kind: "TransactionAborted", reason: expect.any(Error) },
-			undoErrors: [],
-		}),
+		Result.make.err({ kind: "TransactionFailure", stepId: "s1", error: Aborted.make(expect.any(Error)), undoErrors: [] }),
 	);
 });
 
@@ -383,15 +379,10 @@ test("abort: triggers LIFO rollback of completed steps when aborted mid-flight",
 	});
 	const tx = Transaction.make(transactionStep0, transactionStep1, transactionStep2);
 
-	const outcome = await Transaction.run(tx, undefined, { signal: controller.signal });
+	const outcome = await Transaction.run(undefined, { signal: controller.signal })(tx);
 
 	expect(outcome).toStrictEqual(
-		Result.make.err({
-			kind: "TransactionFailure",
-			stepId: "s3",
-			error: { kind: "TransactionAborted", reason: expect.any(Error) },
-			undoErrors: [],
-		}),
+		Result.make.err({ kind: "TransactionFailure", stepId: "s3", error: Aborted.make(expect.any(Error)), undoErrors: [] }),
 	);
 
 	expect(log).toStrictEqual(["run:s1", "run:s2:aborting", "undo:s2", "undo:s1"]);
@@ -422,7 +413,7 @@ test("retry: transient step failure retries up to policy attempts and succeeds w
 	);
 	const tx = Transaction.make(transactionStep0);
 
-	const outcome = await Transaction.run(tx);
+	const outcome = await Transaction.run()(tx);
 
 	expect(outcome).toStrictEqual(Result.make.ok({ transientStep: "recovered" }));
 	expect(attempts).toBe(3);
@@ -447,7 +438,7 @@ test("retry: step failure that exhausts retries initiates LIFO rollback", async 
 	);
 	const tx = Transaction.make(transactionStep0, transactionStep1);
 
-	const outcome = await Transaction.run(tx);
+	const outcome = await Transaction.run()(tx);
 
 	expect(attempts).toBe(2);
 	expect(outcome).toStrictEqual(
@@ -476,7 +467,7 @@ test("timeout: forward step exceeding timeout duration fails and rolls back", as
 	);
 	const tx = Transaction.make(transactionStep0, transactionStep1);
 
-	const outcome = await Transaction.run(tx);
+	const outcome = await Transaction.run()(tx);
 
 	expect(outcome).toStrictEqual(
 		Result.make.err({ kind: "TransactionFailure", stepId: "slowStep", error: "timed_out", undoErrors: [] }),
@@ -503,7 +494,7 @@ test("timeout: aborts the task before compensation and leaves undo uncancelled",
 					}), { onError: String }),
 			),
 	);
-	const outcome = await Transaction.run(Transaction.make(reserve, upload));
+	const outcome = await Transaction.run()(Transaction.make(reserve, upload));
 	expect(outcome).toStrictEqual(
 		Result.make.err({ kind: "TransactionFailure", stepId: "upload", error: "timed_out", undoErrors: [] }),
 	);
@@ -531,11 +522,11 @@ test("telemetry: fires onStepSuccess, onStepFailure, and onUndo hooks", async ()
 	);
 	const tx = Transaction.make(transactionStep0, transactionStep1);
 
-	await Transaction.run(tx, undefined, {
+	await Transaction.run(undefined, {
 		onStepSuccess: (meta) => successes.push(meta),
 		onStepFailure: (meta) => failures.push(meta),
 		onUndo: (meta) => undos.push(meta),
-	});
+	})(tx);
 
 	expect(successes).toStrictEqual([{ stepId: "s1", output: "val1" }]);
 	expect(failures).toStrictEqual([{ stepId: "s2", error: "fail2" }]);
@@ -553,11 +544,11 @@ test("telemetry: fires onUndo with the error when undo fails", async () => {
 	const transactionStep1 = Transaction.step("s2", () => Task.Result.make.err("step2_fail"));
 	const tx = Transaction.make(transactionStep0, transactionStep1);
 
-	const outcome = await Transaction.run(tx, undefined, {
+	const outcome = await Transaction.run(undefined, {
 		onUndo: (meta) => {
 			undos.push(meta);
 		},
-	});
+	})(tx);
 
 	expect(Result.is.err(outcome)).toBe(true);
 	expect(undos).toStrictEqual([{ stepId: "s1", error: "undo_failed_err" }]);
@@ -574,27 +565,22 @@ test("signals: aborts a running transaction through the run signal", async () =>
 	const transactionStep2 = Transaction.step("s3", () => Task.Result.make.ok("v3"));
 	const tx = Transaction.make(transactionStep0, transactionStep1, transactionStep2);
 
-	const outcome = await Transaction.run(tx, undefined, { signal: callerCtrl.signal });
+	const outcome = await Transaction.run(undefined, { signal: callerCtrl.signal })(tx);
 
 	expect(outcome).toStrictEqual(
-		Result.make.err({
-			kind: "TransactionFailure",
-			stepId: "s3",
-			error: { kind: "TransactionAborted", reason: expect.any(Error) },
-			undoErrors: [],
-		}),
+		Result.make.err({ kind: "TransactionFailure", stepId: "s3", error: Aborted.make(expect.any(Error)), undoErrors: [] }),
 	);
 });
 
-test("run: accepts run options as third argument when transaction takes no input", async () => {
+test("run: accepts run options when the transaction takes no input", async () => {
 	let succeeded = false;
 	const transactionStep0 = Transaction.step("s1", () => Task.Result.make.ok("v1"));
 	const tx = Transaction.make(transactionStep0);
-	const outcome = await Transaction.run(tx, undefined, {
+	const outcome = await Transaction.run(undefined, {
 		onStepSuccess: () => {
 			succeeded = true;
 		},
-	});
+	})(tx);
 	expect(Result.is.ok(outcome)).toBe(true);
 	expect(succeeded).toBe(true);
 });
@@ -603,12 +589,12 @@ test("run: returns initial stepId when empty transaction is aborted prior to exe
 	const ctrl = new AbortController();
 	ctrl.abort(new Error("aborted_empty"));
 	const tx = Transaction.make();
-	const outcome = await Transaction.run(tx, undefined, { signal: ctrl.signal });
+	const outcome = await Transaction.run(undefined, { signal: ctrl.signal })(tx);
 	expect(outcome).toStrictEqual(
 		Result.make.err({
 			kind: "TransactionFailure",
 			stepId: "initial",
-			error: { kind: "TransactionAborted", reason: expect.any(Error) },
+			error: Aborted.make(expect.any(Error)),
 			undoErrors: [],
 		}),
 	);
@@ -618,14 +604,9 @@ test("run: preserves a null signal reason before execution", async () => {
 	const ctrl = new AbortController();
 	ctrl.abort(null);
 	const tx = Transaction.make();
-	const outcome = await Transaction.run(tx, undefined, { signal: ctrl.signal });
+	const outcome = await Transaction.run(undefined, { signal: ctrl.signal })(tx);
 	expect(outcome).toStrictEqual(
-		Result.make.err({
-			kind: "TransactionFailure",
-			stepId: "initial",
-			error: { kind: "TransactionAborted", reason: null },
-			undoErrors: [],
-		}),
+		Result.make.err({ kind: "TransactionFailure", stepId: "initial", error: Aborted.make(null), undoErrors: [] }),
 	);
 });
 
@@ -639,14 +620,9 @@ test("run: preserves a null signal reason between steps", async () => {
 	const transactionStep1 = Transaction.step("s2", () => Task.Result.make.ok("v2"));
 	const tx = Transaction.make(transactionStep0, transactionStep1);
 
-	const outcome = await Transaction.run(tx, undefined, { signal: ctrl.signal });
+	const outcome = await Transaction.run(undefined, { signal: ctrl.signal })(tx);
 	expect(outcome).toStrictEqual(
-		Result.make.err({
-			kind: "TransactionFailure",
-			stepId: "s2",
-			error: { kind: "TransactionAborted", reason: null },
-			undoErrors: [],
-		}),
+		Result.make.err({ kind: "TransactionFailure", stepId: "s2", error: Aborted.make(null), undoErrors: [] }),
 	);
 });
 
@@ -668,7 +644,7 @@ test("run: forwards an input object shaped like RunOptions (e.g. { signal: Abort
 	);
 	const tx = Transaction.make(transactionStep0);
 
-	const outcome = await Transaction.run(tx, { signal: inputCtrl.signal }, { signal: runCtrl.signal });
+	const outcome = await Transaction.run({ signal: inputCtrl.signal }, { signal: runCtrl.signal })(tx);
 	expect(outcome).toStrictEqual(
 		Result.make.ok({ inspect: { sameSignal: true, runSignal: true, reason: "domain_abort_payload" } }),
 	);
@@ -676,7 +652,7 @@ test("run: forwards an input object shaped like RunOptions (e.g. { signal: Abort
 
 test("forward: executes an empty transaction returning an empty record", async () => {
 	const tx = Transaction.make();
-	const outcome = await Transaction.run(tx);
+	const outcome = await Transaction.run()(tx);
 	expect(outcome).toStrictEqual(Result.make.ok({}));
 });
 
@@ -697,9 +673,9 @@ test("stepFactory: creates reusable steps with per-run input and compensation", 
 	});
 	const publish = Transaction.make(upload, fail);
 	const uploadOnly = Transaction.make(upload);
-	const failed = await Transaction.run(publish, { name: "report.pdf" });
+	const failed = await Transaction.run({ name: "report.pdf" })(publish);
 	expect(Result.is.err(failed)).toBe(true);
 	expect(events).toStrictEqual(["upload:report.pdf", "index:report.pdf", "undo:report.pdf"]);
-	const success = await Transaction.run(uploadOnly, { name: "other.pdf" });
+	const success = await Transaction.run({ name: "other.pdf" })(uploadOnly);
 	expect(success).toStrictEqual(Result.make.ok({ upload: "other.pdf" }));
 });

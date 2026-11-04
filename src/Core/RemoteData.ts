@@ -3,6 +3,7 @@
 // =============================================================================
 import type { WithError, WithKind, WithValue } from "../internal/InternalTypes";
 import { type Maybe, Maybe as CoreMaybe } from "./Maybe.ts";
+import type { Op } from "./Op.ts";
 import { type Result, Result as CoreResult } from "./Result.ts";
 
 // =============================================================================
@@ -412,6 +413,47 @@ export const RemoteData = {
 		 */
 		Maybe: <const E>(onNone: () => E) => <A = never>(maybe: Maybe<A>): RemoteData<E, A> =>
 			CoreMaybe.is.some(maybe) ? makeSuccess(maybe.value) : makeFailure(onNone()),
+
+		/**
+		 * Converts an `Op` manager state into the matching UI state.
+		 *
+		 * `Idle` becomes `NotAsked`, in-flight states (`Pending`, `Queued`, `Retrying`) become
+		 * `Loading`, `OpOk` becomes `Success`, and `OpErr` becomes `Failure`. A settled `OpNil`
+		 * (aborted, dropped, replaced, or evicted run) has no value or error to show, so it becomes
+		 * `NotAsked`; subscribe to the manager and read `state` again when the next run settles.
+		 *
+		 * @see {@link RemoteData.from.Result} to convert an already settled `Result`.
+		 *
+		 * @example
+		 * ```ts
+		 * const state = pipe(
+		 *   searchManager.state,
+		 *   RemoteData.from.OpState,
+		 * );
+		 *
+		 * pipe(
+		 *   state,
+		 *   RemoteData.match({
+		 *     notAsked: () => renderPrompt(),
+		 *     loading: () => renderSpinner(),
+		 *     failure: (error) => renderError(error),
+		 *     success: (results) => renderResults(results),
+		 *   }),
+		 * );
+		 * ```
+		 */
+		OpState: <E = never, A = never>(state: Op.State<E, A>): RemoteData<E, A> => {
+			if (state.kind === "Idle" || state.kind === "OpNil") {
+				return makeNotAsked();
+			}
+			if (state.kind === "OpOk") {
+				return makeSuccess(state.value);
+			}
+			if (state.kind === "OpErr") {
+				return makeFailure(state.error);
+			}
+			return makeLoading();
+		},
 	},
 
 	/**

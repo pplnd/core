@@ -23,9 +23,9 @@ import { type Task } from "./Task.ts";
  *   (conn) => Task.tryCatch(() => conn.close(), { onError: () => {} }),
  * );
  *
- * const result = await Resource.use(dbResource, {
- *   run: (conn) => queryUser(conn, userId),
- * });
+ * const result = await Resource.use({
+ *   run: (conn: DbClient) => queryUser(conn, userId),
+ * })(dbResource);
  * // conn.close() runs after queryUser succeeds or returns an error
  * ```
  */
@@ -92,18 +92,17 @@ const makeResource = <E, A>(acquire: Task.Result<E, A>, release: (value: A) => T
 		return acquired;
 	});
 
-const use = <E1, A, E2, B>(
-	resource: Resource<E1, A>,
-	options: { readonly run: (value: A) => Task.Result<E2, B>; readonly signal?: AbortSignal; },
-): Deferred<Result<E1 | E2, B>> =>
-	Deferred.from.Promise((async () => {
-		const { signal } = options;
-		const scope = createScope();
-		const acquired = await toInternal(resource)[_allocate](scope, signal);
-		const outcome = Result.is.err(acquired) ? acquired : await Deferred.to.Promise(options.run(acquired.value)(signal));
-		await scope.close(signal);
-		return outcome;
-	})());
+const use =
+	<A, E2, B>(options: { readonly run: (value: A) => Task.Result<E2, B>; readonly signal?: AbortSignal; }) =>
+	<E1 = never>(resource: Resource<E1, A>): Deferred<Result<E1 | E2, B>> =>
+		Deferred.from.Promise((async () => {
+			const { signal } = options;
+			const scope = createScope();
+			const acquired = await toInternal(resource)[_allocate](scope, signal);
+			const outcome = Result.is.err(acquired) ? acquired : await Deferred.to.Promise(options.run(acquired.value)(signal));
+			await scope.close(signal);
+			return outcome;
+		})());
 
 const map = <A, B>(transform: (value: A) => B) => <E = never>(resource: Resource<E, A>): Resource<E, B> =>
 	makeInternalResource(async (scope, signal) => {
@@ -179,11 +178,14 @@ export const Resource = {
 	 * returns an error. If acquisition returns an error, work and its release are skipped.
 	 * Release tasks and callbacks must not throw or reject.
 	 *
+	 * The `run` callback parameter must be annotated: the resource arrives after the options,
+	 * so TypeScript cannot infer its value type from the resource.
+	 *
 	 * @example
 	 * ```ts
-	 * const rows = await Resource.use(dbResource, {
-	 *   run: (conn) => runQuery(conn, "SELECT * FROM users"),
-	 * });
+	 * const rows = await Resource.use({
+	 *   run: (conn: DbClient) => runQuery(conn, "SELECT * FROM users"),
+	 * })(dbResource);
 	 * // conn is closed whether the query succeeds or returns an error
 	 * ```
 	 */
@@ -240,9 +242,9 @@ export const Resource = {
 	 * ```ts
 	 * const combined = Resource.combine(dbResource, cacheResource);
 	 *
-	 * const result = await Resource.use(combined, {
-	 *   run: ([conn, cache]) => lookupWithFallback(conn, cache, userId),
-	 * });
+	 * const result = await Resource.use({
+	 *   run: ([conn, cache]: readonly [DbClient, CacheClient]) => lookupWithFallback(conn, cache, userId),
+	 * })(combined);
 	 * ```
 	 */
 	combine,
@@ -267,9 +269,9 @@ export const Resource = {
 	 *   s3: createTempBucket(s3Config),
 	 * });
 	 *
-	 * const result = await Resource.use(appInfra, {
-	 *   run: ({ db, redis, s3 }) => runMigration(db, redis, s3),
-	 * });
+	 * const result = await Resource.use({
+	 *   run: ({ db, redis, s3 }: AppInfra) => runMigration(db, redis, s3),
+	 * })(appInfra);
 	 * ```
 	 */
 	all,

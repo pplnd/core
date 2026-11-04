@@ -4,19 +4,20 @@ import { Duration } from "../../Types/Duration.ts";
 import { RetryPolicy } from "../../Types/RetryPolicy.ts";
 import { Deferred } from "../Deferred.ts";
 import { Op } from "../Op.ts";
+import { Task } from "../Task.ts";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
 
 /** Resolves immediately with the input value. */
-const immediateOp = Op.make((_signal: AbortSignal) => (n: number) => Promise.resolve(n), { onError: String });
+const immediateOp = Op.make((n: number) => Task.Result.tryCatch(() => Promise.resolve(n), { onError: String }));
 
 /** Resolves after one microtask tick — genuinely async without a real timer. */
-const tickOp = Op.make((_signal: AbortSignal) => (n: number) => Promise.resolve().then(() => n), { onError: String });
+const tickOp = Op.make((n: number) => Task.Result.tryCatch(() => Promise.resolve().then(() => n), { onError: String }));
 
 /** Promise that never settles — useful for abort() tests on restartable. */
-const neverOp = Op.make((_signal: AbortSignal) => (_: number) => new Promise<number>(() => {}), { onError: String });
+const neverOp = Op.make((_: number) => Task.Result.tryCatch(() => new Promise<number>(() => {}), { onError: String }));
 
 /**
  * Like neverOp but rejects when the AbortSignal fires.
@@ -24,10 +25,12 @@ const neverOp = Op.make((_signal: AbortSignal) => (_: number) => new Promise<num
  * in-flight item's Deferred after execute() settles, so the factory must
  * respect the signal to avoid hanging forever.
  */
-const signalNeverOp = Op.make((signal: AbortSignal) => (_: number) =>
-	new Promise<number>((res, reject) => {
-		signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
-	}), { onError: () => "aborted" });
+const signalNeverOp = Op.make((_: number) =>
+	Task.Result.tryCatch((signal) =>
+		new Promise<number>((_res, reject) => {
+			signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+		}), { onError: () => "aborted" })
+);
 
 const arbOkOutcome = fc.integer().map((n) => Op.Outcome.make.ok(n) as Op.Outcome<string, number>);
 const arbErrOutcome = fc.string().map((s) => Op.Outcome.make.err(s) as Op.Outcome<string, number>);
@@ -262,10 +265,12 @@ test("interpret: once post-completion runs produce DroppedNil", async () => {
 test("interpret: retries factory exactly specified attempts when failing", async () => {
 	await fc.assert(fc.asyncProperty(fc.integer({ min: 1, max: 5 }), async (attempts) => {
 		let calls = 0;
-		const countingOp = Op.make((_signal: AbortSignal) => (_: number) => {
-			calls++;
-			return Promise.reject(new Error("fail"));
-		}, { onError: (e) => (e as Error).message });
+		const countingOp = Op.make((_: number) =>
+			Task.Result.tryCatch(() => {
+				calls++;
+				return Promise.reject(new Error("fail"));
+			}, { onError: (e) => (e as Error).message })
+		);
 		const manager = Op.interpret(countingOp, {
 			strategy: "exclusive",
 			retry: RetryPolicy.constant({ attempts, delay: Duration.milliseconds(0) }),

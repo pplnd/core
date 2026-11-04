@@ -3,6 +3,7 @@ import { expectTypeOf, test } from "vitest";
 import { pipe } from "../../Composition/pipe.ts";
 import { Duration } from "../../Types/Duration.ts";
 import { RetryPolicy } from "../../Types/RetryPolicy.ts";
+import { Aborted } from "../Aborted.ts";
 import { type Result } from "../Result.ts";
 import { Task } from "../Task.ts";
 
@@ -26,10 +27,10 @@ test("all & sequential: infers heterogeneous error unions and tuple value types"
 	const t2: Task.Result<"err", string> = Task.Result.make.err("err");
 
 	const allTask = Task.Result.all([t1, t2]);
-	expectTypeOf(allTask).toEqualTypeOf<Task.Result<"err" | Task.Aborted, [number, string]>>();
+	expectTypeOf(allTask).toEqualTypeOf<Task.Result<"err" | Aborted, [number, string]>>();
 
 	const seqTask = Task.Result.sequential([t1, t2]);
-	expectTypeOf(seqTask).toEqualTypeOf<Task.Result<"err" | Task.Aborted, [number, string]>>();
+	expectTypeOf(seqTask).toEqualTypeOf<Task.Result<"err" | Aborted, [number, string]>>();
 });
 
 test("make: infers precise variant types for Ok and Err tasks", () => {
@@ -146,8 +147,8 @@ test("retry: preserves error and value channels with optional onRetry and when",
 });
 
 test("empty collections: preserve the aborted-only error channel", () => {
-	expectTypeOf(Task.Result.all([])).toEqualTypeOf<Task.Result<Task.Aborted, []>>();
-	expectTypeOf(Task.Result.sequential([])).toEqualTypeOf<Task.Result<Task.Aborted, []>>();
+	expectTypeOf(Task.Result.all([])).toEqualTypeOf<Task.Result<Aborted, []>>();
+	expectTypeOf(Task.Result.sequential([])).toEqualTypeOf<Task.Result<Aborted, []>>();
 	expectTypeOf(Task.Result.struct({})).toEqualTypeOf<Task.Result<never, {}>>();
 });
 

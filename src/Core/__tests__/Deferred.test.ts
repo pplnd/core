@@ -106,3 +106,87 @@ test("all: composes in pipe chain", async () => {
 	);
 	expect(result).toStrictEqual(["a", "b"]);
 });
+
+// --- map ---
+
+test("map: transforms the resolved value", async () => {
+	const result = await pipe(Deferred.from.Promise(Promise.resolve(5)), Deferred.map((n: number) => n * 3));
+	expect(result).toBe(15);
+});
+
+test("map: does not run the transform before the Deferred resolves", async () => {
+	let called = false;
+	let release: (value: number) => void = () => {};
+	const pending = new Promise<number>((resolve) => {
+		release = resolve;
+	});
+	const mapped = pipe(
+		Deferred.from.Promise(pending),
+		Deferred.map((n: number) => {
+			called = true;
+			return n + 1;
+		}),
+	);
+
+	expect(called).toBe(false);
+	release(1);
+	const transformed = await mapped;
+	expect(transformed).toBe(2);
+	expect(called).toBe(true);
+});
+
+// --- chain ---
+
+test("chain: sequences a Deferred-returning step", async () => {
+	const result = await pipe(
+		Deferred.from.Promise(Promise.resolve("user_1")),
+		Deferred.chain((id: string) => Deferred.from.Promise(Promise.resolve(`orders:${id}`))),
+	);
+	expect(result).toBe("orders:user_1");
+});
+
+test("chain: does not start the next Deferred until the first resolves", async () => {
+	let started = false;
+	let release: (value: number) => void = () => {};
+	const pending = new Promise<number>((resolve) => {
+		release = resolve;
+	});
+	const chained = pipe(
+		Deferred.from.Promise(pending),
+		Deferred.chain((n: number) => {
+			started = true;
+			return Deferred.from.Promise(Promise.resolve(n * 2));
+		}),
+	);
+
+	expect(started).toBe(false);
+	release(3);
+	const value = await chained;
+	expect(value).toBe(6);
+});
+
+// --- tap ---
+
+test("tap: observes the value and passes it through unchanged", async () => {
+	let seen: number | undefined;
+	const result = await pipe(
+		Deferred.from.Promise(Promise.resolve(7)),
+		Deferred.tap((n: number) => {
+			seen = n;
+		}),
+	);
+	expect(seen).toBe(7);
+	expect(result).toBe(7);
+});
+
+test("tap: composes with map in a single pipeline", async () => {
+	const order: string[] = [];
+	const result = await pipe(
+		Deferred.from.Promise(Promise.resolve(2)),
+		Deferred.tap(() => order.push("tap")),
+		Deferred.map((n: number) => n * 10),
+		Deferred.tap(() => order.push("after-map")),
+	);
+	expect(order).toStrictEqual(["tap", "after-map"]);
+	expect(result).toBe(20);
+});

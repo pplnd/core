@@ -27,6 +27,7 @@ import type { RetryPolicy } from "../Types/RetryPolicy.ts";
 import { Deferred } from "./Deferred.ts";
 import { Maybe as CoreMaybe } from "./Maybe.ts";
 import { Result as CoreResult } from "./Result.ts";
+import type { Task } from "./Task.ts";
 
 declare const _opBrand: unique symbol;
 
@@ -88,13 +89,15 @@ type AllInterpretOptions<Args extends readonly unknown[], E> =
  *
  * @example
  * ```ts
- * const fetchUser = Op.make(
- *   (signal) => (id: string) =>
- *     fetch(`/users/${id}`, { signal }).then(r => {
- *       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
- *       return r.json() as Promise<User>;
- *     }),
- *   { onError: (e) => new ApiError(e) },
+ * const fetchUser = Op.make((id: string) =>
+ *   Task.Result.tryCatch(
+ *     (signal) =>
+ *       fetch(`/users/${id}`, { signal }).then((r) => {
+ *         if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+ *         return r.json() as Promise<User>;
+ *       }),
+ *     { onError: (error): ApiError => new ApiError(String(error)) },
+ *   )
  * );
  *
  * const manager = Op.interpret(fetchUser, { strategy: "restartable" });
@@ -822,57 +825,20 @@ const OpOutcome = {
 	},
 };
 
-function makeFn<Fn extends (...args: never[]) => unknown, E = unknown>(
-	factory: (signal: AbortSignal) => Fn,
-	options: { readonly id?: string; onError: (error: unknown) => E; },
-): Op<Parameters<Fn>, E, Awaited<ReturnType<Fn>>>;
-function makeFn<Input, Out, E = unknown>(
-	factory: (signal: AbortSignal) => (...args: NormalizeArgs<Input>) => PromiseLike<Out> | Out,
-	options: { readonly id?: string; onError: (error: unknown) => E; },
-): Op<NormalizeArgs<Input>, E, Awaited<Out>>;
-function makeFn<Args extends readonly unknown[], Out, E = unknown>(
-	factory: (signal: AbortSignal) => (...args: Args) => PromiseLike<Out> | Out,
-	options: { readonly id?: string; onError: (error: unknown) => E; },
-): Op<Args, E, Awaited<Out>>;
+function makeFn<Args extends readonly unknown[], E, A>(
+	task: (...args: Args) => Task.Result<E, A>,
+	options?: { readonly id?: string; },
+): Op<Args, E, A>;
 function makeFn(
-	factory: (signal: AbortSignal) => (...args: readonly unknown[]) => unknown,
-	options: { readonly id?: string; onError: (error: unknown) => unknown; },
+	task: (...args: readonly unknown[]) => Task.Result<unknown, unknown>,
+	options?: { readonly id?: string; },
 ): unknown {
 	return {
-		...(options.id !== undefined ? { id: options.id } : {}),
-		[Symbol.toStringTag]: options.id !== undefined ? `Op(${options.id})` : "Op",
+		...(options?.id !== undefined ? { id: options.id } : {}),
+		[Symbol.toStringTag]: options?.id !== undefined ? `Op(${options.id})` : "Op",
 		[OP_FACTORY]: (args: readonly unknown[], signal: AbortSignal) =>
-			Deferred.from.Promise(
-				(async () => {
-					const fn = factory(signal);
-					return await fn(...args);
-				})().then((value): CoreResult<unknown, unknown> => CoreResult.make.ok(value)).catch(
-					(error): CoreResult<unknown, unknown> | null => {
-						if (signal.aborted) { return null; }
-						return CoreResult.make.err(options.onError(error));
-					},
-				),
-			),
+			task(...args)(signal) as Deferred<CoreResult<unknown, unknown> | null>,
 	};
-}
-
-function liftFn<Fn extends (...args: never[]) => unknown>(
-	factory: (signal: AbortSignal) => Fn,
-	options?: { readonly id?: string; },
-): Op<Parameters<Fn>, unknown, Awaited<ReturnType<Fn>>>;
-function liftFn<Input, Out>(
-	factory: (signal: AbortSignal) => (...args: NormalizeArgs<Input>) => PromiseLike<Out> | Out,
-	options?: { readonly id?: string; },
-): Op<NormalizeArgs<Input>, unknown, Awaited<Out>>;
-function liftFn<Args extends readonly unknown[], Out>(
-	factory: (signal: AbortSignal) => (...args: Args) => PromiseLike<Out> | Out,
-	options?: { readonly id?: string; },
-): Op<Args, unknown, Awaited<Out>>;
-function liftFn(
-	factory: (signal: AbortSignal) => (...args: readonly unknown[]) => unknown,
-	options?: { readonly id?: string; },
-): unknown {
-	return makeFn(factory, { id: options?.id, onError: (error) => error });
 }
 
 export const Op = {
@@ -952,42 +918,25 @@ export const Op = {
 	},
 
 	/**
-	 * Describes work that receives an abort signal and maps thrown errors to a chosen error type.
-	 * Errors from work that has already been aborted are ignored.
+	 * Turns a task factory into an operation blueprint.
 	 *
-	 * Arguments to the returned function can be inferred automatically or provided as explicit generics:
-	 * - `Op.make((signal) => (opts: Payload) => ...)` (inferred)
-	 * - `Op.make<Payload, User>((signal) => (opts) => ...)` (explicit input/output)
-	 * - `Op.make<typeof apiFn>((signal) => apiFn)` (explicit function signature)
+	 * The factory receives the arguments passed to `manager.run(...)` and returns a
+	 * `Task.Result`, so the error channel is already typed before `Op` sees it. Map raw
+	 * promises at the boundary with `Task.Result.tryCatch`; `Op` never inspects thrown values.
 	 *
-	 * @see {@link Op.lift} to construct an Op without explicit error transformation.
+	 * @see {@link Op.interpret} to attach a concurrency strategy to the blueprint.
 	 *
 	 * @example
 	 * ```ts
-	 * const fetchUser = Op.make(
-	 *   (signal) => (id: string) => fetch(`/users/${id}`, { signal }).then(r => r.json() as Promise<User>),
-	 *   { onError: (error) => new ApiError(error) },
+	 * const fetchUser = Op.make((id: string) =>
+	 *   Task.Result.tryCatch(
+	 *     (signal) => fetch(`/users/${id}`, { signal }).then((r) => r.json() as Promise<User>),
+	 *     { onError: (error): ApiError => new ApiError(String(error)) },
+	 *   )
 	 * );
 	 * ```
 	 */
 	make: makeFn,
-
-	/**
-	 * Describes work that receives an abort signal and keeps thrown errors as `unknown`.
-	 *
-	 * Arguments to the returned function can be inferred automatically or provided as explicit generics:
-	 * - `Op.lift((signal) => (opts: Payload) => ...)` (inferred)
-	 * - `Op.lift<Payload, User>((signal) => (opts) => ...)` (explicit input/output)
-	 * - `Op.lift<typeof apiFn>((signal) => apiFn)` (explicit function signature)
-	 *
-	 * @see {@link Op.make} to construct an Op with a typed error transformation.
-	 *
-	 * @example
-	 * ```ts
-	 * const fetchOp = Op.lift((signal) => (url: string) => fetch(url, { signal }));
-	 * ```
-	 */
-	lift: liftFn,
 
 	/**
 	 * Subscribes to an Op manager and executes a side-effect whenever the manager emits an Ok outcome.

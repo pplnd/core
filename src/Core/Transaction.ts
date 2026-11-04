@@ -1,4 +1,5 @@
 import type { WithKind } from "../internal/InternalTypes.ts";
+import { Aborted } from "./Aborted.ts";
 import { Deferred } from "./Deferred.ts";
 import { Result } from "./Result.ts";
 import { Task } from "./Task.ts";
@@ -45,7 +46,7 @@ const _internalStep = Symbol("Transaction.internalStep");
  * );
  * const checkout = Transaction.make(reservation, payment);
  *
- * const outcome = await Transaction.run(checkout, orderInput);
+ * const outcome = await Transaction.run(orderInput)(checkout);
  * ```
  */
 export type Transaction<
@@ -63,9 +64,6 @@ export type Transaction<
 };
 
 export namespace Transaction {
-	/** Cancellation observed before starting a step. */
-	export type Aborted = { readonly kind: "TransactionAborted"; readonly reason: unknown; };
-
 	/**
 	 * Telemetry and failure metadata when an individual step's compensating `undo` action fails.
 	 */
@@ -373,102 +371,98 @@ const makeTransaction = <const S extends readonly AnyStepInternal[]>(
  *
  * @see {@link Transaction.step} for configuring transactional steps with compensating undo actions.
  *
+ * A transaction with no input is run as `Transaction.run()(transaction)`. Pass `undefined` as the
+ * input when such a transaction also needs run options:
+ * `Transaction.run(undefined, { signal })(transaction)`.
+ *
  * @example
  * ```ts
- * const outcome = await Transaction.run(checkoutTransaction, orderInput, { signal });
+ * const outcome = await Transaction.run(orderInput)(checkoutTransaction);
  * ```
  */
-/**
- * Executes a zero-input Transaction with optional run options.
- */
-function runTransaction<Acc extends Record<string, unknown>, E, EUndo>(
+function runTransaction(): <Acc extends Record<string, unknown>, E, EUndo>(
 	transaction: Transaction<void, Acc, E, EUndo>,
-	input?: undefined,
-	options?: Transaction.RunOptions<NoInfer<E>, NoInfer<EUndo>>,
-): Deferred<Result<Transaction.Failure<E | Transaction.Aborted, EUndo>, Acc>>;
+) => Deferred<Result<Transaction.Failure<E | Aborted, EUndo>, Acc>>;
 
-/**
- * Executes a parameterized Transaction with input and optional run options.
- */
-function runTransaction<In, Acc extends Record<string, unknown>, E, EUndo>(
-	transaction: Transaction<In, Acc, E, EUndo>,
-	input: NoInfer<In>,
-	options?: Transaction.RunOptions<NoInfer<E>, NoInfer<EUndo>>,
-): Deferred<Result<Transaction.Failure<E | Transaction.Aborted, EUndo>, Acc>>;
-
-function runTransaction<In, Acc extends Record<string, unknown>, E, EUndo>(
-	transaction: Transaction<In, Acc, E, EUndo>,
-	input?: In,
+function runTransaction<In>(
+	input: In,
 	options?: Transaction.RunOptions,
-): Deferred<Result<Transaction.Failure<E | Transaction.Aborted, EUndo>, Acc>> {
-	return Deferred.from.Promise((async () => {
-		const internal = toInternal(transaction)[_internalTransaction];
+): <Acc extends Record<string, unknown>, E, EUndo>(
+	transaction: Transaction<In, Acc, E, EUndo>,
+) => Deferred<Result<Transaction.Failure<E | Aborted, EUndo>, Acc>>;
 
-		const activeSignal = options?.signal;
+function runTransaction<In>(input?: In, options?: Transaction.RunOptions) {
+	return <Acc extends Record<string, unknown>, E, EUndo>(
+		transaction: Transaction<In, Acc, E, EUndo>,
+	): Deferred<Result<Transaction.Failure<E | Aborted, EUndo>, Acc>> =>
+		Deferred.from.Promise((async () => {
+			const internal = toInternal(transaction)[_internalTransaction];
 
-		if (activeSignal?.aborted) {
-			return Result.make.err({
-				kind: "TransactionFailure" as const,
-				stepId: internal.steps[0]?.id ?? "initial",
-				error: { kind: "TransactionAborted" as const, reason: activeSignal.reason },
-				undoErrors: [],
-			});
-		}
-
-		const acc: Record<string, unknown> = {};
-		const undoStack: UndoItem[] = [];
-
-		for (let i = 0; i < internal.steps.length; i++) {
-			const stepDef = internal.steps[i];
+			const activeSignal = options?.signal;
 
 			if (activeSignal?.aborted) {
-				const undoErrors = await drainUndoStack(undoStack, options, input);
 				return Result.make.err({
 					kind: "TransactionFailure" as const,
-					stepId: stepDef.id,
-					error: { kind: "TransactionAborted" as const, reason: activeSignal.reason },
-					undoErrors: undoErrors as readonly Transaction.UndoFailure<EUndo>[],
+					stepId: internal.steps[0]?.id ?? "initial",
+					error: Aborted.make(activeSignal.reason),
+					undoErrors: [],
 				});
 			}
 
-			const dependencies: Record<string, unknown> = {};
-			for (const [name, dependency] of Object.entries(stepDef.deps)) {
-				if (dependency !== undefined) {
-					dependencies[name] = acc[dependency.id];
+			const acc: Record<string, unknown> = {};
+			const undoStack: UndoItem[] = [];
+
+			for (let i = 0; i < internal.steps.length; i++) {
+				const stepDef = internal.steps[i];
+
+				if (activeSignal?.aborted) {
+					const undoErrors = await drainUndoStack(undoStack, options, input);
+					return Result.make.err({
+						kind: "TransactionFailure" as const,
+						stepId: stepDef.id,
+						error: Aborted.make(activeSignal.reason),
+						undoErrors: undoErrors as readonly Transaction.UndoFailure<EUndo>[],
+					});
+				}
+
+				const dependencies: Record<string, unknown> = {};
+				for (const [name, dependency] of Object.entries(stepDef.deps)) {
+					if (dependency !== undefined) {
+						dependencies[name] = acc[dependency.id];
+					}
+				}
+				const stepTask: Task.Result<unknown, unknown> = (signal) =>
+					stepDef.run({ ctx: { input }, deps: dependencies })(signal);
+				const stepOutcome = await Deferred.to.Promise(stepTask(activeSignal));
+				if (Result.is.err(stepOutcome)) {
+					const { error } = stepOutcome;
+					options?.onStepFailure?.({ stepId: stepDef.id, error });
+
+					const undoErrors = await drainUndoStack(undoStack, options, input);
+					return Result.make.err({
+						kind: "TransactionFailure" as const,
+						stepId: stepDef.id,
+						error: error as E,
+						undoErrors: undoErrors as readonly Transaction.UndoFailure<EUndo>[],
+					});
+				}
+
+				const out = stepOutcome.value;
+				options?.onStepSuccess?.({ stepId: stepDef.id, output: out });
+
+				acc[stepDef.id] = out;
+				if (stepDef.undo) {
+					undoStack.push({
+						id: stepDef.id,
+						undo: stepDef.undo,
+						output: out,
+						dependencies: Object.freeze({ ...dependencies }),
+					});
 				}
 			}
-			const stepTask: Task.Result<unknown, unknown> = (signal) =>
-				stepDef.run({ ctx: { input }, deps: dependencies })(signal);
-			const stepOutcome = await Deferred.to.Promise(stepTask(activeSignal));
-			if (Result.is.err(stepOutcome)) {
-				const { error } = stepOutcome;
-				options?.onStepFailure?.({ stepId: stepDef.id, error });
 
-				const undoErrors = await drainUndoStack(undoStack, options, input);
-				return Result.make.err({
-					kind: "TransactionFailure" as const,
-					stepId: stepDef.id,
-					error: error as E,
-					undoErrors: undoErrors as readonly Transaction.UndoFailure<EUndo>[],
-				});
-			}
-
-			const out = stepOutcome.value;
-			options?.onStepSuccess?.({ stepId: stepDef.id, output: out });
-
-			acc[stepDef.id] = out;
-			if (stepDef.undo) {
-				undoStack.push({
-					id: stepDef.id,
-					undo: stepDef.undo,
-					output: out,
-					dependencies: Object.freeze({ ...dependencies }),
-				});
-			}
-		}
-
-		return Result.make.ok(acc as Acc);
-	})());
+			return Result.make.ok(acc as Acc);
+		})());
 }
 
 // =============================================================================
@@ -530,7 +524,7 @@ export const Transaction = {
 	 *
 	 * @example
 	 * ```ts
-	 * const outcome = await Transaction.run(checkout, orderInput, { signal });
+	 * const outcome = await Transaction.run(orderInput, { signal })(checkout);
 	 * ```
 	 */
 	run: runTransaction,

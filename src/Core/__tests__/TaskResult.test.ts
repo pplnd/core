@@ -1183,13 +1183,13 @@ test("all: returns Ok([]) for empty input", async () => {
 	expect(result).toStrictEqual(Result.make.ok([]));
 });
 
-test("all: pre-aborted signal returns Task.Aborted without starting work", async () => {
+test("all: pre-aborted signal returns Aborted without starting work", async () => {
 	const controller = new AbortController();
 	controller.abort("stopped");
 	let starts = 0;
 	const t = Task.Result.from.Task(Task.from.sync(() => ++starts));
 	const result = await Task.Result.all([t, t])(controller.signal);
-	expect(result).toStrictEqual(Result.make.err({ kind: "TaskAborted", reason: "stopped" }));
+	expect(result).toStrictEqual(Result.make.err({ kind: "Aborted", reason: "stopped" }));
 	expect(starts).toBe(0);
 });
 
@@ -1202,7 +1202,7 @@ test("all: ignores a late task result after the caller aborts", async () => {
 	const task: Task.Result<never, number> = () => Deferred.from.Promise(pending);
 	const outcome = Task.Result.all([task])(controller.signal);
 	controller.abort("cancelled");
-	await expect(outcome).resolves.toStrictEqual(Result.make.err({ kind: "TaskAborted", reason: "cancelled" }));
+	await expect(outcome).resolves.toStrictEqual(Result.make.err({ kind: "Aborted", reason: "cancelled" }));
 	finish(Result.make.ok(1));
 	await pending;
 	await Promise.resolve();
@@ -1268,7 +1268,7 @@ test("all: clamps invalid concurrency values to sequential execution", async () 
 	}
 });
 
-test("all: settles with Task.Aborted when caller signal aborts during execution", async () => {
+test("all: settles with Aborted when caller signal aborts during execution", async () => {
 	const controller = new AbortController();
 	let cancelled = false;
 	const slow = (signal?: AbortSignal) => {
@@ -1281,7 +1281,7 @@ test("all: settles with Task.Aborted when caller signal aborts during execution"
 	const promise = Task.Result.all([slow])(controller.signal);
 	controller.abort("caller-cancelled");
 	const result = await promise;
-	expect(result).toStrictEqual(Result.make.err({ kind: "TaskAborted", reason: "caller-cancelled" }));
+	expect(result).toStrictEqual(Result.make.err({ kind: "Aborted", reason: "caller-cancelled" }));
 	expect(cancelled).toBe(true);
 });
 
@@ -1315,13 +1315,13 @@ test("sequential: stops on first error and skips remaining tasks", async () => {
 	expect(ranNext).toBe(false);
 });
 
-test("sequential: pre-aborted signal returns Task.Aborted without starting work", async () => {
+test("sequential: pre-aborted signal returns Aborted without starting work", async () => {
 	const controller = new AbortController();
 	controller.abort("aborted");
 	let starts = 0;
 	const task = Task.Result.from.Task(Task.from.sync(() => ++starts));
 	const result = await Task.Result.sequential([task, task])(controller.signal);
-	expect(result).toStrictEqual(Result.make.err({ kind: "TaskAborted", reason: "aborted" }));
+	expect(result).toStrictEqual(Result.make.err({ kind: "Aborted", reason: "aborted" }));
 	expect(starts).toBe(0);
 });
 

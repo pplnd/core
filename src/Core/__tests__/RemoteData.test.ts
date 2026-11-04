@@ -548,6 +548,32 @@ test("filter: passes Failure through unchanged", () => {
 	});
 });
 
+test("from.OpState: maps every manager state to the matching UI state", () => {
+	expect(RemoteData.from.OpState({ kind: "Idle" })).toStrictEqual({ kind: "NotAsked" });
+	expect(RemoteData.from.OpState({ kind: "Pending" })).toStrictEqual({ kind: "Loading" });
+	expect(RemoteData.from.OpState({ kind: "Queued", position: 2 })).toStrictEqual({ kind: "Loading" });
+	expect(RemoteData.from.OpState({ kind: "Retrying", attempt: 1, lastError: "boom" })).toStrictEqual({
+		kind: "Loading",
+	});
+	expect(RemoteData.from.OpState({ kind: "OpOk", value: 42 })).toStrictEqual({ kind: "Success", value: 42 });
+	expect(RemoteData.from.OpState({ kind: "OpErr", error: "failed" })).toStrictEqual({
+		kind: "Failure",
+		error: "failed",
+	});
+});
+
+test("from.OpState: a settled OpNil has no value to show and becomes NotAsked", () => {
+	for (const reason of ["aborted", "dropped", "replaced", "evicted"] as const) {
+		expect(RemoteData.from.OpState({ kind: "OpNil", reason })).toStrictEqual({ kind: "NotAsked" });
+	}
+});
+
+test("from.OpState: preserves falsy success values", () => {
+	expect(RemoteData.from.OpState({ kind: "OpOk", value: 0 })).toStrictEqual({ kind: "Success", value: 0 });
+	expect(RemoteData.from.OpState({ kind: "OpOk", value: "" })).toStrictEqual({ kind: "Success", value: "" });
+	expect(RemoteData.from.OpState({ kind: "OpOk", value: false })).toStrictEqual({ kind: "Success", value: false });
+});
+
 test("filter: preserves falsy values when predicate passes", () => {
 	expect(RemoteData.filter((n: number) => n === 0, () => "not zero")(RemoteData.make.success(0))).toStrictEqual({
 		kind: "Success",

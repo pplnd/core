@@ -1,6 +1,7 @@
 import type { WithError, WithKind, WithValue } from "../internal/InternalTypes";
 import { clampTimerDelay } from "../internal/timers.ts";
 import { Duration } from "../Types/Duration.ts";
+import { Aborted } from "./Aborted.ts";
 import { Deferred } from "./Deferred.ts";
 import { Maybe } from "./Maybe.ts";
 import { Result } from "./Result.ts";
@@ -32,7 +33,7 @@ export type Batcher<K, E, V> = {
 	 * @param signal - Optional AbortSignal to cancel this individual caller's lookup.
 	 * @see {@link Batcher.loadMany} to coalesce multiple keys in a single call.
 	 */
-	readonly load: (key: K, signal?: AbortSignal) => Deferred<Batcher.Outcome<E | Batcher.Aborted, V, K>>;
+	readonly load: (key: K, signal?: AbortSignal) => Deferred<Batcher.Outcome<E | Aborted, V, K>>;
 
 	/**
 	 * Queues multiple keys and returns their outcomes in input order.
@@ -47,7 +48,7 @@ export type Batcher<K, E, V> = {
 	readonly loadMany: (
 		keys: readonly K[],
 		signal?: AbortSignal,
-	) => Deferred<readonly Batcher.Outcome<E | Batcher.Aborted, V, K>[]>;
+	) => Deferred<readonly Batcher.Outcome<E | Aborted, V, K>[]>;
 
 	/**
 	 * Dispatches queued keys without waiting for the scheduled microtask or timer, then waits for
@@ -62,9 +63,6 @@ export type Batcher<K, E, V> = {
 };
 
 export namespace Batcher {
-	/** A caller cancelled its lookup. */
-	export type Aborted = { readonly kind: "BatcherAborted"; readonly reason: unknown; };
-
 	/**
 	 * Represents a successful batch resolution containing the found value.
 	 */
@@ -193,14 +191,14 @@ const toNullableOutcome = <E = never, V = never, K = never>(outcome: Batcher.Out
 
 const defaultSerialize = <K>(key: K): unknown => key;
 
-const getAbortReason = (signal: AbortSignal): Batcher.Aborted => ({ kind: "BatcherAborted", reason: signal.reason });
+const getAbortReason = (signal: AbortSignal): Aborted => Aborted.make(signal.reason);
 
 const makeBatcher = <K, E, V>(
 	loadBatch: (keys: readonly K[]) => Task.Result<E, ReadonlyMap<K, V>>,
 	options: Batcher.Options<K> = {},
 ): Batcher<K, E, V> => {
 	type KeyHash = unknown;
-	type Failure = E | Batcher.Aborted;
+	type Failure = E | Aborted;
 	type CallerEntry = { readonly resolve: (outcome: Batcher.Outcome<Failure, V, K>) => void; };
 	type ActiveBatch = { readonly controller: AbortController; activeCallers: number; };
 	type PendingKeySlot = { readonly key: K; readonly callers: CallerEntry[]; batch?: ActiveBatch; };

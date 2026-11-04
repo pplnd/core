@@ -28,7 +28,7 @@ test("rollback: executes in strict LIFO order for any failure index", async () =
 			}
 
 			const tx = Transaction.make(...steps);
-			const outcome = await Transaction.run(tx);
+			const outcome = await Transaction.run()(tx);
 
 			expect(outcome).toStrictEqual(
 				Result.make.err({
@@ -83,7 +83,7 @@ test("run: preserves all-or-nothing conservation law", async () => {
 				}
 
 				const tx = Transaction.make(...steps);
-				const outcome = await Transaction.run(tx);
+				const outcome = await Transaction.run()(tx);
 
 				expect(outcome).toStrictEqual(Result.make.ok(expectedAcc));
 				expect(undoCount).toBe(0);
@@ -121,7 +121,7 @@ test("rollback: best-effort drain guarantees every completed undo runs despite i
 			}
 
 			const tx = Transaction.make(...steps);
-			const outcome = await Transaction.run(tx);
+			const outcome = await Transaction.run()(tx);
 
 			expect(Result.is.err(outcome)).toBe(true);
 			expect(undosAttempted).toHaveLength(failIndex);
