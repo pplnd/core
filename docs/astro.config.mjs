@@ -6,6 +6,7 @@ import starlightThemeNova from "starlight-theme-nova";
 import starlightTypeDoc, { typeDocSidebarGroup } from "starlight-typedoc";
 
 export default defineConfig({
+	site: "https://pplnd.dev",
 	integrations: [
 		mermaid({
 			theme: "base",
@@ -44,6 +45,7 @@ export default defineConfig({
 		}),
 		starlight({
 			title: "pipelined",
+			editLink: { baseUrl: "https://github.com/pplnd/core/edit/main/docs/" },
 			favicon: "favicon.svg",
 			logo: { dark: "./public/logo_light.svg", light: "./public/logo_dark.svg" },
 			customCss: ["./src/styles/custom.css"],
@@ -54,7 +56,9 @@ export default defineConfig({
 				href: "https://www.npmjs.com/package/@pplnd/core",
 			}],
 			plugins: [
-				starlightThemeNova({ nav: [{ label: "Docs", href: "/basics/installation" }] }),
+				starlightThemeNova({
+					nav: [{ label: "Docs", href: "/basics/installation" }, { label: "Contributing", href: "/contributing/" }],
+				}),
 				starlightTypeDoc({
 					entryPoints: [
 						"../src/Core/index.ts",
@@ -150,6 +154,13 @@ export default defineConfig({
 					],
 				},
 				{ label: "Appendix", items: [{ slug: "appendix/design-notes" }, { slug: "appendix/benchmarks" }] },
+				{
+					label: "Contributing",
+					collapsed: false,
+					items: [{ slug: "contributing" }, { slug: "contributing/workflow" }, { slug: "contributing/testing" }, {
+						slug: "contributing/modules",
+					}, { slug: "contributing/writing" }],
+				},
 				typeDocSidebarGroup,
 			],
 		}),

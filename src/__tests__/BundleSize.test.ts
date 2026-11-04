@@ -2,8 +2,10 @@ import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { expect, test } from "vitest";
+import { GUIDE_MANIFEST } from "../../scripts/docs-manifest.ts";
 
 const projectRoot = path.resolve(__dirname, "../../");
+const guidesDir = path.join(projectRoot, "docs/src/content/docs/guides");
 
 interface SizeItem {
 	name: string;
@@ -16,8 +18,7 @@ function formatBytes(bytes: number): string {
 	if (bytes < 1000) {
 		return `${bytes} B`;
 	}
-	const kb = bytes / 1000;
-	return `${kb.toFixed(2)} kB`;
+	return `${(bytes / 1000).toFixed(2)} kB`;
 }
 
 function getMeasuredSizes(): Map<string, SizeItem> {
@@ -34,107 +35,107 @@ function getMeasuredSizes(): Map<string, SizeItem> {
 	return map;
 }
 
-const GUIDE_MAP: Record<string, { module: string; }> = {
-	"aborted.md": { module: "Aborted" },
-	"arr.md": { module: "Arr" },
-	"batcher.md": { module: "Batcher" },
-	"bignum.md": { module: "BigNum" },
-	"bool.md": { module: "Bool" },
-	"brand.md": { module: "Brand" },
-	"circuit-breaker.md": { module: "CircuitBreaker" },
-	"combinable.md": { module: "Combinable" },
-	"deferred.md": { module: "Deferred" },
-	"dict.md": { module: "Dict" },
-	"duration.md": { module: "Duration" },
-	"equality.md": { module: "Equality" },
-	"event-bus.md": { module: "EventBus" },
-	"graph.md": { module: "Graph" },
-	"json.md": { module: "Json" },
-	"lens.md": { module: "Lens" },
-	"logged.md": { module: "Logged" },
-	"machine.md": { module: "Machine" },
-	"maybe.md": { module: "Maybe" },
-	"num.md": { module: "Num" },
-	"op.md": { module: "Op" },
-	"optional.md": { module: "Optional" },
-	"ordering.md": { module: "Ordering" },
-	"pair.md": { module: "Pair" },
-	"predicate.md": { module: "Predicate" },
-	"reader.md": { module: "Reader" },
-	"rec.md": { module: "Rec" },
-	"refinement.md": { module: "Refinement" },
-	"remote-data.md": { module: "RemoteData" },
-	"resource.md": { module: "Resource" },
-	"result.md": { module: "Result" },
-	"state.md": { module: "State" },
-	"str.md": { module: "Str" },
-	"task.md": { module: "Task" },
-	"transaction.md": { module: "Transaction" },
-	"these.md": { module: "These" },
-	"uniq.md": { module: "Uniq" },
-	"validation.md": { module: "Validation" },
-};
+function guideFiles(): string[] {
+	return fs.readdirSync(guidesDir).filter((file) => /\.(?:md|mdx)$/i.test(file)).sort();
+}
 
 const sizeMap = getMeasuredSizes();
 
+function aggregateGuideProblems(): string[] {
+	const problems: string[] = [];
+	for (const [filename, entry] of Object.entries(GUIDE_MANIFEST)) {
+		if (entry.module === null) {
+			const content = fs.readFileSync(path.join(guidesDir, filename), "utf8");
+			if (content.includes("BUNDLE_SIZE:START")) {
+				problems.push(`${filename}: aggregate guide has a bundle badge`);
+			}
+		}
+	}
+	return problems;
+}
+
+function budgetedGuideProblems(): string[] {
+	const problems: string[] = [];
+	for (const [filename, entry] of Object.entries(GUIDE_MANIFEST)) {
+		if (entry.module !== null) {
+			const content = fs.readFileSync(path.join(guidesDir, filename), "utf8");
+			const isMdx = filename.endsWith(".mdx");
+			const startTag = isMdx ? "{/* BUNDLE_SIZE:START */}" : "<!-- BUNDLE_SIZE:START -->";
+			const occurrences = (content.match(/BUNDLE_SIZE:START/g) || []).length;
+			if (!content.includes(startTag)) {
+				problems.push(`${filename}: missing bundle badge`);
+			}
+			if (occurrences !== 1) {
+				problems.push(`${filename}: expected one bundle badge, found ${occurrences}`);
+			}
+
+			const item = sizeMap.get(entry.module);
+			if (!item) {
+				problems.push(`${filename}: no size-limit target for ${entry.module}`);
+			} else if (!content.includes(`> ${formatBytes(item.size)} minified + gzipped`)) {
+				problems.push(`${filename}: stale bundle size`);
+			}
+		}
+	}
+	return problems;
+}
+
 test("BundleSize: enforces size-limit budgets across all targets", () => {
-	for (const [name, item] of sizeMap) {
-		expect(item.passed, `Target "${name}" exceeded limit: ${item.size} > ${item.sizeLimit}`).toBe(true);
+	for (const item of sizeMap.values()) {
+		expect(item.passed).toBe(true);
 	}
 });
 
 test("BundleSize: verifies README.md reflects current measured sizes", () => {
-	const readmePath = path.join(projectRoot, "README.md");
-	const content = fs.readFileSync(readmePath, "utf8");
+	const content = fs.readFileSync(path.join(projectRoot, "README.md"), "utf8");
 
 	expect(content).toContain("<!-- BUNDLE_TABLE:START -->");
 	expect(content).toContain("<!-- BUNDLE_TABLE:END -->");
 
 	for (const name of ["Machine", "Result", "Maybe", "Op", "EventBus", "pipe"]) {
 		const item = sizeMap.get(name);
-		expect(item, `Size item for ${name} not found in sizeMap`).toBeDefined();
-		const expectedFormatted = formatBytes(item!.size);
-
-		expect(content).toContain(expectedFormatted);
+		expect(item).toBeDefined();
+		expect(content).toContain(formatBytes(item!.size));
 	}
 });
 
 test("BundleSize: verifies installation.mdx reflects current measured sizes", () => {
-	const docPath = path.join(projectRoot, "docs/src/content/docs/basics/installation.mdx");
-	const content = fs.readFileSync(docPath, "utf8");
+	const content = fs.readFileSync(path.join(projectRoot, "docs/src/content/docs/basics/installation.mdx"), "utf8");
 
 	expect(content).toContain("{/* BUNDLE_TABLE:START */}");
 	expect(content).toContain("{/* BUNDLE_TABLE:END */}");
 
 	for (const name of ["Machine", "Result", "Maybe", "Resource", "Task"]) {
 		const item = sizeMap.get(name);
-		expect(item, `Size item for ${name} not found in sizeMap`).toBeDefined();
-		const expectedFormatted = formatBytes(item!.size);
-
-		expect(content).toContain(expectedFormatted);
+		expect(item).toBeDefined();
+		expect(content).toContain(formatBytes(item!.size));
 	}
 });
 
-test("BundleSize: verifies all module guides contain exact measured sizes without drift", () => {
-	const guidesDir = path.join(projectRoot, "docs/src/content/docs/guides");
+test("BundleSize: every guide file has a manifest entry", () => {
+	for (const file of guideFiles()) {
+		expect(Object.hasOwn(GUIDE_MANIFEST, file)).toBe(true);
+	}
+});
 
-	for (const [filename, { module }] of Object.entries(GUIDE_MAP)) {
-		const filePath = path.join(guidesDir, filename);
-		expect(fs.existsSync(filePath), `Guide file ${filename} does not exist`).toBe(true);
+test("BundleSize: every manifest entry exists", () => {
+	for (const filename of Object.keys(GUIDE_MANIFEST)) {
+		expect(fs.existsSync(path.join(guidesDir, filename))).toBe(true);
+	}
+});
 
-		const content = fs.readFileSync(filePath, "utf8");
-		const isMdx = filename.endsWith(".mdx");
-		const startTag = isMdx ? "{/* BUNDLE_SIZE:START */}" : "<!-- BUNDLE_SIZE:START -->";
-		expect(content).toContain(startTag);
+test("BundleSize: aggregate guides do not claim a module size", () => {
+	expect(aggregateGuideProblems()).toStrictEqual([]);
+});
 
-		const occurrences = (content.match(/BUNDLE_SIZE:START/g) || []).length;
-		expect(occurrences, `Duplicate BUNDLE_SIZE:START blocks found in ${filename}`).toBe(1);
+test("BundleSize: budgeted guides have exactly one current badge", () => {
+	expect(budgetedGuideProblems()).toStrictEqual([]);
+});
 
-		const item = sizeMap.get(module);
-		expect(item, `Size item for ${module} not found in sizeMap`).toBeDefined();
-
-		const expectedCallout = `> ${formatBytes(item!.size)} minified + gzipped`;
-
-		expect(content).toContain(expectedCallout);
+test("BundleSize: every guide file is in the docs sidebar", () => {
+	const config = fs.readFileSync(path.join(projectRoot, "docs/astro.config.mjs"), "utf8");
+	for (const file of guideFiles()) {
+		const base = file.replace(/\.(?:md|mdx)$/i, "");
+		expect(config).toContain(`slug: "guides/${base}"`);
 	}
 });

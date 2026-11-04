@@ -1,1 +1,51 @@
-<></>
+---
+import EditLink from "virtual:starlight/components/EditLink";
+import Pagination from "virtual:starlight/components/Pagination";
+---
+
+<footer class="sl-flex">
+	<div class="meta sl-flex">
+		<EditLink />
+		<p>pipelined is BSD-3-Clause licensed.</p>
+	</div>
+	<p class="contrib-links">
+		<a href="https://github.com/pplnd/core/blob/main/CONTRIBUTING.md">Contributing</a>
+		· <a href="https://github.com/pplnd/core/issues">Issues</a>
+		· <a href="https://github.com/pplnd/core/blob/main/CODE_OF_CONDUCT.md">Code of Conduct</a>
+		· <a href="https://github.com/pplnd/core/blob/main/SECURITY.md">Security</a>
+	</p>
+	<Pagination />
+</footer>
+
+<style>
+	@layer starlight.core {
+		footer {
+			flex-direction: column;
+			gap: 1.5rem;
+		}
+		.meta {
+			gap: 0.75rem 3rem;
+			justify-content: space-between;
+			flex-wrap: wrap;
+			margin-top: 3rem;
+			font-size: var(--sl-text-sm);
+			color: var(--sl-color-gray-3);
+		}
+		.meta > :global(p:only-child) {
+			margin-inline-start: auto;
+		}
+		.contrib-links {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 0.25rem;
+			font-size: var(--sl-text-sm);
+			color: var(--sl-color-gray-3);
+		}
+		.contrib-links a {
+			color: inherit;
+		}
+		.contrib-links a:hover {
+			color: var(--sl-color-white);
+		}
+	}
+</style>

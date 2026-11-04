@@ -1,7 +1,7 @@
 # pipelined (@pplnd/core)
 
 [![npm](https://img.shields.io/npm/v/@pplnd/core?style=for-the-badge&color=000&logo=npm&label&logoColor=fff)](https://www.npmjs.com/package/@pplnd/core)
-[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/pplnd/core/publish.yml?style=for-the-badge&color=000&logo=githubactions&label&logoColor=fff)](https://github.com/pplnd/core/actions/workflows/publish.yml)
+[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/pplnd/core/ci.yml?style=for-the-badge&color=000&logo=githubactions&label&logoColor=fff)](https://github.com/pplnd/core/actions/workflows/ci.yml)
 [![Codecov](https://img.shields.io/codecov/c/github/pplnd/core?style=for-the-badge&color=000&logo=codecov&label&logoColor=fff)](https://app.codecov.io/github/pplnd/core)
 
 Typed errors, explicit optional values, and composable pipelines for TypeScript.
@@ -52,7 +52,7 @@ Functions that throw exceptions leave error handling to caller memory. TypeScrip
 thrown errors in return types, and `catch (err)` types errors as `unknown`. `Result<E, A>` makes
 failure a normal return value:
 
-```ts
+```ts check
 import { pipe, Result } from "@pplnd/core";
 
 type Config = { apiKey: string; port: number };
@@ -353,6 +353,15 @@ These measurements include each listed import and its dependencies, minified and
 
 See [Performance and benchmarks](https://pplnd.dev/appendix/benchmarks) for the benchmark suite and
 results.
+
+## Contributing
+
+Contributions of every size are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md) or the
+[contributor handbook](docs/src/content/docs/contributing/index.md). It covers setup, the local
+commands, testing, module authoring, and guide writing.
+
+Participation follows the [Code of Conduct](CODE_OF_CONDUCT.md). Report security issues through
+[SECURITY.md](SECURITY.md), not public issues.
 
 ## License
 

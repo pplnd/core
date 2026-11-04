@@ -1,0 +1,73 @@
+export interface GuideManifestEntry {
+	readonly module: string | null;
+}
+
+/**
+ * Every page under docs/src/content/docs/guides must have exactly one entry.
+ * A null module marks an aggregate guide that has no module-specific size budget.
+ */
+export const GUIDE_MANIFEST = {
+	"aborted.md": { module: "Aborted" },
+	"arr.md": { module: "Arr" },
+	"batcher.md": { module: "Batcher" },
+	"bignum.md": { module: "BigNum" },
+	"bool.md": { module: "Bool" },
+	"brand.md": { module: "Brand" },
+	"circuit-breaker.md": { module: "CircuitBreaker" },
+	"combinable.md": { module: "Combinable" },
+	"deferred.md": { module: "Deferred" },
+	"dict.md": { module: "Dict" },
+	"duration.md": { module: "Duration" },
+	"equality.md": { module: "Equality" },
+	"event-bus.md": { module: "EventBus" },
+	"graph.md": { module: "Graph" },
+	"json.md": { module: "Json" },
+	"lens.md": { module: "Lens" },
+	"logged.md": { module: "Logged" },
+	"machine.md": { module: "Machine" },
+	"maybe.md": { module: "Maybe" },
+	"nonempty.md": { module: null },
+	"num.md": { module: "Num" },
+	"op.md": { module: "Op" },
+	"optional.md": { module: "Optional" },
+	"ordering.md": { module: "Ordering" },
+	"pair.md": { module: "Pair" },
+	"predicate.md": { module: "Predicate" },
+	"reader.md": { module: "Reader" },
+	"rec.md": { module: "Rec" },
+	"refinement.md": { module: "Refinement" },
+	"remote-data.md": { module: "RemoteData" },
+	"resource.md": { module: "Resource" },
+	"result.md": { module: "Result" },
+	"state.md": { module: "State" },
+	"str.md": { module: "Str" },
+	"task.md": { module: "Task" },
+	"transaction.md": { module: "Transaction" },
+	"these.md": { module: "These" },
+	"uniq.md": { module: "Uniq" },
+	"validation.md": { module: "Validation" },
+} as const satisfies Record<string, GuideManifestEntry>;
+
+export const STANDALONE_MODULES = [
+	"pipe",
+	"flow",
+	"Brand",
+	"Duration",
+	"Maybe",
+	"Result",
+	"Validation",
+	"RemoteData",
+	"Machine",
+	"EventBus",
+	"Batcher",
+	"Resource",
+	"Graph",
+	"Task",
+	"Transaction",
+	"Op",
+	"Lens",
+	"Arr",
+	"Rec",
+	"Dict",
+	"Str",
+] as const;

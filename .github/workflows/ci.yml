@@ -85,11 +85,8 @@ jobs:
       - name: Build package (required for docs workspace resolution)
         run: pnpm build
 
-      - name: Check formatting (dprint)
-        run: pnpm format:check
-
-      - name: Build documentation (Astro & Mermaid)
-        run: pnpm docs:build
+      - name: Contributor and documentation checks
+        run: pnpm check:docs
 
   dependency-review:
     name: Dependency Review

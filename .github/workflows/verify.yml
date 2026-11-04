@@ -52,6 +52,9 @@ jobs:
       - name: Test runtime & coverage
         run: pnpm test:coverage
 
+      - name: Build documentation and API reference
+        run: pnpm docs:build
+
       - name: Upload coverage (Codecov)
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:

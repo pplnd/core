@@ -6,8 +6,8 @@ Only the latest minor release branch receives security updates and vulnerability
 
 | Version | Supported |
 | :------ | :-------- |
-| 0.92.x  | Yes       |
-| < 0.92  | No        |
+| 0.98.x  | Yes       |
+| < 0.98  | No        |
 
 ---
 
