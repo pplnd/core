@@ -35,6 +35,7 @@ function getMeasuredSizes(): Map<string, SizeItem> {
 }
 
 const GUIDE_MAP: Record<string, { module: string; }> = {
+	"aborted.md": { module: "Aborted" },
 	"arr.md": { module: "Arr" },
 	"batcher.md": { module: "Batcher" },
 	"bignum.md": { module: "BigNum" },
@@ -54,23 +55,23 @@ const GUIDE_MAP: Record<string, { module: string; }> = {
 	"machine.md": { module: "Machine" },
 	"maybe.md": { module: "Maybe" },
 	"num.md": { module: "Num" },
-	"op.mdx": { module: "Op" },
+	"op.md": { module: "Op" },
 	"optional.md": { module: "Optional" },
 	"ordering.md": { module: "Ordering" },
 	"pair.md": { module: "Pair" },
 	"predicate.md": { module: "Predicate" },
 	"reader.md": { module: "Reader" },
 	"rec.md": { module: "Rec" },
-	"refinement.mdx": { module: "Refinement" },
+	"refinement.md": { module: "Refinement" },
 	"remote-data.md": { module: "RemoteData" },
 	"resource.md": { module: "Resource" },
 	"result.md": { module: "Result" },
 	"state.md": { module: "State" },
 	"str.md": { module: "Str" },
-	"task.mdx": { module: "Task" },
+	"task.md": { module: "Task" },
 	"transaction.md": { module: "Transaction" },
 	"these.md": { module: "These" },
-	"uniq.mdx": { module: "Uniq" },
+	"uniq.md": { module: "Uniq" },
 	"validation.md": { module: "Validation" },
 };
 

@@ -7,7 +7,7 @@ Standard TypeScript models runtime conditions with untyped exceptions (`throw`),
 
 ---
 
-## 1. Synchronous Data Containers
+## Synchronous Data Containers
 
 ### Absent Values: `Maybe<A>`
 
@@ -66,7 +66,7 @@ const validateAge = (n: number): Validation<string, number> =>
 
 ---
 
-## 2. Asynchronous Execution & UI States
+## Asynchronous Execution and UI States
 
 ### Lazy Infallible Blueprints: `Task.Result<E, A>`
 
@@ -112,7 +112,7 @@ const renderUI = RemoteData.match({
 
 ---
 
-## 3. Concurrency Strategies & Event Pipelines
+## Concurrency Strategies and Event Pipelines
 
 ### Declarative Async Concurrency: `Op<I, E, A>`
 
@@ -121,13 +121,14 @@ Managing in-flight request cancellation, debouncing, and retries in UI component
 `Op<I, E, A>` separates the async task definition from its execution policy:
 
 ```ts
-import { Op } from "@pplnd/core";
+import { Op, Task } from "@pplnd/core";
 
 // 1. Define the task once
-const searchApi = Op.make(
-  (signal) => (query: string) =>
-    fetch(`/api/search?q=${query}`, { signal }).then((r) => r.json()),
-  { onError: (err) => `Search failed: ${err}` },
+const searchApi = Op.make((query: string) =>
+  Task.Result.tryCatch(
+    (signal) => fetch(`/api/search?q=${query}`, { signal }).then((r) => r.json()),
+    { onError: (err) => `Search failed: ${err}` },
+  )
 );
 
 // 2. Configure execution strategy (cancels previous request on new input)
@@ -159,102 +160,9 @@ EventBus.subscribe(authBus, "login").tap(({ value }) => {
 });
 ```
 
----
 
-## State Selection Decision Matrix
+## Where to go next
 
-Use this matrix to pick the right data structure for your scenario:
-
-| Situation | Recommended Type | Success State | Failure / Empty State | Execution / Nature |
-| :--- | :--- | :--- | :--- | :--- |
-| Optional value, cache miss, or nullable property | **`Maybe<A>`** | `Some<A>` | `None` | Synchronous, short-circuits |
-| Fallible synchronous business logic | **`Result<E, A>`** | `Ok<A>` | `Err<E>` | Synchronous, short-circuits |
-| Multi-field validation (forms, configs) | **`Validation<E, A>`** | `Passed<A>` | `Failed<NonEmptyArr<E>>` | Synchronous, accumulates |
-| Lazy async operation with typed error channel | **`Task.Result<E, A>`** | `Ok<A>` | `Err<E>` | Asynchronous, deferred |
-| UI data request lifecycle tracking | **`RemoteData<E, A>`** | `Success<A>` | `Failure<E>`, `Loading`, `NotAsked` | State union for UI render |
-| Async task needing cancellation, concurrency, or retries | **`Op<I, E, A>`** | `Ok<A>` | `Err<E>` | Interpreted execution engine |
-| Typed pub/sub event pipeline & state accumulation | **`EventBus<S>`** | `Message<S>` | N/A | Reactive event bus |
-
----
-
-## Universal Operations Across Structures
-
-Every data container in `pipelined` shares a consistent, predictable set of combinator names. Once you learn how an operation behaves on `Maybe`, you already know how it works across `Result`, `Validation`, `Task.Result`, and `RemoteData`:
-
-| Operation | Purpose | Example |
-| :--- | :--- | :--- |
-| **`map`** | Transforms the inner success value while preserving the container structure. | `Result.map((n) => n * 2)` |
-| **`mapError`** | Transforms the error payload without modifying success values. | `Result.mapError((e) => e.message)` |
-| **`chain`** | Sequences a function returning another container, flattening nested layers. | `Maybe.chain((user) => lookup(user.id))` |
-| **`getOrElse`** | Unwraps the value, falling back to a default thunk if absent or failed. | `Maybe.getOrElse(() => DEFAULT_USER)` |
-| **`match`** | Exhaustively unwraps all variants using a named-case object. | `RemoteData.match({ loading, success, failure, notAsked })` |
-| **`tap`** | Intercepts the success value for side effects without modifying the data. | `Task.Result.tap((u) => log(u.id))` |
-| **`recover`** | Catches a failure variant and substitutes a fallback container. | `Result.recover((err) => Result.make.ok(cached))` |
-
-### Standardized Drawers
-
-To keep root module objects clean and focused on pipeline combinators, instantiation, conversions, and type guards are organized into four standard drawers across every module:
-
-| Drawer | Purpose | Examples |
-| :--- | :--- | :--- |
-| **`make.*`** | Instantiates a specific variant of a discriminated union. | `Result.make.ok(42)`<br/>`Maybe.make.some(5)`<br/>`RemoteData.make.loading()` |
-| **`from.*`** | Converts external types or primitives into the container. | `Maybe.from.nullable(val)`<br/>`Result.from.Validation(fn)`<br/>`Num.from.string(str)` |
-| **`to.*`** | Converts the container back to language primitives or other containers. | `Maybe.to.nullable(maybe)`<br/>`Result.to.Maybe(result)`<br/>`Arr.to.record(fn)(items)` |
-| **`is.*`** | Type guard predicates for conditional branching and filtering. | `Result.is.ok(result)`<br/>`Arr.is.empty(array)`<br/>`Num.is.even(n)` |
-
-*(Single-variant structures like `Pair` use a direct `Pair.make(first, second)` constructor.)*
-
----
-
-## End-to-End Workflow
-
-In a real-world feature, these modules compose across boundaries: validating user input, executing a cancellable network call, and updating UI state:
-
-```ts
-import { Op, pipe, RemoteData, Validation } from "@pplnd/core";
-
-// 1. Validate form fields independently (Validation)
-const validateSignup = (name: string, email: string) =>
-  Validation.struct({
-    name: name.trim() ? Validation.make.passed(name) : Validation.make.failed("Name required"),
-    email: email.includes("@") ? Validation.make.passed(email) : Validation.make.failed("Invalid email"),
-  });
-
-// 2. Define an async submission operation with cancellation (Op)
-const submitUserOp = Op.interpret(
-  Op.make(
-    (signal) => (payload: { name: string; email: string }) =>
-      fetch("/api/register", {
-        method: "POST",
-        body: JSON.stringify(payload),
-        signal,
-      }).then((r) => r.json() as Promise<{ id: string }>),
-    { onError: (err) => `Registration error: ${err}` },
-  ),
-  { strategy: "exclusive" }, // Prevents double-clicks while in flight
-);
-
-// 3. UI State transitions (RemoteData)
-let uiState: RemoteData<string, { id: string }> = RemoteData.make.notAsked();
-
-const handleRegister = async (name: string, email: string) => {
-  const validation = validateSignup(name, email);
-
-  if (Validation.is.failed(validation)) {
-    uiState = RemoteData.make.failure(validation.errors.join(", "));
-    return;
-  }
-
-  uiState = RemoteData.make.loading();
-  const outcome = await submitUserOp.run(validation.value);
-
-  uiState = pipe(
-    outcome,
-    Op.Outcome.match({
-      ok: (user) => RemoteData.make.success(user),
-      err: (error) => RemoteData.make.failure(error),
-      nil: () => RemoteData.make.notAsked(),
-    }),
-  );
-};
-```
+The [choosing guide](/basics/choosing/) turns these families into per-situation decisions,
+[Reading the types](/basics/types/) explains how a container carries its channels, and the
+[recipes](/recipes/request-lifecycle/) build a feature from several modules at once.

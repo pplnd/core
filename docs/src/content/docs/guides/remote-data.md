@@ -5,24 +5,36 @@ description: Represent an idle, loading, failed, or successful request with one 
 
 <!-- BUNDLE_SIZE:START -->
 
-> 1.81 kB minified + gzipped
+> 1.86 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
+A screen shows a spinner, an error banner, and the last loaded invoice. They are three separate
+fields, and a failed refresh can leave the old invoice visible under the spinner or clear the error
+while the retry is still running. The request has one phase, but the fields can contradict each
+other.
+
 ## Core Behavior
 
-`RemoteData<E, A>` represents one of four states for a request: `NotAsked`, `Loading`, `Failure`, or
-`Success`.
+`RemoteData<E, A>` represents one request as one of four states: `NotAsked`, `Loading`,
+`Failure<E>`, or `Success<A>`.
 
-- `Failure` carries an error of type `E`; `Success` carries a value of type `A`.
-- `map` and `chain` operate on `Success`; the other states pass through.
-- `match` requires a handler for every state. The application chooses when to create each state.
+- `Success` carries a value and `Failure` carries an error; `Loading` and `NotAsked` carry neither.
+- `map`, `chain`, and `filter` act only on `Success` and pass every other state through. `apply`
+  combines two states, preferring a failure, then `Loading`, then `NotAsked`.
+- `match` requires a handler for every state. The application creates the states and decides when a
+  request starts.
+
+Use `RemoteData` when a view renders one request lifecycle and the state itself must name the
+current phase. [`Result`](/guides/result/) records only a settled outcome, so it cannot represent
+not-started or in-flight work. The [choosing guide](/basics/choosing/) compares the containers side
+by side.
 
 ## Example: Invoice Loading
 
-With separate loading, error, and invoice fields, a failed refresh can leave a loading flag or old
-invoice on screen by accident. `RemoteData.make.loading()` represents the loading state on its own;
-there is no invoice or error in that variant.
+With separate loading, error, and invoice fields, a failed refresh can leave a loading flag or an
+old invoice on screen by accident. `RemoteData.make.loading()` represents the loading state on its
+own; there is no invoice or error in that variant.
 
 `filter` inspects a successful invoice and can turn it into a failure. For the other three states,
 it leaves the state unchanged:
@@ -64,8 +76,8 @@ const renderInvoice = (state: InvoiceState): string =>
       (invoice) => Number.isSafeInteger(invoice.amountCents) && invoice.amountCents >= 0,
       () => "Invoice amount is invalid",
     ),
-    RemoteData.map((invoice) =>
-      `Invoice ${invoice.id}: ${(invoice.amountCents / 100).toFixed(2)} USD`
+    RemoteData.map(
+      (invoice) => `Invoice ${invoice.id}: ${(invoice.amountCents / 100).toFixed(2)} USD`,
     ),
     RemoteData.match({
       notAsked: () => "Select an invoice",
@@ -109,9 +121,22 @@ void loadInvoice("inv-42");
 ```
 
 The sequence number prevents stale responses from updating this state, but the older request still
-runs. To stop it, the application must pass an `AbortSignal` to `fetch` and manage its controller.
-The amount check is part of rendering here; move it into the loading boundary if every consumer must
-receive only validated invoices.
+runs. To stop it, pass an `AbortSignal` to `fetch` and manage its controller;
+[`Aborted`](/guides/aborted/) covers how the library's cancellable engines report a run that stopped
+for the same reason. The amount check is part of rendering here; move it into the loading boundary
+if every consumer must receive only validated invoices.
+
+### Deriving the State from an Op Manager
+
+When the request lifecycle moves into an [`Op`](/guides/op/) manager, the sequence counter and the
+manual `Loading` call disappear. Subscribe to the manager and publish
+`RemoteData.from.OpState(state)` for each notification, for example
+`manager.subscribe((state) => publish(RemoteData.from.OpState(state)))`.
+
+The manager decides whether a newer call replaces, queues, or drops the previous one. Its in-flight
+states become `Loading`, `OpOk` becomes `Success`, and `OpErr` becomes `Failure`. A settled `OpNil`
+carries a cancellation reason rather than a value or an error, so it becomes `NotAsked`. The
+rendering pipeline above stays unchanged.
 
 ## Core Operations
 
@@ -123,6 +148,7 @@ receive only validated invoices.
 | `RemoteData.make.failure(error)` / `make.success(value)` | Stores an error or a value.                              | `Failure<E>` / `Success<A>` |
 | `RemoteData.from.Result(result)`                         | Converts `Ok` to `Success` and `Err` to `Failure`.       | `RemoteData<E, A>`          |
 | `RemoteData.from.Maybe(onNone)`                          | Converts `Some` to `Success`; calls `onNone` for `None`. | `RemoteData<E, A>`          |
+| `RemoteData.from.OpState(state)`                         | Converts an `Op` manager state to the matching UI state. | `RemoteData<E, A>`          |
 
 ### Combining and Transforming Values
 
@@ -150,6 +176,11 @@ receive only validated invoices.
 `recover` handles an existing `Failure`; it does not catch a rejected request. Convert request
 errors to `Failure` at the loading boundary if they should be rendered.
 
+`from.OpState` maps a manager state from `Op`: `Idle` becomes `NotAsked`, the in-flight states
+`Pending`, `Queued`, and `Retrying` become `Loading`, `OpOk` becomes `Success`, and `OpErr` becomes
+`Failure`. A settled `OpNil` carries a cancellation reason rather than a value or an error, so it
+becomes `NotAsked`; the manager keeps that reason in its own state if the UI needs to display it.
+
 If both inputs to `apply` are failures, it returns the failure from the function's state:
 
 ```ts
@@ -164,3 +195,7 @@ pipe(formatterState, RemoteData.apply(invoiceState));
 
 In a sequence of applications, an earlier failure is retained. Loading and NotAsked carry no
 previous value, so preserving stale data during refresh requires a separate application model.
+
+`from.Maybe` converts `None` to `Failure`, not `NotAsked`: a missing payload is treated as a failed
+load. If absence is not an error, keep the value outside `RemoteData` or use a success value that
+represents the empty result.

@@ -177,6 +177,13 @@
 			"gzip": true
 		},
 		{
+			"name": "Aborted",
+			"import": "{ Aborted }",
+			"path": "dist/index.mjs",
+			"limit": "150 B",
+			"gzip": true
+		},
+		{
 			"name": "Machine",
 			"import": "{ Machine }",
 			"path": "dist/index.mjs",

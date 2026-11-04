@@ -3,6 +3,8 @@ title: Thinking in pipelines
 description: Sequence transformations top-to-bottom and construct reusable, composable functions.
 ---
 
+import { Aside } from '@astrojs/starlight/components'
+
 Most transformations in software follow a simple, linear path: we take a starting value, apply a sequence of steps to alter it, and obtain a result. The architectural challenge is how to express this flow in a way that is readable, easy to modify, and safe to extend.
 
 ## The friction of standard patterns
@@ -111,6 +113,26 @@ const slugs = rawTitles.map(toSlug); // ["clean-code", "functional-design"]
 The rule of thumb is simple: use `pipe` when you have a value ready and want to compute a result immediately. Use `flow` when you want to define and name a reusable transformation pipeline.
 
 ---
+
+<Aside title="The ten-step limit in pipelines">
+`pipe` and `flow` are typed for up to **10 steps**. If you exceed this limit, TypeScript will raise a compilation error. This boundary is chosen to align with the JIT optimization limits of modern JavaScript runtimes.
+
+**TypeScript type inference.** TypeScript lacks a native syntax to represent a variadic function where the input of each argument must match the output of the preceding one. The only way to type this is to write explicit overloads for every chain length. Each additional overload adds significant work for the compiler, slowing down IDE completions across the entire codebase.
+
+**JIT compiler budgets.** Every modern JavaScript engine has a finite bytecode inlining budget. V8 (Node.js, Chrome) sets thresholds like `--max-inlined-bytecode-size` and `--max-inlined-bytecode-size-cumulative`. JavaScriptCore (Safari, Bun) and SpiderMonkey (Firefox) enforce similar boundaries. When a function call chain becomes too deep, the JIT engine stops inlining and falls back to indirect call execution. At that point, the performance profile of deep composition degrades regardless of how the library is implemented.
+
+If you find yourself needing more than 10 steps in a single pipeline, it is usually a signal to split your logic into named, modular phases:
+
+```ts
+const pricing      = flow(calculateTax, applyDiscounts, calculateShipping);
+const fulfillment  = flow(reserveInventory, chargePayment, scheduleFulfillment);
+const notification = flow(generateInvoice, sendConfirmation, updateCRM);
+
+const processOrder = flow(validateStock, pricing, fulfillment, notification);
+```
+
+Dividing the pipeline into cohesive sub-pipelines provides cleaner type boundaries, easier unit testing, and highly reusable modules.
+</Aside>
 
 ## The data-last convention
 

@@ -1,6 +1,6 @@
 ---
 title: Maybe — Explicit Absence
-description: Model missing worker configuration as a value that can move through a typed pipeline.
+description: Carry a missing configuration value through a pipeline without repeated null checks.
 ---
 
 <!-- BUNDLE_SIZE:START -->
@@ -9,25 +9,33 @@ description: Model missing worker configuration as a value that can move through
 
 <!-- BUNDLE_SIZE:END -->
 
+A thumbnail worker reads its queue URL from an environment variable. When the variable is absent,
+the worker starts with the string `undefined` as its queue and fails on the first job. The startup
+code has no way to say that a URL might be missing.
+
 ## Core Behavior
 
-`Maybe<A>` holds either a present value (`Some`) or an explicit absence (`None`), so a configuration
-loader can carry missing input through its pipeline without sprinkling null checks through every
-step.
+`Maybe<A>` represents an optional value as either `Some` with a value or `None` with nothing.
 
-- `map`, `chain`, `filter`, and `tap` run their callbacks only for `Some`; `None` skips the callback
-  and continues unchanged.
-- `assign` skips later callbacks after `None`. `struct` inspects already-created fields in key order
-  and returns the first `None` it encounters.
-- `recover`, `getOrElse`, `match`, `to.Result`, and `to.Validation` evaluate their absence handlers
-  only for `None`.
-- `Maybe` carries presence or absence only. It does not retain a validation reason or handle an
-  asynchronous rejection.
+- `map`, `chain`, `filter`, and `tap` run their callbacks only for `Some`; a `None` reaches every
+  later step unchanged.
+- `assignTo` and `assign` build a record from one present value; the first `None` stops the chain
+  before later assignments run. `struct` inspects fields in key order and returns the first `None`,
+  but JavaScript evaluates the field expressions before the call.
+- `recover`, `getOrElse`, `match`, and `to.Result` run their absence handler only for `None`.
+- `None` carries no reason. A variable that is missing and a value that failed to parse become the
+  same variant.
+
+Reach for `Maybe` when the only fact the caller needs is whether a value exists.
+[`Result`](/guides/result/) carries the reason a step failed, keeping a missing count
+distinguishable from a count that failed to parse. The [choosing guide](/basics/choosing/) compares
+the containers side by side.
 
 ## Example: Thumbnail Worker Configuration
 
 A thumbnail worker needs a secure queue URL, a bounded concurrency value, a visibility timeout, and
-a label for its process manager. The example loads these settings from environment variables.
+a label for its process manager. The loader reads these settings from environment variables and
+keeps presence explicit: each setting is either usable or absent.
 
 `chain` calls the next operation only when a value is present. That operation can return `None`,
 which skips subsequent `map` and `chain` callbacks:
@@ -38,9 +46,9 @@ flowchart TD
   Present -->|Yes| Parse["chain calls parsePositiveInteger"]
   Present -->|No| Missing["None passes through"]
   Parse -->|Valid| Some["Some(worker count)"]
-  Parse -->|Invalid| Missing
-  Some --> Next["Next callback runs"]
-  Missing --> Skip["Next callback is skipped"]
+  Parse -->|Rejected| Missing
+  Some --> Next["Later callbacks run"]
+  Missing --> Skip["Later callbacks are skipped"]
 ```
 
 `None` does not record whether the setting was missing or failed to parse. Use `Result` when the
@@ -64,8 +72,8 @@ if (
 ```
 
 This check accepts `"1e1"` as a concurrency of 10, even if the configuration requires decimal
-digits. It also leaves the URL, timeout, and label unchecked. Start by wrapping the queue variable
-and trimming it only when it is present:
+digits. It also leaves the URL format, timeout, and label unchecked. Start by wrapping the queue
+variable and trimming it only when it is present:
 
 ```ts
 import { Maybe, pipe } from "@pplnd/core";
@@ -81,31 +89,28 @@ variable is missing. An empty string still becomes `Some("")`. The full loader m
 values, parse the settings, apply range limits, and make a startup decision.
 
 ```ts
-import { Arr, Maybe, pipe, Str } from "@pplnd/core";
+import { Maybe, pipe } from "@pplnd/core";
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
-type ThumbnailWorkerConfiguration = {
+interface ThumbnailWorkerConfiguration {
   queueUrl: URL;
   concurrency: number;
   visibilityTimeoutSeconds: number;
   workerLabel: string;
-};
+}
 
 type ThumbnailWorkerBoot =
   | { kind: "ready"; configuration: ThumbnailWorkerConfiguration }
   | {
       kind: "rejected";
-      error: {
-        code: "INVALID_THUMBNAIL_WORKER_CONFIGURATION";
-        message: string;
-      };
+      error: { code: "INVALID_THUMBNAIL_WORKER_CONFIGURATION"; message: string };
     };
 
 const nonBlank = (value: string): Maybe<string> =>
   pipe(
     value.trim(),
-    Maybe.from.Predicate((candidate) => candidate.length > 0),
+    Maybe.from.Predicate((candidate: string) => candidate.length > 0),
   );
 
 const requiredEnvironment = (environment: Environment, name: string): Maybe<string> =>
@@ -114,21 +119,12 @@ const requiredEnvironment = (environment: Environment, name: string): Maybe<stri
     Maybe.chain(nonBlank),
   );
 
-const isPositiveDecimalText = (value: string): boolean =>
-  Str.is.nonEmpty(value) &&
-  !Str.startsWith("0")(value) &&
-  pipe(
-    value,
-    Str.split(""),
-    Arr.every((character) => character >= "0" && character <= "9"),
-  );
-
 const parsePositiveInteger = (raw: string): Maybe<number> =>
   pipe(
-    raw.trim(),
-    Maybe.from.Predicate((candidate: string) => isPositiveDecimalText(candidate)),
+    raw,
+    Maybe.from.Predicate((candidate: string) => /^[1-9][0-9]*$/.test(candidate)),
     Maybe.map(Number),
-    Maybe.filter((value: number) => Number.isSafeInteger(value)),
+    Maybe.filter((value) => Number.isSafeInteger(value)),
   );
 
 const parseHttpsUrl = (raw: string): Maybe<URL> =>
@@ -139,8 +135,7 @@ const parseHttpsUrl = (raw: string): Maybe<URL> =>
 
 const workerLabel = (environment: Environment): Maybe<string> =>
   pipe(
-    Maybe.from.nullable(environment.WORKER_LABEL),
-    Maybe.chain(nonBlank),
+    requiredEnvironment(environment, "WORKER_LABEL"),
     Maybe.recover(() => Maybe.make.some("thumbnail-worker")),
   );
 
@@ -203,18 +198,44 @@ argument is an ordinary object, so JavaScript evaluates the field expressions be
 called; stopping at the first `None` does not skip that work. Use `assign` callbacks when later
 lookups or parsing should be skipped after an earlier failure.
 
+### When Absence Must Be an Error
+
+The boot decision above collapses every cause into one message. When a supervisor or health endpoint
+needs a typed failure, attach an error at the boundary:
+
+```ts
+import { Maybe, pipe, Result } from "@pplnd/core";
+
+type StartupError = {
+  code: "INVALID_THUMBNAIL_WORKER_CONFIGURATION";
+  message: string;
+};
+
+const startWorker = (environment: Environment): Result<StartupError, ThumbnailWorkerConfiguration> =>
+  pipe(
+    loadThumbnailWorkerConfiguration(environment),
+    Maybe.to.Result((): StartupError => ({
+      code: "INVALID_THUMBNAIL_WORKER_CONFIGURATION",
+      message: "Thumbnail worker configuration is missing or invalid",
+    })),
+  );
+```
+
+`to.Result` calls its error producer only for `None`, so the reason can be chosen at the boundary. A
+later dependent check can then use [`Result.chain`](/guides/result/) without re-checking presence.
+
 ## Core Operations
 
 ### Creating Values
 
-| Signature                                                         | What it does                                                                     | Guarantee                                                                     |
-| :---------------------------------------------------------------- | :------------------------------------------------------------------------------- | :---------------------------------------------------------------------------- |
-| `Maybe.make.some(value)`                                          | Marks a known worker setting as present.                                         | Produces `Some(value)` without changing the value.                            |
-| `Maybe.make.none()`                                               | Creates an explicit missing-setting result.                                      | Produces `None`.                                                              |
-| `Maybe.from.nullable(value)`                                      | Admits an environment value at the boundary.                                     | `null` and `undefined` become `None`; every other value becomes `Some`.       |
-| `Maybe.from.Predicate(predicate)(value)`                          | Accepts a raw setting only when it passes a test.                                | A failed predicate produces `None`; a type guard also narrows the value type. |
-| `Maybe.tryCatch(operation)`                                       | Runs synchronous parsing code such as `new URL(raw)`.                            | A synchronous throw produces `None`.                                          |
-| `Maybe.from.Result(result)` / `Maybe.from.Validation(validation)` | Discards an existing validation error at a boundary where only presence matters. | Success becomes `Some`; failure becomes `None`.                               |
+| Signature                                                   | What it does                                                          | Guarantee                                                                     |
+| :---------------------------------------------------------- | :-------------------------------------------------------------------- | :---------------------------------------------------------------------------- |
+| `Maybe.make.some(value)`                                    | Marks a known setting as present.                                     | Produces `Some(value)` without changing the value.                            |
+| `Maybe.make.none()`                                         | Creates an explicit missing-setting result.                           | Produces `None`.                                                              |
+| `Maybe.from.nullable(value)`                                | Admits an environment value at the boundary.                          | `null` and `undefined` become `None`; every other value becomes `Some`.       |
+| `Maybe.from.Predicate(predicate)(value)`                    | Accepts a raw setting only when it passes a test.                     | A failed predicate produces `None`; a type guard also narrows the value type. |
+| `Maybe.tryCatch(operation)`                                 | Runs synchronous parsing code such as `new URL(raw)`.                 | A synchronous throw produces `None`.                                          |
+| `Maybe.from.Result(result)` / `from.Validation(validation)` | Discards an existing error at a boundary where only presence matters. | Success becomes `Some`; failure becomes `None`.                               |
 
 ### Combining Values
 
@@ -222,7 +243,7 @@ lookups or parsing should be skipped after an earlier failure.
 | :----------------------------------- | :--------------------------------------------------------- | :------------------------------------------------------------------------------------- |
 | `Maybe.assignTo(key)`                | Starts a configuration accumulator from a present value.   | `None` remains `None`.                                                                 |
 | `Maybe.assign(key, operation)`       | Adds a dependent or independent setting to an accumulator. | Stops before the next assignment when the current value or operation result is `None`. |
-| `Maybe.struct(fields)`               | Combines independent optional settings into one record.    | Visits own enumerable string keys in order and stops at the first `None`.              |
+| `Maybe.struct(fields)`               | Combines independent optional settings into one record.    | Visits own keys in order and stops at the first `None`.                                |
 | `Maybe.apply(argument)`              | Feeds a present argument into a present curried function.  | Returns `None` if the function or its argument is absent.                              |
 | `Maybe.sequence.Result(maybeResult)` | Moves a result outside an optional setting.                | `Some(Err)` remains an error; `None` becomes `Ok(None)`.                               |
 
@@ -238,21 +259,22 @@ lookups or parsing should be skipped after an earlier failure.
 
 ### Running Code and Leaving Maybe
 
-| Signature                                                 | What it does                                                      | Return type                                     |
-| :-------------------------------------------------------- | :---------------------------------------------------------------- | :---------------------------------------------- |
-| `Maybe.match({ some, none })`                             | Handles both startup outcomes at the process boundary.            | The shared return type of the two handlers.     |
-| `Maybe.getOrElse(fallback)`                               | Extracts a setting or supplies a plain fallback.                  | `A` or the fallback type; the fallback is lazy. |
-| `Maybe.is.some(maybe)` / `Maybe.is.none(maybe)`           | Narrows a value for an imperative integration point.              | A TypeScript type guard.                        |
-| `Maybe.to.nullable(maybe)` / `Maybe.to.undefined(maybe)`  | Returns to an API that expects a nullable primitive.              | `A` or `null`; `A` or `undefined`.              |
-| `Maybe.to.Result(onNone)` / `Maybe.to.Validation(onNone)` | Attaches an error value when absence crosses a stricter boundary. | `Result(E, A)` or `Validation(E, A)`.           |
+| Signature                                           | What it does                                                      | Return type                                     |
+| :-------------------------------------------------- | :---------------------------------------------------------------- | :---------------------------------------------- |
+| `Maybe.match({ some, none })`                       | Handles both startup outcomes at the process boundary.            | The shared return type of the two handlers.     |
+| `Maybe.getOrElse(fallback)`                         | Extracts a setting or supplies a plain fallback.                  | `A` or the fallback type; the fallback is lazy. |
+| `Maybe.is.some(maybe)` / `Maybe.is.none(maybe)`     | Narrows a value for an imperative integration point.              | A TypeScript type guard.                        |
+| `Maybe.to.nullable(maybe)` / `to.undefined(maybe)`  | Returns to an API that expects a nullable primitive.              | `A` or `null`; `A` or `undefined`.              |
+| `Maybe.to.Result(onNone)` / `to.Validation(onNone)` | Attaches an error value when absence crosses a stricter boundary. | `Result(E, A)` or `Validation(E, A)`.           |
 
 ## Failure Behavior and Edge Cases
 
 A `None` says only that the configuration value is unavailable or unacceptable. The example treats a
 missing variable, blank text, malformed URL, non-decimal integer, and excessive limit alike. That is
 appropriate when the process manager needs one safe reject message. If an operator needs to know
-which rule failed, validate with `Result` from the first parsing step so each failure retains its
-reason; converting an already-empty `Maybe` to `Result` can provide only a new generic error.
+which rule failed, validate with [`Result`](/guides/result/) from the first parsing step so each
+failure retains its reason; converting an already-empty `Maybe` to `Result` can provide only a new
+generic error.
 
 For example, a missing worker count and a rejected count become the same `None`, so converting later
 cannot recover their different causes:
@@ -269,8 +291,7 @@ withError(invalid); // Err("WORKER_COUNT_UNAVAILABLE")
 ```
 
 `Maybe.tryCatch` catches only synchronous exceptions thrown while it calls `operation`. It does not
-catch exceptions thrown later by `map`, `chain`, `filter`, `tap`, `recover`, `getOrElse`, or
-`match`. Those callbacks execute normally when their respective case is reached, so protect code
-that can throw before putting it in a `Maybe` pipeline. It also does not await promises:
-`Maybe.tryCatch(() => fetchConfiguration())` creates `Some(Promise)` and a later rejection remains a
-rejected promise.
+wrap the callbacks passed to `map`, `chain`, `filter`, `tap`, `recover`, `getOrElse`, or `match`; an
+exception from one of them escapes to the caller. Protect code that can throw before putting it in a
+`Maybe` pipeline. It also does not await promises: `Maybe.tryCatch(() => fetchConfiguration())`
+creates `Some(Promise)` and a later rejection remains a rejected promise.

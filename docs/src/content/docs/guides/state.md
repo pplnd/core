@@ -1,6 +1,6 @@
 ---
 title: State — Sequential State Updates
-description: Compose computations that pass an updated state from one step to the next.
+description: Thread an updated state through each step and read the value and final state when the run ends.
 ---
 
 <!-- BUNDLE_SIZE:START -->
@@ -9,32 +9,47 @@ description: Compose computations that pass an updated state from one step to th
 
 <!-- BUNDLE_SIZE:END -->
 
+An importer stamps each record with the next sequence number and hands the updated counter to the
+following batch. A module-level counter survives a failed validation: the numbers are burned, and a
+rerun starts higher than the audit log expects. Returning the counter from every function works
+until one early return skips the update.
+
 ## Core Behavior
 
-`State<S, A>` is a function that takes a state `S` and returns a pair: the produced value `A` and
-its next state `S`.
+`State<S, A>` is a function from a state `S` to a pair of the produced value `A` and the next state
+`S`.
 
-- `chain` passes the first value to the next computation and uses the first step's next state as its
-  input.
-- `map` changes the produced value while retaining the next state.
-- `run` returns both parts. `evaluate` returns only the value; `execute` returns only the final
-  state.
+- `chain` passes the produced value to the next computation and feeds it the updated state; `map`
+  changes only the produced value.
+- `get` reads the state, `put` replaces it, and `modify` transforms it; `put` and `modify` produce
+  `undefined`.
+- `run` returns `[value, finalState]`; `evaluate` and `execute` each run the pipeline again and
+  discard one part.
+- `assignTo` and `assign` accumulate results into a record while the state passes through every
+  step.
+
+Use `State` when each step must hand an updated value to the next and the final state matters. When
+the value comes from context supplied once at the edge and does not change during the run,
+[`Reader`](/guides/reader/) removes the state threading entirely. The
+[choosing guide](/basics/choosing/) groups both under pure context and state threading.
 
 ## Example: Allocating Sequence Numbers
 
 An importer assigns sequence numbers to records. Each allocation needs the next available number,
 and the caller needs the updated counter for the next batch.
 
-`chain` feeds the next state from one allocation into the next. The first allocation's value can be
-used to choose the second computation:
+`chain` feeds the next state from one allocation into the next. `assignTo` and `assign` keep each
+allocation's record while the updated counter moves on:
 
 ```mermaid
 flowchart TD
-  Initial["Initial counter: 100"] --> First["First State computation"]
-  First -->|"Value: 100"| Select["Choose next computation"]
-  First -->|"Next counter: 101"| Second["Next State computation"]
-  Select --> Second
-  Second --> Final["Value: 101; next counter: 102"]
+  Initial["Initial counter: 100"] --> North["Allocate north.csv"]
+  North -->|"Record 100"| Accumulate["assignTo north"]
+  North -->|"Next counter: 101"| South["Allocate south.csv"]
+  South -->|"Record 101"| Attach["assign south"]
+  Accumulate --> Attach
+  Attach --> Batch["Batch record"]
+  South -->|"Next counter: 102"| Final["Final counter: 102"]
 ```
 
 ### Allocating a Batch
@@ -73,6 +88,26 @@ const [records, nextSequence] = pipe(batch, State.run(100));
 Running the same batch with another initial counter starts a separate sequence. To continue this
 one, pass `nextSequence` to the next batch.
 
+### Pulling the starting number from settings
+
+Running the batch with `100` fixes the starting number in the source. When that number comes from
+deployment settings that stay fixed for the run, [`Reader`](/guides/reader/) supplies it once at the
+edge and leaves the state transitions unchanged:
+
+```ts
+import { pipe, Reader, State } from "@pplnd/core";
+
+const runBatch = (start: number) => pipe(batch, State.run(start));
+
+const batchFromSettings = pipe(
+  Reader.ask<{ firstSequence: number }>(),
+  Reader.map((settings) => runBatch(settings.firstSequence)),
+);
+```
+
+The batch no longer chooses its starting point. The reader supplies configuration, and the state
+still owns the counter that changes between records.
+
 ## Core Operations
 
 ### Creating State Computations
@@ -94,7 +129,7 @@ A function `(state: S) => readonly [A, S]` can also be used directly.
 | `State.apply(argument)`                   | Applies a stateful function to a stateful argument.  | Function computation runs before argument. |
 | `State.assignTo(key)` / `assign(key, fn)` | Starts a record / adds a later result.               | State passes between the steps.            |
 | `State.focus(lens)`                       | Runs a computation against part of a larger state.   | Replaces that part with its next state.    |
-| `State.tap(fn)`                           | Observes the produced value.                         | Keeps the value and next state.            |
+| `State.tap(sideEffect)`                   | Observes the produced value.                         | Keeps the value and next state.            |
 
 ### Running
 
@@ -109,8 +144,16 @@ A function `(state: S) => readonly [A, S]` can also be used directly.
 `evaluate` and `execute` each run the computation. Calling both separately repeats every step; use
 `run` when both the value and the final state are needed.
 
+`apply` runs the function computation first, then the argument computation with the state the first
+one produced. `assign` evaluates the attached computation after the accumulator, so a later step
+sees the state left by the earlier one.
+
 `State` passes state values between functions; it does not prevent a callback from mutating an
 object supplied as state. Return an updated object when the original must remain unchanged.
+
+`State` has no error channel. A callback that throws ends the run and the exception escapes to the
+caller of `State.run`; return a [`Result`](/guides/result/) as the produced value when a step can
+fail.
 
 Chains execute as nested function calls. Extremely deep synchronous chains can exceed the JavaScript
 call stack; split unusually large pipelines into smaller stages.

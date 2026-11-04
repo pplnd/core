@@ -1,6 +1,6 @@
 ---
 title: Validation — Accumulating Errors
-description: Check independent inputs and collect their errors before handling the outcome.
+description: Check independent inputs and report every failure before handling the outcome.
 ---
 
 <!-- BUNDLE_SIZE:START -->
@@ -9,14 +9,28 @@ description: Check independent inputs and collect their errors before handling t
 
 <!-- BUNDLE_SIZE:END -->
 
+A registration form validates a username, an email address, and a password. A check that returns
+after the first invalid field makes the user fix one problem, submit, and discover the next one; the
+same round trip repeats for every field that was already wrong. The form has all three values at
+once, so it can report all three problems at once.
+
 ## Core Behavior
 
-`Validation<E, A>` holds either a `Passed` value or a `Failed` non-empty list of errors.
+`Validation<E, A>` represents a check that either passed with a value or failed with a non-empty
+list of errors.
 
-- `struct` combines independent field results and collects every failure in own-key enumeration
-  order.
-- `apply` combines a wrapped function and argument, concatenating their errors in that order.
-- `map` skips a failed value; `match` handles the complete error list or the passed value.
+- `struct` combines already-created field results and concatenates every failed field's errors in
+  own-key order.
+- `apply` combines a wrapped function and a wrapped argument; when both fail, the function's errors
+  come first.
+- `map` and `mapError` act on their matching variant, while `match` receives the complete error
+  list.
+- There is no `chain`. A check that needs another check's output must wait for a passed value, which
+  is the shape [`Result`](/guides/result/) provides.
+
+Reach for `Validation` when independent fields must each report their own error.
+[`Result`](/guides/result/) stops at the first failure, which fits a sequence of dependent steps.
+The [choosing guide](/basics/choosing/) compares the error containers side by side.
 
 ## Example: Account Registration
 
@@ -28,10 +42,10 @@ returns the combined values only when all fields pass:
 
 ```mermaid
 flowchart TD
-  Fields["Username and email Validation results"] --> Collect["struct inspects every field"]
+  Fields["Username, email, and password checks"] --> Collect["struct inspects every field"]
   Collect --> Failed{"Any Failed?"}
   Failed -->|No| Passed["Passed(registration details)"]
-  Failed -->|Yes| Errors["Failed(collected errors)"]
+  Failed -->|Yes| Errors["Failed(errors in field order)"]
 ```
 
 For a failed username followed by a failed email, the error list contains the username errors first,
@@ -127,12 +141,51 @@ console.log(registrationResponse({ username: "longusername", email: "alex@exampl
 // { status: 400, body: "PASSWORD_MATCHES_USERNAME" }
 ```
 
+`struct` collects the field errors in enumeration order. `to.Result` joins them into one message at
+the boundary, and the dependent password rule runs only after every field has passed. The error
+constructors and error-producing callbacks preserve inline literal types; choose an explicit wider
+type if an error must be mutable.
+
+### Running the Same Checks Against a Remote Directory
+
+Availability cannot be checked from the values alone. [`Task.Validation`](/guides/task/) keeps the
+field results and accumulates their errors while the checks run asynchronously:
+
+```ts
+import { pipe, Task } from "@pplnd/core";
+
+type AsyncFieldError = FieldError | "USERNAME_UNAVAILABLE";
+
+const checkUsernameAvailable = (username: string): Task.Validation<AsyncFieldError, string> =>
+  Task.Validation.tryCatch(
+    (signal) =>
+      fetch(`/api/usernames/${encodeURIComponent(username)}`, { signal }).then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return username;
+      }),
+    { onError: () => "USERNAME_UNAVAILABLE" as const },
+  );
+
+const validateRegistrationAsync = (
+  input: RegistrationInput,
+): Task.Validation<AsyncFieldError, RegistrationInput> =>
+  pipe(
+    Task.Validation.from.Validation(validateRegistration(input)),
+    Task.Validation.map((registration) => (_username: string) => registration),
+    Task.Validation.apply(checkUsernameAvailable(input.username)),
+  );
+```
+
+The synchronous field checks keep their own error values; only the availability lookup needs an
+asynchronous error channel. `apply` runs both sides and accumulates their errors, so awaiting the
+task returns one `Validation` with every failure from the local checks and the lookup.
+
 ## Core Operations
 
 ### Creating Values
 
 | Operation                                      | What it does                                                | Error or return type      |
-| ---------------------------------------------- | ----------------------------------------------------------- | ------------------------- |
+| :--------------------------------------------- | :---------------------------------------------------------- | :------------------------ |
 | `make.passed(value)` / `make.failed(error)`    | Wrap a value / a single error.                              | `Passed<A>` / `Failed<E>` |
 | `make.failedAll(errors)`                       | Wrap an existing non-empty error array.                     | `Failed<E>`               |
 | `tryCatch(operation, { onError })`             | Run synchronous code and map a thrown value to one error.   | `Validation<E, A>`        |
@@ -142,38 +195,43 @@ console.log(registrationResponse({ username: "longusername", email: "alex@exampl
 
 ### Combining Values
 
-| Operation                | What it does                                     | Guarantee                                           |
-| ------------------------ | ------------------------------------------------ | --------------------------------------------------- |
-| `struct(fields)`         | Combine a record of already-created validations. | Collects errors in own-key enumeration order.       |
-| `apply(argument)`        | Apply a wrapped function to a wrapped argument.  | Concatenates errors from the function and argument. |
-| `keyed.make(validators)` | Run one validator per matching input field.      | Returns a validation for each field.                |
+| Operation         | What it does                                     | Guarantee                                           |
+| :---------------- | :----------------------------------------------- | :-------------------------------------------------- |
+| `struct(fields)`  | Combine a record of already-created validations. | Collects errors in own-key enumeration order.       |
+| `apply(argument)` | Apply a wrapped function to a wrapped argument.  | Concatenates errors from the function and argument. |
 
 ### Transforming Values
 
 | Operation                                | What it does                                      | Guarantee                                                  |
-| ---------------------------------------- | ------------------------------------------------- | ---------------------------------------------------------- |
+| :--------------------------------------- | :------------------------------------------------ | :--------------------------------------------------------- |
 | `map(transform)` / `mapError(transform)` | Transform a passed value / each error.            | The other case passes through.                             |
 | `tap(effect)` / `tapError(effect)`       | Inspect a passed value / the complete error list. | Returns the original validation when the callback returns. |
 | `recover(fallback)`                      | Run a fallback validation on failure.             | Receives the complete error list.                          |
 | `recoverUnless(isBlocked, fallback)`     | Recover only when no error matches the predicate. | A matching error keeps the original failure.               |
 
-### Running Code and Leaving Validation
+### Reading and Converting
 
-| Operation                                             | What it does                                                | Return type                           |
-| ----------------------------------------------------- | ----------------------------------------------------------- | ------------------------------------- |
-| `match({ passed, failed })`                           | Handle both cases.                                          | The selected handler's return value.  |
-| `getOrElse(fallback)`                                 | Extract success or call a no-argument fallback.             | Passed or fallback value.             |
-| `is.passed(value)` / `is.failed(value)`               | Test and narrow the variant.                                | Boolean type guard.                   |
-| `to.Result(validation)`                               | Convert to a fail-fast result.                              | An error contains the non-empty list. |
-| `to.Result(combineErrors)`                            | Convert using a function to combine the errors.             | A curried converter to `Result`.      |
-| `to.Maybe(validation)`                                | Convert success or failure to presence or absence.          | Discards errors.                      |
-| `keyed.is.passed(fields)` / `keyed.is.failed(fields)` | Check whether all fields passed / any failed.               | The passed check narrows each field.  |
-| `keyed.getPassed(fields)` / `keyed.getErrors(fields)` | Extract all passed values / errors grouped by failed field. | `Maybe` of the record.                |
+| Operation                               | What it does                                       | Return type                           |
+| :-------------------------------------- | :------------------------------------------------- | :------------------------------------ |
+| `match({ passed, failed })`             | Handle both cases.                                 | The selected handler's return value.  |
+| `getOrElse(fallback)`                   | Extract success or call a no-argument fallback.    | Passed or fallback value.             |
+| `is.passed(value)` / `is.failed(value)` | Test and narrow the variant.                       | Boolean type guard.                   |
+| `to.Result(validation)`                 | Convert to a fail-fast result.                     | An error contains the non-empty list. |
+| `to.Result(combineErrors)`              | Convert using a function to combine the errors.    | A curried converter to `Result`.      |
+| `to.Maybe(validation)`                  | Convert success or failure to presence or absence. | Discards errors.                      |
+
+### Keyed Field Results
+
+| Operation                                             | What it does                                                | Return type                          |
+| :---------------------------------------------------- | :---------------------------------------------------------- | :----------------------------------- |
+| `keyed.make(validators)`                              | Run one validator per matching input field.                 | A validation for each field.         |
+| `keyed.is.passed(fields)` / `keyed.is.failed(fields)` | Check whether all fields passed / any failed.               | The passed check narrows each field. |
+| `keyed.getPassed(fields)` / `keyed.getErrors(fields)` | Extract all passed values / errors grouped by failed field. | `Maybe` of the record.               |
 
 For field-specific messages, `keyed.make` retains each field's result. Pass that record to `struct`
-when a single validation with a combined error list is needed. `keyed.make` validators return the
-same field type they accept; use `struct` directly when a check transforms a field to a different
-type.
+when a single validation with a combined error list is needed. A validator can also transform its
+field: the input type comes from the validator's parameter and the retained result from its return
+value.
 
 ## Failure Behavior and Edge Cases
 
@@ -202,6 +260,10 @@ until that output exists; convert to `Result` for dependent fail-fast steps. `Va
 throw from `onError`, a predicate, a mapper, a handler, or any other callback escapes. A promise
 returned from `tryCatch` is a `Passed` value; a later rejection is not caught. Use `Task.Validation`
 for independent asynchronous validations.
+
+When a form has to decide `when` errors become visible rather than what the errors are, keep that
+decision outside the validators. The [per-field validation recipe](/recipes/field-validation/) shows
+the trigger and visibility model around `Validation.keyed`.
 
 Error constructors preserve inline literal types, including
 `Validation.make.failed("USERNAME_REQUIRED")`. Inline object errors can infer readonly literal

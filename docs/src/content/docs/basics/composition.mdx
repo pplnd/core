@@ -13,49 +13,8 @@ This guide acts as a comprehensive reference for these tools. If you are new to 
 
 ## pipe and flow
 
-These two functions sequence transformations top-to-bottom.
-
-`pipe` evaluates a starting value immediately through a sequence of steps. `flow` defers execution, returning a reusable function.
-
-```ts
-import { flow, pipe } from "@pplnd/core";
-
-// pipe: immediate evaluation
-const slug = pipe(
-  "  Hello World  ",
-  (s) => s.trim(),
-  (s) => s.toLowerCase(),
-  (s) => s.replace(/\s+/g, "-"),
-); // "hello-world"
-
-// flow: deferred evaluation
-const toSlug = flow(
-  (s: string) => s.trim(),
-  (s) => s.toLowerCase(),
-  (s) => s.replace(/\s+/g, "-"),
-);
-const slugs = ["  Alice  ", "  Bob  "].map(toSlug); // ["alice", "bob"]
-```
-
-<Aside title="The ten-step limit in pipelines">
-`pipe` and `flow` are typed for up to **10 steps**. If you exceed this limit, TypeScript will raise a compilation error. This boundary is chosen to align with the JIT optimization limits of modern JavaScript runtimes.
-
-**TypeScript type inference.** TypeScript lacks a native syntax to represent a variadic function where the input of each argument must match the output of the preceding one. The only way to type this is to write explicit overloads for every chain length. Each additional overload adds significant work for the compiler, slowing down IDE completions across the entire codebase.
-
-**JIT compiler budgets.** Every modern JavaScript engine has a finite bytecode inlining budget. V8 (Node.js, Chrome) sets thresholds like `--max-inlined-bytecode-size` and `--max-inlined-bytecode-size-cumulative`. JavaScriptCore (Safari, Bun) and SpiderMonkey (Firefox) enforce similar boundaries. When a function call chain becomes too deep, the JIT engine stops inlining and falls back to indirect call execution. At that point, the performance profile of deep composition degrades regardless of how the library is implemented.
-
-If you find yourself needing more than 10 steps in a single pipeline, it is usually a signal to split your logic into named, modular phases:
-
-```ts
-const pricing      = flow(calculateTax, applyDiscounts, calculateShipping);
-const fulfillment  = flow(reserveInventory, chargePayment, scheduleFulfillment);
-const notification = flow(generateInvoice, sendConfirmation, updateCRM);
-
-const processOrder = flow(validateStock, pricing, fulfillment, notification);
-```
-
-Dividing the pipeline into cohesive sub-pipelines provides cleaner type boundaries, easier unit testing, and highly reusable modules.
-</Aside>
+`pipe` and `flow` are covered in [Thinking in pipelines](/basics/pipelines), including the
+ten-step limit and how to split a long chain into named phases.
 
 ---
 
@@ -451,13 +410,3 @@ const byDuration = on((a: number, b: number) => a - b, (t: Track) => t.duration)
 const sorted = [...tracks].sort(byDuration);
 ```
 
----
-
-## Problems it solves
-
-- **Eliminating deeply nested calls and intermediate variables (`pipe`, `flow`, `pipeAsync`, `flowAsync`)**: Sequencing synchronous and asynchronous operations top-to-bottom in execution order without temporary local variables (`const step1 = ...; const step2 = ...`) or inside-out nested function calls.
-- **Declarative inline branching (`when`, `unless`)**: Applying conditional transformations inside a pipeline (such as applying promotional discounts or skipping tax calculations for exempt accounts) without breaking the linear flow with manual ternary wrappers.
-- **Deriving and combining parallel projections (`struct`, `converge`, `juxt`)**: Computing multiple independent values from a single input — whether assembling a summary object (`struct`), feeding parallel calculations into a combiner (`converge`), or collecting tuple results (`juxt`)—without referencing the input variable repeatedly.
-- **Non-intrusive pipeline observability (`tap`, `tapLog`, `tapInspect`, `tapAsync`, `tapTime`)**: Logging values, inspecting deep payloads, firing background telemetry, and measuring step execution durations mid-pipeline without altering return types or disrupting data flow.
-- **Adapting function signatures across boundaries (`curry`, `uncurry`, `flip`, `tuple`, `untuple`, `on`)**: Bridging multi-argument callbacks, tuple pairs, and third-party APIs with data-last pipeline steps without repetitive wrapper functions.
-- **Bounding redundant computations (`once`, `memoize`, `memoizeWeak`)**: Guaranteeing one-time initialization for resources (`once`) and caching expensive pure calculations by primitive key (`memoize` with optional LRU `maxSize`) or object reference (`memoizeWeak`).

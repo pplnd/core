@@ -1,111 +1,230 @@
 ---
 title: Resource — Acquisition and Cleanup
-description: Pair an asynchronous acquisition with cleanup and use the acquired value in a scope.
+description: Acquire a handle, run work with it, and release it in reverse order on every exit path.
 ---
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.02 kB minified + gzipped
+> 2.05 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
+An import job opens a database connection and takes a lock on the catalog table. The connection step
+fails, the error returns to the caller, and the lock stays held until someone restarts the worker.
+Every later run queues behind a lock whose owner is gone.
+
 ## Core Behavior
 
-`Resource<E, A>` describes how to acquire a value and release it after use.
+`Resource<E, A>` describes an asynchronous acquisition, the value it produces, and a release that
+runs once the value is no longer needed.
 
-- `Resource.use` starts acquisition and returns a deferred result after cleanup.
-- `chain`, `combine`, and `all` acquire resources in sequence. If a later acquisition returns an
-  error, previously acquired values are released in reverse order.
-- After successful acquisition, `use` runs cleanup after the work completes, including when the work
-  returns an error.
+- Only a successful acquisition registers its release. If a later acquisition in the same scope
+  fails, the releases registered so far run in reverse order before the error returns.
+- `use` runs the work after every acquisition succeeds, then releases all acquired values, including
+  when the work returns an error.
+- Releases run in reverse acquisition order and receive the signal passed to `use`.
+- `all` and `combine` acquire sequentially, so a failure stops the remaining acquisitions.
 
-## Example: Reading Rotated Logs
+Reach for `Resource` when work needs something opened before it and closed after it. When several
+writes must undo completed steps after a failure, [`Transaction`](/guides/transaction/) runs the
+compensations. The [type model](/basics/types/) groups a resource with the other definitions that
+describe work, and the [choosing guide](/basics/choosing/) compares the execution shapes.
 
-A log inspector needs to open the current and previous log files and close both after reading them.
-If opening the second file fails, the first handle still needs to close.
+## Example: Catalog Import
 
-Successful acquisitions register cleanup. A later acquisition error skips the work and releases
-previously acquired resources in reverse order:
+A nightly import takes a lock so two workers cannot write the catalog at once, connects to the
+catalog database, and adds the batch. The lock has to be released before the worker exits, including
+on the path where the connection never opens.
+
+Successful acquisitions register their release. A failed acquisition skips the work and releases
+what was already acquired:
 
 ```mermaid
 flowchart TD
-  Acquire["Acquire next resource"] --> Result{"Acquisition result"}
-  Result -->|Ok| Register["Register cleanup"]
+  Acquire["Acquire next resource"] --> Outcome{"Acquisition result"}
+  Outcome -->|Ok| Register["Register its release"]
   Register --> More{"More resources?"}
   More -->|Yes| Acquire
-  More -->|No| Work["Run work"]
-  Result -->|Err| Cleanup["Release acquired resources in reverse order"]
-  Work --> Cleanup
+  More -->|No| Work["Run the work callback"]
+  Work --> Release["Release in reverse order"]
+  Outcome -->|Err| Release
+  Release --> Settle["Settle with the acquisition or work error"]
 ```
 
-### Opening and Closing Files
+### Opening the Import Session
 
-This example creates two temporary log files, reads them through resources, and closes their handles
-in reverse order. The temporary directory is removed after the work finishes:
+`Resource.all` acquires the record in key order, so the lock is taken first. The work callback
+receives both values, and the releases run in reverse: the connection closes before the lock is
+released.
 
 ```ts
-import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { Resource, Task } from "@pplnd/core";
 
-const directory = await mkdtemp(join(tmpdir(), "log-inspector-"));
-try {
-  const currentPath = join(directory, "current.log");
-  const previousPath = join(directory, "previous.log");
-  await writeFile(currentPath, "started\n");
-  await writeFile(previousPath, "finished\n");
+type CatalogClient = { readonly name: string; readonly items: Set<string> };
+type ImportSession = { readonly lock: string; readonly catalog: CatalogClient };
 
-  const openLog = (path: string) => Resource.make(
-    Task.Result.tryCatch(() => open(path, "r"), { onError: (error) => String(error) }),
-    (handle) => Task.tryCatch(
-      () => handle.close(),
-      { onError: (error) => console.error(`Could not close ${path}: ${String(error)}`) },
-    ),
+const events: string[] = [];
+const locks = new Set<string>();
+const catalog = new Set<string>();
+
+const describeError = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+const takeLock = (name: string): Task.Result<string, string> =>
+  Task.Result.tryCatch(
+    async () => {
+      if (locks.has(name)) throw new Error(`${name} is already held`);
+      locks.add(name);
+      events.push("locked");
+      return name;
+    },
+    { onError: (error) => `Lock failed: ${describeError(error)}` },
   );
 
-  const logs = Resource.all({ current: openLog(currentPath), previous: openLog(previousPath) });
-  const result = await Resource.use(logs, {
-    run: ({ current, previous }) => Task.Result.tryCatch(
-      async () => ({
-        current: await current.readFile("utf8"),
-        previous: await previous.readFile("utf8"),
-      }),
-      { onError: (error) => String(error) },
-    ),
+const releaseLock = (name: string): Task<unknown> =>
+  Task.tryCatch(
+    async () => {
+      locks.delete(name);
+      events.push("unlocked");
+    },
+    { onError: (error) => console.error(`Unlock failed: ${describeError(error)}`) },
+  );
+
+const connectCatalog = (online: boolean): Task.Result<string, CatalogClient> =>
+  Task.Result.tryCatch(
+    async () => {
+      if (!online) throw new Error("catalog-primary is offline");
+      events.push("connected");
+      return { name: "catalog-primary", items: catalog };
+    },
+    { onError: (error) => `Connection failed: ${describeError(error)}` },
+  );
+
+const disconnectCatalog = (client: CatalogClient): Task<unknown> =>
+  Task.tryCatch(
+    async () => {
+      events.push(`disconnected ${client.name}`);
+    },
+    { onError: (error) => console.error(`Disconnect failed: ${describeError(error)}`) },
+  );
+
+const importItems = ["trowel", "level", "wheelbarrow"];
+
+const openImport = (online: boolean): Resource<string, ImportSession> =>
+  Resource.all({
+    lock: Resource.make(takeLock("catalog-import"), releaseLock),
+    catalog: Resource.make(connectCatalog(online), disconnectCatalog),
   });
 
-  if (result.kind === "Ok") console.log(result.value);
-  else console.error(result.error);
-} finally {
-  await rm(directory, { recursive: true, force: true });
-}
+const importCatalog = (online: boolean) =>
+  Resource.use({
+    run: ({ catalog, lock }: ImportSession) =>
+      Task.Result.tryCatch(
+        async () => {
+          for (const id of importItems) catalog.items.add(id);
+          events.push(`imported ${importItems.length} items`);
+          return { lock, imported: importItems.length };
+        },
+        { onError: (error) => `Import failed: ${describeError(error)}` },
+      ),
+  })(openImport(online));
+
+console.log(await importCatalog(true));
+// { kind: "Ok", value: { lock: "catalog-import", imported: 3 } }
+console.log(events);
+// ["locked", "connected", "imported 3 items", "disconnected catalog-primary", "unlocked"]
+
+events.length = 0;
+console.log(await importCatalog(false));
+// { kind: "Err", error: "Connection failed: catalog-primary is offline" }
+console.log(events);
+// ["locked", "unlocked"]
 ```
+
+The second run never reaches the work callback. The lock was acquired before the connection failed,
+so the scope releases it before returning the error.
+
+### Handing the Session to a Transaction
+
+When the import grows into several writes that must undo completed steps, the transaction receives
+the acquired client as its run input. The steps read it from `ctx.input`, and a signal passed to
+`use` reaches them:
+
+```ts
+import { Transaction } from "@pplnd/core";
+
+const step = Transaction.stepFactory<{ client: CatalogClient; items: readonly string[] }>();
+const importBatch = Transaction.make(
+  step("import", ({ ctx: { input } }) =>
+    Task.Result.tryCatch(
+      async () => {
+        for (const id of input.items) input.client.items.add(id);
+      },
+      { onError: (error) => `Import failed: ${describeError(error)}` },
+    )),
+);
+
+const outcome = await Resource.use({
+  run: ({ catalog }: ImportSession) => (signal: AbortSignal | undefined) =>
+    Transaction.run({ client: catalog, items: importItems }, { signal })(importBatch),
+})(openImport(true));
+```
+
+The client is still released after the transaction settles, whatever the transaction's outcome. See
+[`Transaction`](/guides/transaction/) for the step and undo surface.
 
 ## Core Operations
 
-### Creating and Combining
+### Creating Resources
 
-| Signature                         | What it does                                      | Behavior                                   |
-| :-------------------------------- | :------------------------------------------------ | :----------------------------------------- |
-| `Resource.make(acquire, release)` | Pairs a fallible acquisition with a release task. | Release receives the acquired value.       |
-| `Resource.map(fn)`                | Transforms an acquired value.                     | Retains cleanup for the original resource. |
-| `Resource.chain(fn)`              | Acquires a resource using a previous value.       | The new resource is released first.        |
-| `Resource.combine(first, second)` | Acquires two resources.                           | Produces a pair.                           |
-| `Resource.all(resources)`         | Acquires a tuple or record of resources in order. | Produces matching values.                  |
-| `Resource.use(resource, { run })` | Acquires, runs a `Task.Result`, then releases.    | Returns a deferred work result.            |
+| Signature                         | What it does                                          | Behavior                               |
+| :-------------------------------- | :---------------------------------------------------- | :------------------------------------- |
+| `Resource.make(acquire, release)` | Pairs a fallible acquisition with an infallible task. | `release` receives the acquired value. |
 
-For infallible acquisition, pass `Task.Result.from.Task(acquire)` to `Resource.make`.
+### Combining Resources
+
+| Signature                         | What it does                                     | Behavior                                                  |
+| :-------------------------------- | :----------------------------------------------- | :-------------------------------------------------------- |
+| `Resource.chain(transform)`       | Acquires a second resource from the first value. | Releases the second before the first; errors are unioned. |
+| `Resource.combine(first, second)` | Acquires two resources in order.                 | Produces a readonly tuple.                                |
+| `Resource.all(resources)`         | Acquires a tuple or record in key order.         | Stops at the first acquisition error.                     |
+
+### Transforming Acquired Values
+
+| Signature          | What it does                   | Behavior                               |
+| :----------------- | :----------------------------- | :------------------------------------- |
+| `Resource.map(fn)` | Transforms the acquired value. | Keeps the original resource's release. |
+
+### Running a Scope
+
+| Signature                                  | What it does                         | Return type                           |
+| :----------------------------------------- | :----------------------------------- | :------------------------------------ |
+| `Resource.use({ run, signal? })(resource)` | Acquires, runs `run`, then releases. | Data-last; a deferred `Result<E, B>`. |
+
+For an infallible acquisition, convert it first with `Task.Result.from.Task(acquire)`; the resource
+then has error type `never`. Annotate the `run` parameter with the acquired type. The resource is
+supplied after the options, so TypeScript cannot infer that type from the call. The optional
+`signal` is forwarded to acquisition, work, and release. `run` must return a `Task.Result`; a plain
+`Task` cannot express the work's error. The result error type is the union of the acquisition and
+work errors.
 
 ## Failure Behavior and Edge Cases
 
-Only successful acquisitions register a release. A failed acquisition returns its error and the work
-callback is skipped. Release runs in reverse acquisition order.
+Only a successful acquisition registers a release. A failed acquisition returns its error, the work
+callback is skipped, and the releases already registered run in reverse order. A release that
+returns an error is invisible to `use`, because release is a `Task`; handle expected release
+failures inside that task.
 
-Acquisition and work use `Task.Result` to report expected errors. Release is an infallible `Task`;
-handle any expected release failure inside that task. Resource callbacks and tasks must not throw or
-reject. A contract violation can prevent cleanup or leave the returned deferred result unsettled.
+Acquisition, work, and release must not throw or reject. `Deferred.from.Promise` never settles when
+its promise rejects, so a rejected work task stops the scope before cleanup and a rejected release
+stops the remaining releases. Either way the returned deferred stays pending. Wrap fallible work in
+`Task.Result.tryCatch` and `Task.tryCatch`.
 
-Tasks supplied to a resource must honor the `Task` contract and not reject. The signal passed to
-`use` is also passed to acquisition, work, and cleanup; cancellation depends on those tasks' signal
-handling.
+`map` runs its transform inside the acquisition. A transform that throws rejects the containing
+promise, so the scope never reaches its releases.
+
+Acquisition is sequential: `combine` acquires left then right, and `all` acquires record keys in
+enumeration order. The signal passed to `use` is forwarded to acquisition, work, and release; a task
+that ignores it keeps running, and cleanup starts only after the work settles. A task that observes
+the signal can report cancellation with the shared [`Aborted`](/guides/aborted/) outcome, but
+`Resource` does not add a cancelled variant of its own.

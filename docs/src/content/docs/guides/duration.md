@@ -1,6 +1,6 @@
 ---
 title: Duration — Time Quantities
-description: Create and combine time quantities with explicit units.
+description: Carry time quantities with explicit units and convert them where a number is required.
 ---
 
 <!-- BUNDLE_SIZE:START -->
@@ -9,14 +9,25 @@ description: Create and combine time quantities with explicit units.
 
 <!-- BUNDLE_SIZE:END -->
 
+A report cache has a five-minute lifetime and a thirty-second grace period. One module passes the
+lifetime as seconds, another as milliseconds, and the cache evicts reports while a request is still
+reading them. The units survive in variable names rather than in the type.
+
 ## Core Behavior
 
-`Duration` represents a time quantity as a branded number of milliseconds.
+`Duration` is a branded number of milliseconds.
 
-- Constructors accept milliseconds, seconds, minutes, hours, or days and convert to milliseconds.
-- `add` and `subtract` combine durations; `to` converts a duration back to a number in a chosen
-  unit.
-- A raw number does not satisfy a parameter typed as `Duration`.
+- Constructors convert milliseconds, seconds, minutes, hours, or days into milliseconds; `to.*`
+  divides back and can return fractions.
+- `add` and `subtract` operate on the stored milliseconds and return a new Duration.
+- A plain number is not assignable to Duration; produce one through a constructor.
+- Conversions do not clamp: negative and non-finite inputs are stored as given.
+
+Reach for `Duration` when a time quantity crosses a boundary and its unit must survive the trip.
+When the quantity configures retry attempts and backoff, a [`RetryPolicy`](/guides/op/) consumes
+durations and `Op` applies that policy to a running operation. The
+[choosing guide](/basics/choosing/) maps value containers; duration is the primitive those timing
+options accept.
 
 ## Example: Report Cache Expiration
 
@@ -50,14 +61,55 @@ const cacheLifetimeSeconds = Duration.to.seconds(cacheLifetime);
 Pass `cacheLifetime` to APIs that accept `Duration`; pass `cacheLifetimeMs` to a timer or cache API
 that accepts a number of milliseconds.
 
+### The same durations in a retry policy
+
+The cache refreshes from a report service that can fail transiently. A [`RetryPolicy`](/guides/op/)
+stores the backoff delays as durations, and `Op` applies the policy to the call:
+
+```ts
+import { Duration, Op, RetryPolicy, Task } from "@pplnd/core";
+
+const retry = RetryPolicy.exponential({
+  attempts: 3,
+  initial: Duration.seconds(1),
+  maxDelay: Duration.seconds(10),
+});
+
+const refreshReport = Op.make((reportId: string) =>
+  Task.Result.tryCatch(
+    (signal) => fetch(`/reports/${reportId}`, { signal }).then((response) => response.json()),
+    { onError: () => "NETWORK" as const },
+  )
+);
+
+const manager = Op.interpret(refreshReport, { strategy: "once", retry });
+const outcome = await manager.run("quarterly");
+```
+
+The policy caps each delay at `maxDelay` and turns `attempts` into the number of tries; the
+operation owns cancellation and overlapping calls.
+
 ## Core Operations
 
-### Creating and Converting
+### Creating Durations
 
-| Signature                                                                                                | What it does                           | Result      |
-| :------------------------------------------------------------------------------------------------------- | :------------------------------------- | :---------- |
-| `Duration.milliseconds(n)` / `seconds(n)` / `minutes(n)` / `hours(n)` / `days(n)`                        | Converts the named unit to a duration. | `Duration`. |
-| `Duration.to.milliseconds(value)` / `seconds(value)` / `minutes(value)` / `hours(value)` / `days(value)` | Reads the duration in the named unit.  | `number`.   |
+| Signature                  | Stores                       |
+| :------------------------- | :--------------------------- |
+| `Duration.milliseconds(n)` | `n` milliseconds.            |
+| `Duration.seconds(n)`      | `n` seconds as milliseconds. |
+| `Duration.minutes(n)`      | `n` minutes as milliseconds. |
+| `Duration.hours(n)`        | `n` hours as milliseconds.   |
+| `Duration.days(n)`         | `n` days as milliseconds.    |
+
+### Converting Durations
+
+| Signature                     | Returns                           |
+| :---------------------------- | :-------------------------------- |
+| `Duration.to.milliseconds(d)` | The stored milliseconds.          |
+| `Duration.to.seconds(d)`      | Milliseconds divided by 1000.     |
+| `Duration.to.minutes(d)`      | Milliseconds divided by 60000.    |
+| `Duration.to.hours(d)`        | Milliseconds divided by 3600000.  |
+| `Duration.to.days(d)`         | Milliseconds divided by 86400000. |
 
 ### Calculating
 
@@ -68,6 +120,17 @@ that accepts a number of milliseconds.
 
 ## Failure Behavior and Edge Cases
 
-Duration constructors do not reject negative or non-finite numbers. `subtract` can also produce a
-negative duration. Check input ranges before using a duration where a positive finite value is
-required.
+Duration constructors do not reject negative or non-finite numbers. `Duration.subtract` can also
+produce a negative duration. Check input ranges before using a duration where a positive finite
+value is required.
+
+A Duration is a number at runtime and is assignable to `number`, so a function typed to accept a
+number receives the stored milliseconds without conversion. Use `Duration.to.<unit>` when the target
+expects another unit.
+
+Conversion can return a fraction. `Duration.to.seconds(Duration.milliseconds(1500))` is `1.5`; round
+at the call site when the consumer requires an integer.
+
+`RetryPolicy.exponential` clamps its initial and maximum delays to non-negative values and caps
+generated delays at `maxDelay`; it does not modify the durations passed in. See [`Op`](/guides/op/)
+for retry execution.

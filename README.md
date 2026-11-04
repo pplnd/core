@@ -14,24 +14,18 @@ npm add @pplnd/core
 
 ## Overview
 
-TypeScript brings static types to JavaScript, but leaves several critical failure modes to developer
-discipline:
+An API call fails, and the error arrives as a caught `unknown` three functions away from the call
+that caused it. Every return type along the way says the call succeeded.
 
-- Functions throw exceptions that never appear in their return types.
-- Missing values require defensive `null` and `undefined` checks scattered across every function
-  call.
-- Promises reject with `unknown`, forcing manual `try/catch` blocks and speculative casts.
-- Retrying requests, enforcing timeouts, and wiring cancellation requires juggling `AbortController`
-  instances, timers, and mutable boolean flags.
-
-`pipelined` provides types and functions for everyday application code. Types such as `Result` and
-`Maybe` use plain objects with a `kind` discriminator. Functions accept their data last, so
-multi-step operations read top-to-bottom in a `pipe`.
+`pipelined` puts that failure back into the signature. `Result` carries a typed error or a value,
+`Maybe` carries presence or absence, and `Task.Result` carries both across an async boundary. The
+containers are plain objects with a `kind` field, functions take their data last, and multi-step
+work reads top to bottom in a `pipe`.
 
 <!-- BUNDLE_OVERVIEW:START -->
 
-It has zero dependencies, ships ESM and CommonJS builds, and tree-shakes down to ~27 B–6.41 kB
-gzipped for individual modules and 24.69 kB for the entire package.
+It has zero dependencies, ships ESM and CommonJS builds, and tree-shakes down to ~27 B–6.45 kB
+gzipped for individual modules and 24.70 kB for the entire package.
 
 <!-- BUNDLE_OVERVIEW:END -->
 
@@ -39,9 +33,18 @@ gzipped for individual modules and 24.69 kB for the entire package.
 
 Full guides and API reference at **[pplnd.dev](https://pplnd.dev/)**.
 
+If you are deciding between modules, start with
+[Choosing a Container](https://pplnd.dev/basics/choosing/). To see several modules joined in one
+feature, read the [recipes](https://pplnd.dev/recipes/request-lifecycle/). Every module name in the
+[quick reference](#quick-reference) links to its guide.
+
 ---
 
 ## Examples
+
+Four modules below show the shape: a typed failure, an async lifecycle, a request policy, and a data
+pipeline. Every other module follows the same conventions; the [quick reference](#quick-reference)
+links each guide, and every guide carries a complete example of its own.
 
 ### Handling errors without throw (Result)
 
@@ -86,32 +89,6 @@ if (Result.is.ok(outcome)) {
 
 The compiler enforces that `outcome.value` is only accessible after checking
 `Result.is.ok(outcome)`. If parsing or validation fails, the pipeline returns a typed error.
-
-### Optional values without null checks (Maybe)
-
-Defensive `null` and `undefined` checks clutter business logic. When parsing optional inputs, each
-transformation step can fail or produce empty data. `Maybe<A>` wraps a value that might be missing
-so subsequent pipeline steps only run when a value exists:
-
-```ts
-import { Maybe, Num, pipe, Str } from "@pplnd/core";
-
-const parseDiscount = (raw: string): string =>
-  pipe(
-    raw,
-    Str.trim,
-    Num.from.string, // "15" → Some(15), "abc" → None
-    Maybe.filter((n) => n >= 0 && n <= 100), // out of range → None
-    Maybe.map((n) => `${n}% off`),
-    Maybe.getOrElse(() => "No discount"),
-  );
-
-parseDiscount("  15  "); // "15% off"
-parseDiscount("150"); // "No discount"
-parseDiscount("abc"); // "No discount"
-```
-
-When a step returns `None`, later transformations are skipped and the fallback supplies the result.
 
 ### Lazy async workflows and cancellation (Task.Result)
 
@@ -176,97 +153,6 @@ if (Result.is.ok(outcome)) {
 }
 ```
 
-### Multi-field form validation (Validation)
-
-Validators that throw or fail fast on the first error force users into a frustrating cycle of fixing
-one form error at a time. `Validation<E, A>` runs all field checks and collects all validation
-errors in a single pass:
-
-```ts
-import { pipe, Str, Validation } from "@pplnd/core";
-
-type SignupForm = { username: string; email: string };
-
-const validateUsername = (name: string): Validation<string, string> =>
-  pipe(
-    name,
-    Str.trim,
-    Validation.from.Predicate(
-      (s) => s.length >= 3,
-      () => "Username must be at least 3 characters",
-    ),
-  );
-
-const validateEmail = (email: string): Validation<string, string> =>
-  pipe(
-    email,
-    Str.trim,
-    Validation.from.Predicate(
-      (s) => s.includes("@"),
-      () => "Email must contain an @ symbol",
-    ),
-  );
-
-// Accumulate errors into a flat array:
-const validateSignup = (form: SignupForm) =>
-  Validation.struct({
-    username: validateUsername(form.username),
-    email: validateEmail(form.email),
-  });
-
-const outcome = validateSignup({ username: "a", email: "invalid" });
-
-if (Validation.is.failed(outcome)) {
-  console.log(outcome.errors);
-  // ["Username must be at least 3 characters", "Email must contain an @ symbol"]
-}
-
-// Or keep errors partitioned per field for UI forms:
-const validateForm = Validation.keyed.make({
-  username: validateUsername,
-  email: validateEmail,
-});
-
-const formState = validateForm({ username: "a", email: "invalid" });
-
-if (Validation.keyed.is.failed(formState)) {
-  const errors = Validation.keyed.getErrors(formState);
-  // Some({ username: ["Username must be at least 3 characters"], email: ["Email must contain an @ symbol"] })
-}
-```
-
-### Eliminating impossible UI states (RemoteData)
-
-Tracking network requests with separate boolean flags (`isLoading`, `isError`, `data`) makes it easy
-to create contradictory states, like displaying an error message while a loading spinner is still
-spinning. `RemoteData` models a request as four mutually exclusive states:
-
-```ts
-import { pipe, RemoteData } from "@pplnd/core";
-
-type UserProfile = { name: string };
-type FetchError = { message: string };
-
-const renderUI = (state: RemoteData<FetchError, UserProfile>): string =>
-  pipe(
-    state,
-    RemoteData.match({
-      notAsked: () => "Click to load profile",
-      loading: () => "Loading...",
-      failure: (err) => `Failed: ${err.message}`,
-      success: (user) => `Welcome, ${user.name}!`,
-    }),
-  );
-
-renderUI(RemoteData.make.notAsked()); // "Click to load profile"
-renderUI(RemoteData.make.loading()); // "Loading..."
-renderUI(RemoteData.make.failure({ message: "Network down" })); // "Failed: Network down"
-renderUI(RemoteData.make.success({ name: "Alice" })); // "Welcome, Alice!"
-```
-
-`RemoteData.match` requires handling all four variants at compile time, eliminating missing loading
-or failure views.
-
 ### Managing request lifecycles, retries, and concurrency (Op)
 
 UI events often arrive faster than the network can settle: a search box fires on every keystroke, a
@@ -276,17 +162,19 @@ hand requires managing `AbortController` instances, timers, and attempt counters
 `Op` separates what a request does from how overlapping calls and failures are handled:
 
 ```ts
-import { Duration, Op, RetryPolicy } from "@pplnd/core";
+import { Duration, Op, RetryPolicy, Task } from "@pplnd/core";
 
 type SearchResult = { id: string; title: string };
 type SearchError = { kind: "NetworkError"; cause: unknown } | { kind: "Timeout" };
 
-const searchOp = Op.make(
-  (signal) => (query: string) =>
-    fetch(`/search?q=${encodeURIComponent(query)}`, { signal }).then((r) =>
-      r.json() as Promise<SearchResult[]>
-    ),
-  { onError: (cause): SearchError => ({ kind: "NetworkError", cause }) },
+const searchOp = Op.make((query: string) =>
+  Task.Result.tryCatch(
+    (signal) =>
+      fetch(`/search?q=${encodeURIComponent(query)}`, { signal }).then((r) =>
+        r.json() as Promise<SearchResult[]>
+      ),
+    { onError: (cause): SearchError => ({ kind: "NetworkError", cause }) },
+  )
 );
 
 const search = Op.interpret(searchOp, {
@@ -314,200 +202,6 @@ input?.addEventListener("input", () => search.run(input.value));
 For form submissions, swapping `strategy: "restartable"` to `strategy: "exclusive"` automatically
 drops duplicate clicks while a request is in flight. Built-in strategies include `restartable`,
 `exclusive`, `debounced`, `throttled`, `queue`, `buffered`, `concurrent`, `keyed`, and `once`.
-
-### Typed in-memory events and sequence funnels (EventBus)
-
-Decoupling application components with untyped event emitters can cause runtime crashes if a
-listener throws, and emitting events inside listeners can overflow the call stack through
-uncontrolled recursion.
-
-`EventBus` provides compile-time message types and a FIFO queue for re-entrant events. Subscriber
-callbacks handle expected failures; an uncaught exception propagates to the emitter:
-
-```ts
-import { EventBus } from "@pplnd/core";
-
-type UserFlowMessages = {
-  sessionStarted: { sessionId: string };
-  stepCompleted: { stepName: string };
-  flowFinished: { totalTimeMs: number };
-  flowCancelled: { reason: string };
-};
-
-const flowBus = EventBus.make<UserFlowMessages>();
-
-// Match an ordered multi-step funnel with an explicit cancellation reset:
-const funnel = EventBus.subscribe(
-  flowBus,
-  ["sessionStarted", "stepCompleted", "flowFinished"],
-  { ordered: true, reset: "flowCancelled" },
-).reduce(
-  (msg, state) => {
-    if (msg.kind === "flowFinished") {
-      return { completedFlows: state.completedFlows + 1 };
-    }
-    return state;
-  },
-  { completedFlows: 0 },
-);
-
-// Emit typed messages to the bus
-EventBus.emit(flowBus, {
-  kind: "sessionStarted",
-  value: { sessionId: "sess-101" },
-});
-
-EventBus.emit(flowBus, {
-  kind: "stepCompleted",
-  value: { stepName: "onboarding" },
-});
-
-EventBus.emit(flowBus, {
-  kind: "flowFinished",
-  value: { totalTimeMs: 4200 },
-});
-
-funnel.getState(); // { completedFlows: 1 }
-```
-
-When a subscriber emits a new event during dispatch, `EventBus` buffers it into an internal FIFO
-queue instead of recursing on the call stack, preserving event ordering without stack overflow.
-
-### Deep immutable updates (Lens & Optional)
-
-Updating nested properties immutably with object spreads
-(`{ ...state, user: { ...state.user, address: { ... } } }`) becomes difficult to read and maintain
-as schemas grow. `Lens` and `Optional` define reusable focus paths into nested data:
-
-```ts
-import { Lens, pipe } from "@pplnd/core";
-
-type Address = { city: string; zip: string };
-type User = { name: string; address: Address };
-
-const user: User = {
-  name: "Alice",
-  address: { city: "Berlin", zip: "10115" },
-};
-
-const addressLens = Lens.from.property<User>()("address");
-const cityLens = Lens.from.property<Address>()("city");
-const userCityLens = pipe(addressLens, Lens.andThen(cityLens));
-
-// Immutably modify deep property in one line
-const updatedUser = pipe(
-  user,
-  Lens.modify(userCityLens)((c) => c.toUpperCase()),
-);
-
-updatedUser.address.city; // "BERLIN"
-```
-
-### Safe lifecycle management for connections and locks (Resource)
-
-Acquiring multiple handles — such as database connections, sockets, or distributed locks — requires
-nested `try/finally` blocks. If an intermediate setup step fails or an operation aborts midway,
-already-opened handles can leak.
-
-`Resource<E, A>` pairs acquisition with cleanup. When resources are grouped with `Resource.all`,
-they are acquired sequentially and released in reverse order when the work settles, including after
-an error. Cancellation is cooperative: work must respond to its signal before cleanup can begin.
-Release tasks must not throw or reject:
-
-```ts
-import { Resource, Task } from "@pplnd/core";
-
-type AppError =
-  | { kind: "DbError"; message: string }
-  | { kind: "CacheError"; message: string };
-
-type DbClient = {
-  query: (sql: string, parameters: readonly string[]) => Promise<{ id: string; name: string }>;
-  close: () => Promise<void>;
-};
-type CacheClient = {
-  set: (key: string, value: string) => Promise<void>;
-  quit: () => Promise<void>;
-};
-
-declare function connectPostgres(url: string): Promise<DbClient>;
-declare function connectRedis(url: string): Promise<CacheClient>;
-
-const dbResource = Resource.make(
-  Task.Result.tryCatch(
-    () => connectPostgres("postgres://localhost:5432/app"),
-    { onError: (error): AppError => ({ kind: "DbError", message: String(error) }) },
-  ),
-  (db) => Task.tryCatch(() => db.close(), { onError: () => {} }),
-);
-
-const cacheResource = Resource.make(
-  Task.Result.tryCatch(
-    () => connectRedis("redis://localhost:6379"),
-    { onError: (error): AppError => ({ kind: "CacheError", message: String(error) }) },
-  ),
-  (cache) => Task.tryCatch(() => cache.quit(), { onError: () => {} }),
-);
-
-// Group independent resources into a typed record:
-const appInfra = Resource.all({
-  db: dbResource,
-  cache: cacheResource,
-});
-
-// Run operations safely — both handles are closed in reverse order on exit
-const syncUserProfile = (userId: string) =>
-  Resource.use(appInfra, {
-    run: ({ db, cache }) =>
-      Task.Result.tryCatch(
-        async () => {
-          const user = await db.query("SELECT * FROM users WHERE id = $1", [userId]);
-          await cache.set(`user:${userId}`, JSON.stringify(user));
-          return user;
-        },
-        { onError: (error): AppError => ({ kind: "DbError", message: String(error) }) },
-      ),
-  });
-
-const fetchAndCacheUser = syncUserProfile("usr_101");
-const result = await fetchAndCacheUser;
-// cache.quit() and db.close() were attempted in reverse order
-```
-
-### Nominal type safety for IDs and validated strings (Brand)
-
-TypeScript's structural type system treats all `string` types as interchangeable. Passing an
-`orderId` into a function expecting a `userId` compiles without warning. `Brand` attaches a
-compile-time tag to primitives without runtime wrapping or memory overhead:
-
-```ts
-import { Brand, Result } from "@pplnd/core";
-
-type UserId = Brand<"UserId", string>;
-type OrderId = Brand<"OrderId", string>;
-type Email = Brand<"Email", string>;
-
-const toUserId = Brand.wrap<"UserId", string>();
-const toOrderId = Brand.wrap<"OrderId", string>();
-const toEmail = Brand.wrap<"Email", string>();
-
-const parseEmail = (raw: string): Result<string, Email> =>
-  raw.includes("@")
-    ? Result.make.ok(toEmail(raw))
-    : Result.make.err("Invalid email address");
-
-const sendReceipt = (userId: UserId, orderId: OrderId, email: Email) =>
-  `Sent to ${email} for order ${orderId} by user ${userId}`;
-
-const user = toUserId("usr_100");
-const order = toOrderId("ord_500");
-const email = parseEmail("alice@example.com");
-
-if (Result.is.ok(email)) {
-  sendReceipt(user, order, email.value);
-  // Compile error: sendReceipt(order, user, email.value)
-}
-```
 
 ### Transforming data collections (Arr & Rec)
 
@@ -549,69 +243,74 @@ unnecessary `Maybe` wrapper.
 
 ## Quick Reference
 
+Each section links a problem to the module that solves it. To choose between neighbouring modules
+first, read [Choosing a Container](https://pplnd.dev/basics/choosing/); for complete features built
+from several modules, read the [recipes](https://pplnd.dev/recipes/request-lifecycle/).
+
 ### Error Handling and Optionality
 
-| Problem to Solve                                          | Module       |
-| --------------------------------------------------------- | ------------ |
-| Synchronous typed errors without `try`/`catch` or `throw` | `Result`     |
-| Optional values without `null` / `undefined` guards       | `Maybe`      |
-| Multi-field form and batch validation error accumulation  | `Validation` |
-| Eliminating impossible UI loading/error/data states       | `RemoteData` |
-| Values that can hold one side, the other, or both at once | `These`      |
-| Pure calculation audit trails and decision logging        | `Logged`     |
+| Problem to Solve                                          | Module                                                |
+| --------------------------------------------------------- | ----------------------------------------------------- |
+| Synchronous typed errors without `try`/`catch` or `throw` | [`Result`](https://pplnd.dev/guides/result/)          |
+| Optional values without `null` / `undefined` guards       | [`Maybe`](https://pplnd.dev/guides/maybe/)            |
+| Multi-field form and batch validation error accumulation  | [`Validation`](https://pplnd.dev/guides/validation/)  |
+| Eliminating impossible UI loading/error/data states       | [`RemoteData`](https://pplnd.dev/guides/remote-data/) |
+| Values that can hold one side, the other, or both at once | [`These`](https://pplnd.dev/guides/these/)            |
+| Pure calculation audit trails and decision logging        | [`Logged`](https://pplnd.dev/guides/logged/)          |
 
 ### Async, Concurrency, and State
 
-| Problem to Solve                                                   | Module                |
-| ------------------------------------------------------------------ | --------------------- |
-| Lazy async workflows with automatic `AbortSignal` propagation      | `Task.Result`, `Task` |
-| Managing request race conditions, retries, timeouts, and locks     | `Op`                  |
-| In-memory typed event dispatching, sequence funnels & queue safety | `EventBus`            |
-| Setup and reverse-order cleanup of connections and locks           | `Resource`            |
-| Type-safe finite state machines & validated transitions            | `Machine`             |
-| Declarative DAG task scheduling & cycle detection                  | `Graph`               |
-| Infallible async synchronization latch for tasks                   | `Deferred`            |
-| Circuit breaker pattern for protecting failing upstream services   | `CircuitBreaker`      |
-| Multi-step workflows with optional reverse-order compensation      | `Transaction`         |
-| Request batching and deduplication within a batch                  | `Batcher`             |
-| Pure state transitions, tokenizers, and parsers                    | `State`               |
-| Dependency injection and contextual configuration without drilling | `Reader`              |
+| Problem to Solve                                                   | Module                                                                                    |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| Lazy async workflows with automatic `AbortSignal` propagation      | [`Task.Result`](https://pplnd.dev/guides/task/), [`Task`](https://pplnd.dev/guides/task/) |
+| Managing request race conditions, retries, timeouts, and locks     | [`Op`](https://pplnd.dev/guides/op/)                                                      |
+| In-memory typed event dispatching, sequence funnels & queue safety | [`EventBus`](https://pplnd.dev/guides/event-bus/)                                         |
+| Setup and reverse-order cleanup of connections and locks           | [`Resource`](https://pplnd.dev/guides/resource/)                                          |
+| Type-safe finite state machines & validated transitions            | [`Machine`](https://pplnd.dev/guides/machine/)                                            |
+| Declarative DAG task scheduling & cycle detection                  | [`Graph`](https://pplnd.dev/guides/graph/)                                                |
+| Infallible async synchronization latch for tasks                   | [`Deferred`](https://pplnd.dev/guides/deferred/)                                          |
+| Circuit breaker pattern for protecting failing upstream services   | [`CircuitBreaker`](https://pplnd.dev/guides/circuit-breaker/)                             |
+| Multi-step workflows with optional reverse-order compensation      | [`Transaction`](https://pplnd.dev/guides/transaction/)                                    |
+| Request batching and deduplication within a batch                  | [`Batcher`](https://pplnd.dev/guides/batcher/)                                            |
+| Recognising a cancelled run across async engines                   | [`Aborted`](https://pplnd.dev/guides/aborted/)                                            |
+| Pure state transitions, tokenizers, and parsers                    | [`State`](https://pplnd.dev/guides/state/)                                                |
+| Dependency injection and contextual configuration without drilling | [`Reader`](https://pplnd.dev/guides/reader/)                                              |
 
 ### Collections and Optics
 
-| Problem to Solve                                           | Module                  |
-| ---------------------------------------------------------- | ----------------------- |
-| Bounds-safe array transformations & single-pass filters    | `Arr`, `Arr.NonEmpty`   |
-| Type-safe object manipulation & key migration              | `Rec`, `Rec.NonEmpty`   |
-| Immutable `Map` operations with any key type               | `Dict`, `Dict.NonEmpty` |
-| Immutable `Set` operations (union, intersection, diff)     | `Uniq`, `Uniq.NonEmpty` |
-| Deep nested immutable updates without spread boilerplate   | `Lens`, `Optional`      |
-| String sanitization, numeric conversion & slug parsing     | `Str`, `Str.NonEmpty`   |
-| Boundary clamping & division-by-zero protection            | `Num`                   |
-| Exact `bigint` math without floating-point rounding errors | `BigNum`                |
-| Boolean checks and conditional branching in pipelines      | `Bool`                  |
-| Safe JSON parsing & circular reference protection          | `Json`                  |
+| Problem to Solve                                           | Module                                                                                          |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Bounds-safe array transformations & single-pass filters    | [`Arr`](https://pplnd.dev/guides/arr/), [`Arr.NonEmpty`](https://pplnd.dev/guides/nonempty/)    |
+| Type-safe object manipulation & key migration              | [`Rec`](https://pplnd.dev/guides/rec/), [`Rec.NonEmpty`](https://pplnd.dev/guides/nonempty/)    |
+| Immutable `Map` operations with any key type               | [`Dict`](https://pplnd.dev/guides/dict/), [`Dict.NonEmpty`](https://pplnd.dev/guides/nonempty/) |
+| Immutable `Set` operations (union, intersection, diff)     | [`Uniq`](https://pplnd.dev/guides/uniq/), [`Uniq.NonEmpty`](https://pplnd.dev/guides/nonempty/) |
+| Deep nested immutable updates without spread boilerplate   | [`Lens`](https://pplnd.dev/guides/lens/), [`Optional`](https://pplnd.dev/guides/optional/)      |
+| String sanitization, numeric conversion & slug parsing     | [`Str`](https://pplnd.dev/guides/str/), [`Str.NonEmpty`](https://pplnd.dev/guides/str/)         |
+| Boundary clamping & division-by-zero protection            | [`Num`](https://pplnd.dev/guides/num/)                                                          |
+| Exact `bigint` math without floating-point rounding errors | [`BigNum`](https://pplnd.dev/guides/bignum/)                                                    |
+| Boolean checks and conditional branching in pipelines      | [`Bool`](https://pplnd.dev/guides/bool/)                                                        |
+| Safe JSON parsing & circular reference protection          | [`Json`](https://pplnd.dev/guides/json/)                                                        |
 
 ### Composition and Utilities
 
-| Problem to Solve                                                | Module                                  |
-| --------------------------------------------------------------- | --------------------------------------- |
-| Left-to-right value pipeline execution                          | `pipe`                                  |
-| Asynchronous value & function pipeline execution                | `pipeAsync`, `flowAsync`                |
-| Left-to-right function composition                              | `flow`                                  |
-| Distinct compile-time types for primitive IDs                   | `Brand`                                 |
-| Explicit, unit-safe time spans & timeout policies               | `Duration`, `RetryPolicy`               |
-| Deep value equality & custom comparison rules                   | `Equality`                              |
-| Multi-column sorting with fallback tiebreakers                  | `Ordering`                              |
-| Combining boolean checks and filter rules                       | `Predicate`                             |
-| Runtime type narrowing & custom type guard composition          | `Refinement`                            |
-| Merging configs, counters, and summary objects                  | `Combinable`                            |
-| Two-element `[first, second]` tuples                            | `Pair`                                  |
-| Conditional branching and object shaping in pipelines           | `when`, `unless`, `struct`              |
-| Currying, uncurrying, tuple wrapping, and argument flipping     | `curry`, `uncurry`, `flip`              |
-| Feeding one input into multiple functions and combining results | `converge`, `juxt`, `on`                |
-| Function result caching & pipeline side-effects                 | `memoize`, `tap`, `tapLog`              |
-| Small helper functions                                          | `identity`, `constant`, `noop`, `tuple` |
+| Problem to Solve                                                | Module                                                                                                                                                |
+| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Left-to-right value pipeline execution                          | [`pipe`](https://pplnd.dev/basics/pipelines/)                                                                                                         |
+| Asynchronous value & function pipeline execution                | [`pipeAsync`](https://pplnd.dev/basics/composition/), [`flowAsync`](https://pplnd.dev/basics/composition/)                                            |
+| Left-to-right function composition                              | [`flow`](https://pplnd.dev/basics/pipelines/)                                                                                                         |
+| Distinct compile-time types for primitive IDs                   | [`Brand`](https://pplnd.dev/guides/brand/)                                                                                                            |
+| Explicit, unit-safe time spans & timeout policies               | [`Duration`](https://pplnd.dev/guides/duration/), [`RetryPolicy`](https://pplnd.dev/guides/op/)                                                       |
+| Deep value equality & custom comparison rules                   | [`Equality`](https://pplnd.dev/guides/equality/)                                                                                                      |
+| Multi-column sorting with fallback tiebreakers                  | [`Ordering`](https://pplnd.dev/guides/ordering/)                                                                                                      |
+| Combining boolean checks and filter rules                       | [`Predicate`](https://pplnd.dev/guides/predicate/)                                                                                                    |
+| Runtime type narrowing & custom type guard composition          | [`Refinement`](https://pplnd.dev/guides/refinement/)                                                                                                  |
+| Merging configs, counters, and summary objects                  | [`Combinable`](https://pplnd.dev/guides/combinable/)                                                                                                  |
+| Two-element `[first, second]` tuples                            | [`Pair`](https://pplnd.dev/guides/pair/)                                                                                                              |
+| Conditional branching and object shaping in pipelines           | [`when`](https://pplnd.dev/basics/composition/), [`unless`](https://pplnd.dev/basics/composition/), [`struct`](https://pplnd.dev/basics/composition/) |
+| Currying, uncurrying, tuple wrapping, and argument flipping     | [`curry`](https://pplnd.dev/basics/composition/), [`uncurry`](https://pplnd.dev/basics/composition/), [`flip`](https://pplnd.dev/basics/composition/) |
+| Feeding one input into multiple functions and combining results | [`converge`](https://pplnd.dev/basics/composition/), [`juxt`](https://pplnd.dev/basics/composition/), [`on`](https://pplnd.dev/basics/composition/)   |
+| Function result caching & pipeline side-effects                 | [`memoize`](https://pplnd.dev/basics/composition/), [`tap`](https://pplnd.dev/basics/composition/), [`tapLog`](https://pplnd.dev/basics/composition/) |
+| Small helper functions                                          | `identity`, `constant`, `noop`, `tuple`                                                                                                               |
 
 ---
 
@@ -635,17 +334,17 @@ These measurements include each listed import and its dependencies, minified and
 | `Maybe`        | **1.51 kB**        |
 | `Result`       | **1.51 kB**        |
 | `Validation`   | **1.51 kB**        |
-| `RemoteData`   | **1.81 kB**        |
+| `RemoteData`   | **1.86 kB**        |
 | `Machine`      | **2.04 kB**        |
 | `EventBus`     | **1.23 kB**        |
-| `Batcher`      | **2.98 kB**        |
-| `Resource`     | **2.02 kB**        |
-| `Graph`        | **2.83 kB**        |
-| `Task`         | **4.43 kB**        |
-| `Transaction`  | **2.49 kB**        |
-| `Op`           | **6.30 kB**        |
+| `Batcher`      | **3.04 kB**        |
+| `Resource`     | **2.05 kB**        |
+| `Graph`        | **2.88 kB**        |
+| `Task`         | **4.47 kB**        |
+| `Transaction`  | **2.55 kB**        |
+| `Op`           | **6.27 kB**        |
 | `Lens`         | **233 B**          |
-| `Arr`          | **6.41 kB**        |
+| `Arr`          | **6.45 kB**        |
 | `Rec`          | **2.52 kB**        |
 | `Dict`         | **2.41 kB**        |
 | `Str`          | **2.35 kB**        |

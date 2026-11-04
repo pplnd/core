@@ -1,0 +1,131 @@
+---
+title: Reading the Types
+description: How type parameters, channels, and execution shapes are organised across the library.
+---
+
+Every module follows the same three conventions. Knowing them lets you read an unfamiliar signature
+without opening the documentation.
+
+## Channels: error first, value last
+
+Value containers put the error channel first and the success value last:
+
+```ts
+Result<E, A>
+Validation<E, A>
+RemoteData<E, A>
+Task.Result<E, A>
+Resource<E, A>
+```
+
+Read `Result<ApiError, User>` as "a result of `ApiError` or `User`". The value position is the one
+you usually care about, so it stays in a stable, memorable place: the last parameter. `Maybe<A>` and
+`Task<A>` have no error channel, so they take a single value parameter.
+
+The success channel is covariant and the error channel is too. A `Result<"NotFound", User>` is
+assignable to a `Result<"NotFound" | "Timeout", A>` when the values line up, which is why widening
+an error type at a boundary does not require a cast.
+
+## Why the first parameter varies by engine
+
+Engines carry more than an error and a value, and their first parameter names the subject they are
+parameterised by:
+
+| Type                        | First parameter     | Why                                                |
+| :-------------------------- | :------------------ | :------------------------------------------------- |
+| `Op<Args, E, A>`            | `Args` tuple        | The arguments passed to `manager.run(...)`.        |
+| `Graph<E, Out, Input>`       | `E` error           | A graph is a computation; the input comes last.    |
+| `Transaction<In, Acc, E, EUndo>` | `In` input      | A transaction is defined around its input.         |
+| `Batcher<K, E, V>`          | `K` key             | Lookups are keyed; the key identifies the work.    |
+| `CircuitBreaker<E>`         | `E` error           | It only wraps failure channels.                    |
+
+The rule is consistent even though the first parameter differs: the value a caller supplies last is
+the value produced, and everything before it describes the context that produced it.
+
+## Phantom parameters keep channels independent
+
+Branded types such as `Resource<E, A>`, `Graph<E, Out, Input>`, and `Op<Args, E, A>` store their
+type parameters as functions on a unique symbol:
+
+```ts
+export type Resource<E, A> = WithKind<"Resource"> & {
+  readonly [_resourceBrand]: { readonly _error: () => E; readonly _value: () => A; };
+};
+```
+
+The parameters never exist at runtime; they are erased with the rest of the type. Writing them as
+functions rather than values keeps each channel in its natural variance, so a `Resource<ApiError, Db>`
+stays assignable wherever a `Resource<ApiError | Timeout, Db>` is expected without inventing getters on
+the object you build. Input channels use the opposite direction, `_input: (input: Input) => void`,
+because an input is consumed rather than produced.
+
+You never construct these symbols yourself. They exist so that the compiler rejects mixing channels,
+and they stay out of editor autocomplete.
+
+## Inference at boundaries
+
+Engines infer their channels from the definition, not from the values you pass when running them.
+`Graph.run(input)` checks `input` against the graph's `Input` instead of widening the graph to fit it,
+and `Transaction.run(input)` does the same. When a value should not participate in inference, the
+signature marks it with `NoInfer`, so a mistyped argument is an error rather than a silently
+re-typed graph.
+
+The practical consequence: annotate the definition once, and every call site is checked against it.
+
+## Definitions and instances
+
+The library uses three nouns consistently:
+
+- **Definition** — a value produced by `make` that describes work but does not run it. A `Task`,
+  `Op`, `Graph`, `Transaction`, and `Resource` are all definitions.
+- **Instance** — a running handle produced by `interpret`. `Op.interpret(op, options)` returns a
+  manager; `Machine.interpret(machine, options)` returns an actor. Instances expose `state`,
+  `run`, `abort`, and `subscribe`.
+- **Settled value** — the outcome of running something. Tasks resolve to a `Deferred`; managers
+  resolve to an `Op.Outcome`; graphs, transactions, and resources resolve to a `Result`.
+
+Running follows one shape: configuration first, definition last, so the definition can be piped.
+
+```ts
+await Task.run(signal)(task);
+await Graph.run(input, { signal })(graph);
+await Transaction.run(input, { signal })(transaction);
+await Resource.use({ run: (db: DbClient) => query(db) })(resource);
+
+const manager = Op.interpret(op, { strategy: "restartable" });
+const outcome = await manager.run(argumentsForTheOp);
+```
+
+A definition with no input is run with an empty call: `Graph.run()(graph)` and
+`Transaction.run()(transaction)`. When such a definition also needs run options, pass `undefined`
+in the input position: `Graph.run(undefined, { signal })(graph)`.
+
+Engines that stay live after creation — `Batcher`, `CircuitBreaker`, `EventBus` — are instances
+immediately, so they expose methods instead of a separate `run` function.
+
+## The shared vocabulary
+
+Every data container in `pipelined` shares a consistent, predictable set of combinator names. Once you learn how an operation behaves on `Maybe`, you already know how it works across `Result`, `Validation`, `Task.Result`, and `RemoteData`:
+
+| Operation | Purpose | Example |
+| :--- | :--- | :--- |
+| **`map`** | Transforms the inner success value while preserving the container structure. | `Result.map((n) => n * 2)` |
+| **`mapError`** | Transforms the error payload without modifying success values. | `Result.mapError((e) => e.message)` |
+| **`chain`** | Sequences a function returning another container, flattening nested layers. | `Maybe.chain((user) => lookup(user.id))` |
+| **`getOrElse`** | Unwraps the value, falling back to a default thunk if absent or failed. | `Maybe.getOrElse(() => DEFAULT_USER)` |
+| **`match`** | Exhaustively unwraps all variants using a named-case object. | `RemoteData.match({ loading, success, failure, notAsked })` |
+| **`tap`** | Intercepts the success value for side effects without modifying the data. | `Task.Result.tap((u) => log(u.id))` |
+| **`recover`** | Catches a failure variant and substitutes a fallback container. | `Result.recover((err) => Result.make.ok(cached))` |
+
+### Standardized Drawers
+
+To keep root module objects clean and focused on pipeline combinators, instantiation, conversions, and type guards are organized into four standard drawers across every module:
+
+| Drawer | Purpose | Examples |
+| :--- | :--- | :--- |
+| **`make.*`** | Instantiates a specific variant of a discriminated union. | `Result.make.ok(42)`<br/>`Maybe.make.some(5)`<br/>`RemoteData.make.loading()` |
+| **`from.*`** | Converts external types or primitives into the container. | `Maybe.from.nullable(val)`<br/>`Result.from.Validation(fn)`<br/>`Num.from.string(str)` |
+| **`to.*`** | Converts the container back to language primitives or other containers. | `Maybe.to.nullable(maybe)`<br/>`Result.to.Maybe(result)`<br/>`Arr.to.record(fn)(items)` |
+| **`is.*`** | Type guard predicates for conditional branching and filtering. | `Result.is.ok(result)`<br/>`Arr.is.empty(array)`<br/>`Num.is.even(n)` |
+
+*(Single-variant structures like `Pair` use a direct `Pair.make(first, second)` constructor.)*

@@ -1,6 +1,6 @@
 ---
 title: Optional — Values That May Be Missing
-description: Read and update nullable properties or array positions through a reusable path.
+description: Read and update a nested value that may be absent without guarding every call site.
 ---
 
 <!-- BUNDLE_SIZE:START -->
@@ -9,13 +9,24 @@ description: Read and update nullable properties or array positions through a re
 
 <!-- BUNDLE_SIZE:END -->
 
+A delivery request has a schedule, and the schedule may carry a time zone. Reading the time zone at
+each call site means a null check before every dispatch decision, and one path that skips it crashes
+the run. Writing the normalized zone back duplicates the same guard in the setter.
+
 ## Core Behavior
 
-`Optional<S, A>` describes a path from a structure `S` to a value `A` that may be absent.
+`Optional<S, A>` pairs a getter returning `Maybe<A>` with a setter for a path that may break at any
+segment.
 
 - `get` returns `Some(value)` when the path resolves and `None` when it does not.
 - `modify` skips its callback and returns the original structure when the value is absent.
 - `andThen` joins optional paths; `andThenLens` continues through a required path.
+- `from.index` accepts only an integer inside the array bounds; an out-of-bounds read returns `None`
+  and the setter returns the input array.
+
+Reach for `Optional` when at least one segment of the path can be missing. When every segment is
+guaranteed, [`Lens`](/guides/lens/) returns the value directly and drops the `Maybe` wrapper. The
+[choosing guide](/basics/choosing/) separates the two under comparison and structure.
 
 ## Example: Delivery Schedule
 
@@ -55,6 +66,32 @@ pipe(normalized, Optional.getOrElse(timeZone)(() => "Not scheduled")); // "UTC"
 pipe(missing, Optional.getOrElse(timeZone)(() => "Not scheduled"));    // "Not scheduled"
 ```
 
+`Optional.modify` calls the transformation only for the request that has a time zone. The request
+without a schedule keeps its original shape, and `getOrElse` returns the fallback without a write.
+
+### When the schedule becomes guaranteed
+
+Once dispatch requires every delivery to carry a schedule, the first segment stops being optional. A
+[`Lens`](/guides/lens/) focuses that guaranteed segment, and the optional time zone composes onto
+it:
+
+```ts
+import { Lens, Optional, pipe } from "@pplnd/core";
+
+type ScheduledDelivery = { id: string; schedule: Schedule };
+
+const scheduledTimeZone = pipe(
+  Lens.from.property<ScheduledDelivery>()("schedule"),
+  Lens.andThenOptional(Optional.from.property<Schedule>()("timeZone")),
+);
+
+const scheduledDelivery: ScheduledDelivery = {
+  id: "delivery-9",
+  schedule: { timeZone: "Asia/Yerevan" },
+};
+pipe(scheduledDelivery, Optional.get(scheduledTimeZone)); // Some("Asia/Yerevan")
+```
+
 ## Core Operations
 
 ### Creating and Composing
@@ -89,10 +126,18 @@ type Schedule = { timeZone?: string };
 const timeZone = Optional.from.property<Schedule>()("timeZone");
 const schedule: Schedule = {};
 
-pipe(schedule, Optional.set(timeZone)("UTC"));             // { timeZone: "UTC" }
+pipe(schedule, Optional.set(timeZone)("UTC"));                    // { timeZone: "UTC" }
 pipe(schedule, Optional.modify(timeZone)((zone) => zone.trim())); // {}
 ```
 
-A composed setter cannot proceed through an absent intermediate value. `Optional.from.index` accepts
-only an integer between zero and the last index; an invalid index reads as `None` and its setter
-returns the input array.
+A composed setter cannot proceed through an absent intermediate value; it returns the input
+structure. The final property setter still creates its own key when the intermediate segments are
+present.
+
+`Optional.from.index` requires `Number.isInteger(index)` and `0 <= index < items.length`. A
+fractional, negative, `NaN`, or `Infinity` index reads as `None`, and the setter returns the same
+array reference without copying.
+
+Absence is not an error. `Optional.get` returns a `Maybe`; when dispatch must reject the request,
+the [`Result.from.Maybe`](/guides/result/) converter turns `None` into `Err`, while a present time
+zone becomes `Ok`.

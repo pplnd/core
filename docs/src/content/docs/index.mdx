@@ -1,37 +1,57 @@
 ---
 title: "pipelined"
-description: A TypeScript toolkit for writing code that means exactly what it says.
+description: Typed errors, explicit absence, and composable async for TypeScript.
 template: splash
 head:
   - tag: title
-    content: "pipelined"
+    content: "pipelined (@pplnd/core)"
 hero:
-  tagline: A TypeScript toolkit for writing code that means exactly what it says.
+  title: "pipelined"
+  tagline: Failure is a value, not an exception.
   actions:
     - text: Get started
       link: /basics/installation
       icon: right-arrow
 ---
 
-import { Card, CardGrid } from '@astrojs/starlight/components';
+import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-<CardGrid stagger>
-  <Card title="Explicit Errors & Absence">
-    Replace unchecked exceptions, silent null propagation, and trial-and-error form submissions with typed containers that either fail fast or accumulate errors across fields simultaneously.
-  </Card>
-  <Card title="Resilient Async & Concurrency">
-    Eliminate in-flight race conditions and unhandled rejections. Lazy tasks thread `AbortSignal` automatically, `Graph` schedules dependency DAGs with sibling cancellation, `Op` manages retries and concurrency policies, and `EventBus` coordinates typed event streams.
-  </Card>
-  <Card title="Eliminate Impossible States">
-    Replace contradictory boolean flags with mutually exclusive union states. `Machine` enforces compile-time state transitions, `RemoteData` tracks 4-stage request lifecycles, `These` captures partial success, and `Brand` prevents nominal ID mixups without runtime overhead.
-  </Card>
-  <Card title="Deep Optics & Clean State">
-    Update deeply nested state trees in a single line without spread boilerplate (`Lens`). Inject runtime dependencies without prop drilling (`Reader`), and isolate modular sub-state transitions (`State.focus`).
-  </Card>
-  <Card title="Linear Composition First">
-    Logic reads top-to-bottom in the exact order it executes. Enriched with function combinators and high-performance collection utilities (`Arr`, `Rec`, `Dict`, `Uniq`, `Str`, `Num`, `BigNum`, `Json`) that compose cleanly in pipelines without intermediate variable boilerplate.
-  </Card>
-  <Card title="Zero Jargon, Zero Dependencies">
-    Built for TypeScript developers. Plain discriminated unions, zero external dependencies, 100% tree-shakeable, and clear descriptive APIs without algebraic jargon.
-  </Card>
+Typed errors, explicit absence, and composable async for TypeScript.
+
+<CardGrid>
+  <LinkCard
+    title="Errors stay in the type"
+    href="/guides/result/"
+    description="A failed call returns a typed Result instead of throwing an unknown. The compiler shows every place that has to handle it."
+  />
+  <LinkCard
+    title="Async work that can be stopped"
+    href="/guides/task/"
+    description="Task.Result threads an AbortSignal and always settles with a typed result, so cancellation does not surface as an unhandled rejection."
+  />
+  <LinkCard
+    title="Overlapping calls get a policy"
+    href="/guides/op/"
+    description="Op decides whether a new call replaces, drops, or waits for the one in flight, and applies retries and timeouts in one place."
+  />
+  <LinkCard
+    title="Components talk in typed messages"
+    href="/guides/event-bus/"
+    description="EventBus delivers a typed event to every subscriber, queues re-entrant emits instead of recursing, and keeps one failing subscriber from stopping the rest."
+  />
+  <LinkCard
+    title="States that cannot disagree"
+    href="/guides/machine/"
+    description="Loading, failed, and loaded become one union instead of three flags that can contradict each other. Machine rejects events the current state does not handle."
+  />
+  <LinkCard
+    title="Multi-step writes that roll back"
+    href="/guides/transaction/"
+    description="Transaction runs steps in order and undoes completed ones in reverse when a later step fails, reporting the failed step and any undo errors."
+  />
 </CardGrid>
+
+The [tour](/basics/overview/) covers the remaining families: dependency graphs, resource
+acquisition, request batching, circuit breaking, collections, and optics. When you know the problem
+but not the module, [Choosing a Container](/basics/choosing/) answers that in one page, and the
+[recipes](/recipes/request-lifecycle/) join several modules in one feature.

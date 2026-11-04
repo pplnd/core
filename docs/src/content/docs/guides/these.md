@@ -9,31 +9,52 @@ description: Represent a value, a diagnostic, or both and handle all three cases
 
 <!-- BUNDLE_SIZE:END -->
 
+A temperature sensor can return a usable reading together with a note that it drifted outside its
+calibrated range. A service that treats every response as either valid or failed must discard one of
+the two facts: either the measurement or the maintenance signal. Neither loss is visible in the
+response.
+
 ## Core Behavior
 
-`These<A, B>` holds a first value, a second value, or both.
+`These<A, B>` represents a value that is first, second, or both, with no built-in success or failure
+meaning.
 
-- `First` contains only `A`, `Second` contains only `B`, and `Both` contains both.
-- The type has no empty case and assigns no inherent meaning to either side.
-- Mapping changes the selected values when present; `match` handles all three cases.
+- `First` holds only the first value, `Second` only the second, and `Both` holds both. There is no
+  empty variant.
+- `mapFirst` and `mapSecond` call their transform only when that side exists and preserve the other
+  side. `mapBoth` transforms each side that exists.
+- `chainFirst` on `Both` returns the callback's `These` and drops the existing second value;
+  `Second` passes through untouched. `chainSecond` mirrors this behavior.
+- `match` handles all three variants; `to.Pair` produces a pair only for `Both`.
+
+Choose `These` when both pieces are data the caller needs, not when one is an error list.
+[`Result`](/guides/result/) keeps one success value or one error, so it cannot return a usable
+reading with a warning. The [choosing guide](/basics/choosing/) compares the containers side by
+side.
 
 ## Example: Sensor Readings
 
 A temperature reading may be valid but outside the sensor's expected range, or it may be invalid and
 unusable. `These.make.both(reading, warning)` carries a usable reading and its warning together.
 
-When a reading and a warning are both present, `mapFirst` keeps the warning. `chainFirst` returns
-the callback's entire `These`, replacing the original reading and its warning:
+When a reading and a warning are both present, `mapFirst` changes the reading and keeps the warning,
+while `mapSecond` changes the warning and keeps the reading. The example formats both:
 
 ```mermaid
 flowchart TD
-  Input["Both(reading, warning)"]
-  Input -->|mapFirst formats reading| Mapped["Both(formatted reading, warning)"]
-  Input -->|chainFirst returns First| Chained["First(formatted reading)"]
+  Input["These(reading, diagnostic)"] --> Kind{"Which variant?"}
+  Kind -->|First| Format["mapFirst formats the reading"]
+  Kind -->|Second| KeepSecond["mapFirst skips; mapSecond prefixes the diagnostic"]
+  Kind -->|Both| FormatBoth["Both transforms run"]
+  Format --> First["First(formatted reading)"]
+  KeepSecond --> Second["Second(prefixed diagnostic)"]
+  FormatBoth --> Both["Both(formatted reading, prefixed diagnostic)"]
 ```
 
-If the input is `Second`, neither operation calls its callback; the diagnostic passes through.
-`chainSecond` behaves symmetrically, replacing a coexisting first value with its callback's result.
+If the input is `Second`, `mapFirst` skips its callback and `mapSecond` transforms the diagnostic.
+`chainFirst` returns the callback's entire `These`, replacing the original reading and its warning
+on `Both`; `chainSecond` behaves symmetrically, replacing a coexisting first value with its
+callback's result.
 
 ### Parsing and Displaying Readings
 
@@ -42,8 +63,13 @@ This parser returns a diagnostic for invalid input and adds a warning to high bu
 ```ts
 import { pipe, These } from "@pplnd/core";
 
-type Diagnostic = { message: string };
-type Reading = { celsius: number };
+interface Reading {
+  celsius: number;
+}
+
+interface Diagnostic {
+  message: string;
+}
 
 const parseReading = (raw: string): These<Reading, Diagnostic> => {
   const input = raw.trim();
@@ -71,7 +97,42 @@ const describeReading = (raw: string): string =>
 
 console.log(describeReading("48"));
 // Reading: 48.0 °C; Sensor: Temperature exceeds 45 °C
+console.log(describeReading("21"));
+// Reading: 21.0 °C
 ```
+
+The parser chooses the variant from the value. The transformations then act on whichever sides
+exist, and `match` is the only place that has to handle all three shapes.
+
+### Sending the Reading and Its Note Together
+
+Downstream telemetry expects one payload containing both facts. `to.Pair` extracts a pair only from
+`Both`; `Pair.merge` gives the two values names:
+
+```ts
+import { Maybe, Pair, pipe, These } from "@pplnd/core";
+
+interface TelemetryPayload {
+  temperature: string;
+  note: string;
+}
+
+const toTelemetry = (raw: string): Maybe<TelemetryPayload> =>
+  pipe(
+    parseReading(raw),
+    These.mapFirst((reading) => `${reading.celsius.toFixed(1)} °C`),
+    These.mapSecond((diagnostic) => `Sensor: ${diagnostic.message}`),
+    These.to.Pair,
+    Maybe.map(Pair.merge((temperature, note) => ({ temperature, note }))),
+  );
+
+toTelemetry("48");
+// Some({ temperature: "48.0 °C", note: "Sensor: Temperature exceeds 45 °C" })
+```
+
+A reading with no note, or a note with no reading, becomes `None` here because the downstream
+payload requires both. [`Pair`](/guides/pair/) supplies the named conversion; it carries no success
+or failure semantics of its own.
 
 ## Core Operations
 
@@ -106,7 +167,8 @@ console.log(describeReading("48"));
 ## Failure Behavior and Edge Cases
 
 If both a reading and a diagnostic can be absent, represent that outside `These`, for example with
-`Maybe<These<Reading, Diagnostic>>`.
+`Maybe<These<Reading, Diagnostic>>`. `These` has no empty variant and no way to attach an error to a
+missing side.
 
 `chainFirst` on `Both` returns the callback's result and drops the existing second value. For
 example, the warning is lost when the callback returns only a formatted reading:
@@ -124,3 +186,5 @@ pipe(reading, These.mapFirst((celsius) => `${celsius.toFixed(1)} °C`));
 ```
 
 `chainSecond` similarly replaces a coexisting first value. Use mapping when both sides must survive.
+`tapBoth` runs only for `Both`, while `tapFirst` and `tapSecond` also run for the single-sided
+variants that contain their side.

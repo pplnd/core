@@ -1,6 +1,6 @@
 ---
 title: Lens — Required Nested Values
-description: Read and update a required value within a larger structure.
+description: Read and update a required nested value without rebuilding the parent structure.
 ---
 
 <!-- BUNDLE_SIZE:START -->
@@ -9,14 +9,28 @@ description: Read and update a required value within a larger structure.
 
 <!-- BUNDLE_SIZE:END -->
 
+A media player stores playback flags beside its volume. Changing the volume means copying the track,
+the settings object, and every sibling field into a new object. A spread chain works for one level;
+by the third level one spread drops a sibling field, and a volume adjustment silently resets the
+captions setting.
+
 ## Core Behavior
 
-`Lens<S, A>` describes how to read a required value `A` from a structure `S` and set it back.
+`Lens<S, A>` pairs a getter `(structure: S) => A` with a setter `(value: A) => (structure: S) => S`
+for a path that is guaranteed to exist.
 
-- `andThen` combines lenses to reach a nested value.
-- `get`, `set`, and `modify` read, replace, or transform the focused value.
+- `from.property` reads one property and writes it with object spread; `from.accessors` takes custom
+  read and write functions.
+- `andThen` composes two required paths; `andThenOptional` continues into a nullable path and
+  returns an Optional.
+- `get` reads, `set` replaces, and `modify` transforms the focused value.
 - `modify` returns the original structure when `Object.is` considers the transformed value
-  unchanged.
+  identical.
+
+Reach for `Lens` when every segment of the path is guaranteed to exist and the update should keep
+the parent structure intact. When a property or array position may be absent,
+[`Optional`](/guides/optional/) reads a `Maybe` and skips writes when the path breaks. The
+[choosing guide](/basics/choosing/) separates guaranteed and optional focuses.
 
 ## Example: Media Player Settings
 
@@ -40,7 +54,7 @@ flowchart TD
 ```ts
 import { Lens, pipe } from "@pplnd/core";
 
-type Settings = { volume: number; captions: boolean };
+type Settings = { volume: number; captions: boolean; crossfade?: number };
 type Player = { track: string; settings: Settings };
 
 const volume = pipe(
@@ -52,6 +66,26 @@ const quieter = pipe(player, Lens.modify(volume)((level) => Math.max(0, level - 
 
 pipe(quieter, Lens.get(volume)); // 30
 // quieter.settings.captions is still true; player.settings.volume is still 40.
+```
+
+### Reaching an optional setting
+
+The player also carries an optional crossfade override. Once that segment may be absent, the
+previous lens becomes the outer focus and [`Optional`](/guides/optional/) owns the nullable part:
+
+```ts
+import { Lens, Optional, pipe } from "@pplnd/core";
+
+const crossfade = pipe(
+  Lens.from.property<Player>()("settings"),
+  Lens.andThenOptional(Optional.from.property<Settings>()("crossfade")),
+);
+
+const playerWithFade: Player = {
+  ...player,
+  settings: { volume: 40, captions: true, crossfade: 300 },
+};
+pipe(playerWithFade, Optional.get(crossfade)); // Some(300)
 ```
 
 ## Core Operations
@@ -76,6 +110,16 @@ pipe(quieter, Lens.get(volume)); // 30
 
 ## Failure Behavior and Edge Cases
 
-A lens assumes its path exists. Use `Optional` when an intermediate property or array index may be
-absent. The built-in property lens uses object spread when setting; custom accessors determine their
-own update behavior.
+A lens assumes its path exists. The built-in property getter has no runtime check, so a composed
+getter throws when a required-typed property holds `null` or `undefined` at runtime. Validate at the
+boundary or use [`Optional`](/guides/optional/) when a segment can be absent.
+
+The property setter performs a shallow spread at each level it touches. Sibling fields keep their
+references, and the original structure is not modified.
+
+`modify` compares the focused value with the callback's result using `Object.is`. A callback that
+mutates the focused object in place and returns it produces the same reference, so `modify` returns
+the original structure with mutated internals. Return a new object from the callback.
+
+Custom accessors define their own update behavior; the guarantees above apply to the built-in
+property lens.

@@ -1,0 +1,96 @@
+---
+title: Choosing a Container
+description: Pick the type that matches the shape of the problem instead of reaching for the first familiar one.
+---
+
+You pick `Maybe` for a field that might be missing. Two weeks later the same field has to explain
+why it is missing, so `Maybe` becomes `Result`, and every call site that handled `None` changes. The
+container was right for the first week.
+
+This page is the map. Each row names the question you are answering, the type that answers it, and
+why the neighbours are a worse fit.
+
+## Errors and absence
+
+| The question | Use | Why not a neighbour |
+| :--- | :--- | :--- |
+| Is the value there? | [`Maybe`](/guides/maybe/) | Absence has no error value to carry. |
+| Did this step fail, and why? | [`Result`](/guides/result/) | The first failure ends the operation. |
+| Which of these independent fields are wrong? | [`Validation`](/guides/validation/) | Collects every failure instead of stopping at the first. |
+| Did it succeed with warnings? | [`These`](/guides/these/) | Carries a value and accumulated notes at the same time. |
+| Which phase is this request in? | [`RemoteData`](/guides/remote-data/) | Not asked, loading, failed, or succeeded as one state. |
+| What decisions produced this value? | [`Logged`](/guides/logged/) | Pairs a result with the steps that led to it. |
+
+`Result`, `Validation`, `These`, and `RemoteData` all convert into one another. Convert at the
+boundary where the requirement changes, not in the middle of a pipeline:
+`Result.to.Validation`, `Validation.from.Result`, `RemoteData.from.Result`.
+
+When an `Op` manager already owns the request, derive the rendered state instead of tracking it
+twice: `RemoteData.from.OpState(manager.state)` maps idle, in-flight, and settled states onto the
+four `RemoteData` variants.
+
+## Asynchronous work
+
+| The question | Use | Why not a neighbour |
+| :--- | :--- | :--- |
+| Lazy work that cannot fail | [`Task`](/guides/task/) | No error channel to invent one for. |
+| Lazy work that can fail | [`Task.Result`](/guides/task/) | Errors stay typed and an `AbortSignal` is threaded. |
+| Lazy work that may return nothing | [`Task.Maybe`](/guides/task/) | Absence without a fabricated error value. |
+| Several async field checks | [`Task.Validation`](/guides/task/) | Runs fields independently and accumulates failures. |
+| Overlapping calls, retries, timeouts | [`Op`](/guides/op/) | Decides what happens when callers arrive faster than work settles. |
+| Steps with dependencies | [`Graph`](/guides/graph/) | Schedules a DAG, runs shared nodes once, cancels siblings. |
+| Sequential writes with rollback | [`Transaction`](/guides/transaction/) | Runs compensating actions in reverse order. |
+| Acquire, use, release | [`Resource`](/guides/resource/) | Guaranteed cleanup on every exit path. |
+| Many single-key lookups | [`Batcher`](/guides/batcher/) | Coalesces concurrent keys into one batch query. |
+| Protecting a failing dependency | [`CircuitBreaker`](/guides/circuit-breaker/) | Fast-fails while the upstream recovers. |
+| In-process messaging | [`EventBus`](/guides/event-bus/) | Typed delivery with a queue for re-entrant emits. |
+| Explicit states and transitions | [`Machine`](/guides/machine/) | Rejects events the current state does not handle. |
+| Awaiting a result that is already in flight | [`Deferred`](/guides/deferred/) | A latch, not a place to define work. |
+| Pure context or state threading | [`Reader`](/guides/reader/), [`State`](/guides/state/) | No async lifecycle involved. |
+
+The execution shape is the same for every definition: create it, optionally `interpret` it into a
+running instance, then run it. [Reading the Types](/basics/types/) describes that model once; the
+async guides apply it.
+
+## Collections and primitives
+
+| The question | Use | Why not a neighbour |
+| :--- | :--- | :--- |
+| Ordered list, safe indexing | [`Arr`](/guides/arr/) | Bounds-safe helpers; `NonEmpty` groups keep their guarantee. |
+| Plain object, known keys | [`Rec`](/guides/rec/) | Structural, enumerable record operations. |
+| Map with arbitrary keys | [`Dict`](/guides/dict/) | Key identity instead of string keys. |
+| Unique values, set algebra | [`Uniq`](/guides/uniq/) | Union, intersection, and difference on immutable sets. |
+| Text | [`Str`](/guides/str/) | Trim, split, truncate, and parse without regex side effects. |
+| Numbers with range rules | [`Num`](/guides/num/) | Clamping and division guards. |
+| Exact integer arithmetic | [`BigNum`](/guides/bignum/) | `bigint` math without floating-point drift. |
+| Boolean tests and branches | [`Bool`](/guides/bool/) | Named checks and fallbacks inside a pipeline. |
+| Parsing and serialising JSON | [`Json`](/guides/json/) | Typed `Result` instead of thrown `SyntaxError`. |
+
+## Comparison and structure
+
+| The question | Use | Why not a neighbour |
+| :--- | :--- | :--- |
+| Are these two values equal? | [`Equality`](/guides/equality/) | Structural comparison with custom rules. |
+| Which comes first? | [`Ordering`](/guides/ordering/) | Multi-column ordering with tiebreakers. |
+| Does this value pass a rule? | [`Predicate`](/guides/predicate/) | Composable boolean checks. |
+| Is this value the right shape? | [`Refinement`](/guides/refinement/) | Type guards that narrow, and convert to `Maybe` or `Result`. |
+| Merge two configurations? | [`Combinable`](/guides/combinable/) | Defined merge semantics per type. |
+| Update one nested field? | [`Lens`](/guides/lens/) | Guaranteed path, no spread chain. |
+| Update a field that may be absent? | [`Optional`](/guides/optional/) | A focus that can miss. |
+| Two values that travel together | [`Pair`](/guides/pair/) | A tuple with named accessors and no failure semantics. |
+
+## Putting them together
+
+A real feature uses more than one row. Four worked examples show the seams:
+
+- [A request lifecycle](/recipes/request-lifecycle/) — validate input, run it with a policy, render
+  the resulting state.
+- [Per-field validation](/recipes/field-validation/) — one rule per error id, with errors revealed
+  only when a trigger allows it.
+- [A dependency graph](/recipes/dependency-graph/) — schedule reads, write inside a transaction,
+  clean up acquired handles.
+- [Events and state](/recipes/events-and-state/) — route messages through a bus into a machine and
+  a request manager.
+
+Each recipe is a vertical slice, not a module reference. Read the guide for the module it uses when
+you need the full surface.

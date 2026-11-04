@@ -9,6 +9,10 @@ description: Represent synchronous success and failure as typed values and handl
 
 <!-- BUNDLE_SIZE:END -->
 
+A function throws, and nothing in its signature says it can. The failure travels up the call stack
+until something catches it, usually far from the call that caused it, and the caller's type says
+nothing about what went wrong.
+
 ## Core Behavior
 
 `Result<E, A>` represents a synchronous operation as either `Ok` with a value or `Err` with an
@@ -17,6 +21,11 @@ error.
 - `map`, `chain`, and `ensure` skip their callbacks when they receive an `Err`.
 - `chain` runs a dependent operation after success and includes its error type in the result.
 - `match` handles both cases; `is.ok` and `is.err` narrow the union for ordinary `if` statements.
+
+Reach for `Result` when the first failure ends the operation. When several independent fields must
+each report their own error, [`Validation`](/guides/validation/) collects every failure instead of
+stopping at the first. The [choosing guide](/basics/choosing/) compares the error containers side by
+side.
 
 ## Example: Server Configuration
 
@@ -134,12 +143,37 @@ failure.error.code = "INVALID_JSON";
 This affects inference, not runtime freezing. TypeScript 5.5 can widen primitive literals returned
 by callbacks; the full example uses `as const` to retain its exact error union on that version.
 
+### When the configuration arrives over the network
+
+The same parser works when the text comes from a config service instead of a file. Only the source
+of the string changes; `loadConfig` stays intact and runs inside the asynchronous task:
+
+```ts
+import { pipe, Task } from "@pplnd/core";
+
+const loadRemoteConfig = (url: string): Task.Result<ConfigError, ServerConfig> =>
+  pipe(
+    Task.Result.tryCatch(
+      (signal) => fetch(url, { signal }).then((response) => response.text()),
+      { onError: () => "INVALID_JSON" as const },
+    ),
+    Task.Result.chain((text: string) => Task.make(loadConfig(text))),
+  );
+
+const response = await loadRemoteConfig("/etc/server.json")();
+// Ok(config) or Err("PUBLIC_PRIVILEGED_PORT")
+```
+
+`Task.Result` keeps the error channel and threads an `AbortSignal`, so the same typed errors cross
+the network boundary. When the request needs retries, timeouts, or overlapping calls, wrap the task
+in [`Op`](/guides/op/).
+
 ## Core Operations
 
 ### Creating Values
 
 | Operation                                      | What it does                                           | Error or return type |
-| ---------------------------------------------- | ------------------------------------------------------ | -------------------- |
+| :--------------------------------------------- | :----------------------------------------------------- | :------------------- |
 | `make.ok(value)` / `make.err(error)`           | Wrap a success or an error.                            | `Ok<A>` / `Err<E>`   |
 | `tryCatch(operation, { onError })`             | Run synchronous code and map a thrown value.           | `Result<E, A>`       |
 | `from.Predicate(predicate, onFalse)`           | Check a value; a type guard also narrows it.           | `Result<E, A>`       |
@@ -149,7 +183,7 @@ by callbacks; the full example uses `as const` to retain its exact error union o
 ### Combining Values
 
 | Operation                             | What it does                                         | Guarantee                                             |
-| ------------------------------------- | ---------------------------------------------------- | ----------------------------------------------------- |
+| :------------------------------------ | :--------------------------------------------------- | :---------------------------------------------------- |
 | `chain(next)`                         | Run a `Result`-returning operation on an `Ok` value. | Preserves the first error; unions error types.        |
 | `assignTo(key)` / `assign(key, next)` | Start a record / add a dependent result to it.       | `assign` skips `next` on an error.                    |
 | `struct(fields)`                      | Combine a record of already-created results.         | Returns the first error in own-key enumeration order. |
@@ -158,7 +192,7 @@ by callbacks; the full example uses `as const` to retain its exact error union o
 ### Transforming Values
 
 | Operation                                                  | What it does                                                    | Guarantee                                               |
-| ---------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------- |
+| :--------------------------------------------------------- | :-------------------------------------------------------------- | :------------------------------------------------------ |
 | `map(transform)` / `mapError(transform)`                   | Transform the success / error value.                            | The other case passes through.                          |
 | `bimap(onErr, onOk)`                                       | Transform either case.                                          | Only the matching callback runs.                        |
 | `ensure(predicate, onFail)`                                | Check an `Ok` value, optionally narrowing it with a type guard. | Existing errors pass through.                           |
@@ -168,7 +202,7 @@ by callbacks; the full example uses `as const` to retain its exact error union o
 ### Running Code and Leaving Result
 
 | Operation                                    | What it does                                         | Return type                                                  |
-| -------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------ |
+| :------------------------------------------- | :--------------------------------------------------- | :----------------------------------------------------------- |
 | `match({ ok, err })`                         | Handle both cases.                                   | The selected handler's return value.                         |
 | `getOrElse(fallback)`                        | Extract success or call a no-argument fallback.      | Success or fallback value.                                   |
 | `is.ok(result)` / `is.err(result)`           | Test and narrow the variant.                         | Boolean type guard.                                          |
@@ -202,4 +236,4 @@ const config = Result.struct({ host: checkHost(), port: checkPort() });
 ```
 
 A promise returned from `tryCatch` is an `Ok` containing that promise; a later rejection is not
-caught. Use `Task.Result` or `Op` for asynchronous work.
+caught. Use [`Task.Result`](/guides/task/) or [`Op`](/guides/op/) for asynchronous work.

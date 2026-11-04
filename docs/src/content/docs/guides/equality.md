@@ -1,6 +1,6 @@
 ---
 title: Equality — Comparing Values
-description: Build reusable equality checks for fields, arrays, and tuples.
+description: Build reusable equality rules for fields, arrays, and tuples.
 ---
 
 <!-- BUNDLE_SIZE:START -->
@@ -9,29 +9,45 @@ description: Build reusable equality checks for fields, arrays, and tuples.
 
 <!-- BUNDLE_SIZE:END -->
 
+A monitoring service stores each sensor reading as a fresh object, so two arrivals of the same
+measurement never share a reference. Comparing them with `===` marks every duplicate as new, and
+comparing the whole object rejects readings whose temperature changed between transmissions. The
+duplicate check has to name the fields that identify a reading, and every caller has to apply the
+same rule.
+
 ## Core Behavior
 
-`Equality<A>` is a function that takes two values and returns whether they are equal according to a
+`Equality<A>` is a function that takes two values of type `A` and returns whether they match under a
 chosen rule.
 
-- `by` compares a selected value from each input.
-- `and`, `struct`, and `tuple` combine comparisons and stop when a check fails.
-- Built-in number and string checks use strict equality; dates are compared by their timestamps.
+- `Equality.string` is a case-sensitive strict comparison; `Equality.number` uses SameValueZero, so
+  `NaN` equals `NaN` and `0` equals `-0`.
+- `Equality.boolean` uses strict equality; `Equality.date` compares numeric timestamps with the same
+  SameValueZero rule.
+- `by` lifts a rule to a selected field, while `and`, `struct`, and `tuple` combine rules and stop
+  at the first failed check.
+- `struct` compares the configured own keys and ignores every other field; `array` and `tuple` check
+  length before elements.
+
+Reach for `Equality` when two values must be judged the same. When that judgment feeds a sort,
+[`Ordering`](/guides/ordering/) turns the same selected fields into a comparator. The
+[choosing guide](/basics/choosing/) lists the comparison modules together.
 
 ## Example: Duplicate Device Readings
 
-A monitoring service may receive the same reading twice as separate objects. To detect duplicates,
-it can compare the device identifier and timestamp rather than object references.
+A monitoring service receives the same device reading more than once. A reading is the same when the
+device identifier and the recorded timestamp match; the temperature may differ between
+retransmissions and must not create a second entry.
 
-`Equality.struct` checks the selected fields in order. A failure stops the comparison:
+`struct` checks the configured fields in order. A failed field stops the comparison:
 
 ```mermaid
 flowchart TD
-  Pair["Two readings"] --> Check{"Selected field matches?"}
-  Check -->|No| Different["false"]
-  Check -->|Yes| More{"More selected fields?"}
-  More -->|Yes| Check
-  More -->|No| Equal["true"]
+  Pair["Two readings"] --> Field{"Configured field equal?"}
+  Field -->|No| Different["false"]
+  Field -->|Yes| More{"More fields?"}
+  More -->|Yes| Field
+  More -->|No| Same["true"]
 ```
 
 ### Comparing Readings
@@ -40,6 +56,7 @@ flowchart TD
 import { Arr, Equality, pipe } from "@pplnd/core";
 
 type Reading = { deviceId: string; recordedAt: string; celsius: number };
+
 const sameReading = Equality.struct({
   deviceId: Equality.string,
   recordedAt: Equality.string,
@@ -47,29 +64,64 @@ const sameReading = Equality.struct({
 
 const readings: readonly Reading[] = [
   { deviceId: "sensor-a", recordedAt: "09:00", celsius: 21 },
-  { deviceId: "sensor-a", recordedAt: "09:00", celsius: 21 },
+  { deviceId: "sensor-a", recordedAt: "09:00", celsius: 21.4 },
   { deviceId: "sensor-a", recordedAt: "09:05", celsius: 22 },
 ];
+
 const unique = pipe(readings, Arr.uniqWith(sameReading));
 // Two readings remain: 09:00 and 09:05.
 ```
 
-Only the configured fields participate in `sameReading`. Add a temperature comparison if readings
-with the same identifier and timestamp but different values must remain distinct.
+`sameReading` compares the two configured fields and ignores `celsius`. Two readings that share an
+identifier and a timestamp are duplicates even when the temperature changed.
+
+### Ordering the Same Readings
+
+An equality rule answers whether two readings match, but a display that lists them still needs an
+order. The same field selection becomes a comparator, with the timestamp first and the device
+identifier as a tiebreaker:
+
+```ts
+import { Ordering, pipe } from "@pplnd/core";
+
+const byRecordedAt = pipe(Ordering.string, Ordering.by((reading: Reading) => reading.recordedAt));
+const byDeviceId = pipe(Ordering.string, Ordering.by((reading: Reading) => reading.deviceId));
+const readingOrder = pipe(byRecordedAt, Ordering.thenBy(byDeviceId));
+```
+
+The [Ordering guide](/guides/ordering/) covers descending order and additional tiebreakers.
 
 ## Core Operations
 
-| Signature                                         | What it does                                           | Result                               |
-| :------------------------------------------------ | :----------------------------------------------------- | :----------------------------------- |
-| `Equality.string` / `number` / `boolean` / `date` | Compares primitive values or date timestamps.          | `Equality<A>`.                       |
-| `Equality.by(select)`                             | Compares inputs using a selected value.                | An equality for the original inputs. |
-| `Equality.and(other)`                             | Requires two comparisons to pass.                      | Stops when the first returns false.  |
-| `Equality.struct(fields)`                         | Compares specified object fields.                      | Other fields are ignored.            |
-| `Equality.array(itemEquality)`                    | Compares length and items in order.                    | An equality for readonly arrays.     |
-| `Equality.tuple(...equalities)`                   | Compares tuple positions with their respective checks. | A tuple equality.                    |
+### Creating Checks
+
+| Signature          | What it does                                             | Return type         |
+| :----------------- | :------------------------------------------------------- | :------------------ |
+| `Equality.string`  | Compares strings with case-sensitive strict equality.    | `Equality<string>`  |
+| `Equality.number`  | Compares numbers with SameValueZero; `NaN` equals `NaN`. | `Equality<number>`  |
+| `Equality.boolean` | Compares booleans with strict equality.                  | `Equality<boolean>` |
+| `Equality.date`    | Compares `getTime()` values with SameValueZero.          | `Equality<Date>`    |
+
+### Adapting and Combining
+
+| Signature              | What it does                                                   | Return type                      |
+| :--------------------- | :------------------------------------------------------------- | :------------------------------- |
+| `by(extract)`          | Lifts a rule to a selected field; data-last.                   | `Equality<B>` from `Equality<A>` |
+| `and(other)`           | Requires the piped rule and `other`; stops at the first false. | Combined `Equality<B>`           |
+| `struct(fields)`       | Builds a record rule from field rules.                         | `Equality<R>`                    |
+| `array(itemEquality)`  | Compares length, then items in order.                          | `Equality<readonly A[]>`         |
+| `tuple(...equalities)` | Compares length, then positions with their rules.              | `Equality<T>`                    |
 
 ## Failure Behavior and Edge Cases
 
-`Equality.number` uses `===`, so `NaN` does not equal itself. `Equality.date` compares timestamps;
-invalid dates also compare unequal because their timestamps are `NaN`. Choose a different check if
-those values need special treatment.
+`Equality.number` uses SameValueZero instead of `===`: `NaN` equals `NaN`, and `0` equals `-0`. A
+duplicate rule built on it treats two missing measurements as equal when both are `NaN`. When those
+values reach a sort, [`Ordering`](/guides/ordering/) places every `NaN` after the valid numbers.
+
+`Equality.date` compares timestamps with the same rule, so two `Invalid Date` values compare equal.
+Validate dates before they enter the rule when invalid input must stay distinct.
+
+`struct` fixes its key list when the rule is built and compares only those own keys, including
+symbol keys. `array` returns `false` on a length mismatch without calling the item rule; `tuple`
+does the same and then compares positions in argument order. `and` evaluates the piped rule first
+and skips `other` when it fails.

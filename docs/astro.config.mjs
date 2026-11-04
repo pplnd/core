@@ -45,6 +45,7 @@ export default defineConfig({
 		starlight({
 			title: "pipelined",
 			favicon: "favicon.svg",
+			logo: { dark: "./public/logo_light.svg", light: "./public/logo_dark.svg" },
 			customCss: ["./src/styles/custom.css"],
 			components: { Footer: "./src/components/Footer.astro" },
 			social: [{ icon: "github", label: "GitHub", href: "https://github.com/pplnd/core" }, {
@@ -71,9 +72,21 @@ export default defineConfig({
 				{
 					label: "The basics",
 					collapsed: false,
-					items: [{ slug: "basics/installation" }, { slug: "basics/pipelines" }, { slug: "basics/overview" }, {
-						slug: "basics/composition",
-					}],
+					items: [
+						{ slug: "basics/installation" },
+						{ slug: "basics/pipelines" },
+						{ slug: "basics/overview" },
+						{ slug: "basics/types" },
+						{ slug: "basics/choosing" },
+						{ slug: "basics/composition" },
+					],
+				},
+				{
+					label: "Recipes",
+					collapsed: false,
+					items: [{ slug: "recipes/request-lifecycle" }, { slug: "recipes/field-validation" }, {
+						slug: "recipes/dependency-graph",
+					}, { slug: "recipes/events-and-state" }],
 				},
 				{
 					label: "Errors & absence",
@@ -91,6 +104,7 @@ export default defineConfig({
 					items: [
 						{ slug: "guides/task" },
 						{ slug: "guides/deferred" },
+						{ slug: "guides/aborted" },
 						{ slug: "guides/op" },
 						{ slug: "guides/circuit-breaker" },
 						{ slug: "guides/batcher" },
@@ -135,10 +149,7 @@ export default defineConfig({
 						{ slug: "guides/json" },
 					],
 				},
-				{
-					label: "Appendix",
-					items: [{ slug: "appendix/motivation" }, { slug: "appendix/influences" }, { slug: "appendix/benchmarks" }],
-				},
+				{ label: "Appendix", items: [{ slug: "appendix/design-notes" }, { slug: "appendix/benchmarks" }] },
 				typeDocSidebarGroup,
 			],
 		}),
