@@ -71,18 +71,21 @@ const removeIndex = (name: string): Task.Result<string, void> => Task.Result.try
 );
 
 const step = Transaction.stepFactory<string>();
-const uploadStep = step("upload", {
-  run: ({ ctx }) => upload(ctx.input),
-  undo: ({ ctx }) => removeUpload(ctx.output),
-});
-const indexStep = step("index", {
-  deps: { upload: uploadStep },
-  run: ({ deps }) => index(deps.upload),
-  undo: ({ ctx }) => removeIndex(ctx.output),
-});
-const notifyStep = Transaction.step("notify", {
-  run: () => Task.Result.make.err("Notification unavailable"),
-});
+const uploadStep = step(
+  "upload",
+  ({ ctx }) => upload(ctx.input),
+  ({ ctx }) => removeUpload(ctx.output),
+);
+const indexStep = step(
+  "index",
+  { upload: uploadStep },
+  ({ deps }) => index(deps.upload),
+  ({ ctx }) => removeIndex(ctx.output),
+);
+const notifyStep = Transaction.step(
+  "notify",
+  () => Task.Result.make.err("Notification unavailable"),
+);
 const publish = Transaction.make(uploadStep, indexStep, notifyStep);
 
 const result = await Transaction.run(publish, "report.pdf");
@@ -95,29 +98,30 @@ abort signal so they can attempt cleanup after cancellation.
 
 ## Core Operations
 
-| Signature                                       | What it does                                      | Result or behavior                             |
-| :---------------------------------------------- | :------------------------------------------------ | :--------------------------------------------- |
-| `Transaction.stepFactory<Input>()`              | Creates a step constructor sharing an input type. | Infers each step’s dependencies and result.    |
-| `Transaction.step(id, config)`                  | Defines a step and its named dependencies.        | A reusable step definition.                    |
-| `Transaction.make(...steps)`                    | Assembles steps in execution order.               | Rejects duplicate IDs and invalid ordering.    |
-| `Transaction.run(transaction, input, options?)` | Starts the steps with input and hooks.            | Deferred result of outputs or failure details. |
+| Signature                                       | What it does                                                      | Result or behavior                             |
+| :---------------------------------------------- | :---------------------------------------------------------------- | :--------------------------------------------- |
+| `Transaction.stepFactory<Input>()`              | Creates a step constructor sharing an input type.                 | Infers each step’s dependencies and result.    |
+| `Transaction.step(id, run, undo?)`              | Defines a dependency-free step and its optional compensation.     | A reusable step definition.                    |
+| `Transaction.step(id, deps, run, undo?)`        | Defines a step with named dependencies and optional compensation. | A reusable step definition.                    |
+| `Transaction.make(...steps)`                    | Assembles steps in execution order.                               | Rejects duplicate IDs and invalid ordering.    |
+| `Transaction.run(transaction, input, options?)` | Starts the steps with input and hooks.                            | Deferred result of outputs or failure details. |
 
 A typed step factory lets multiple independently reusable steps share an input contract without
 repeating its type. Use `Transaction.step` directly for a step that does not need the contract.
 
 A step's `run` receives per-run input as `ctx.input` and dependency outputs under `deps`. When
-neither is used, write `run: () => task`. A transaction whose steps require input must receive it as
-`Transaction.run(transaction, input)`. If no steps require input, call
-`Transaction.run(transaction)`. Pass per-run controls as a third argument, for example
-`Transaction.run(transaction, input, { signal })`; use `undefined` for input when the transaction
-needs no input but the run needs options.
+neither is used, pass a zero-argument run callback: `Transaction.step("notify", () => task)`. A
+transaction whose steps require input must receive it as `Transaction.run(transaction, input)`. If
+no steps require input, call `Transaction.run(transaction)`. Pass per-run controls as a third
+argument, for example `Transaction.run(transaction, input, { signal })`; use `undefined` for input
+when the transaction needs no input but the run needs options.
 
-An `undo` callback receives the completed step's output as `ctx.output`, the run input as
-`ctx.input`, and dependency outputs under `deps`. Apply `Task.Result.retry(policy)` or
-`Task.Result.timeout(options)` to the returned task when the work needs retries or a deadline. Run
-options accept an `AbortSignal` and `onStepSuccess`, `onStepFailure`, and `onUndo` callbacks. Use
-the signal passed to the task for cancellable work; task wrappers can provide a more specific signal
-than the transaction's run signal.
+An `undo` callback is the optional trailing argument after `run`. It receives the completed step's
+output as `ctx.output`, the run input as `ctx.input`, and dependency outputs under `deps`. Apply
+`Task.Result.retry(policy)` or `Task.Result.timeout(options)` to the returned task when the work
+needs retries or a deadline. Run options accept an `AbortSignal` and `onStepSuccess`,
+`onStepFailure`, and `onUndo` callbacks. Use the signal passed to the task for cancellable work;
+task wrappers can provide a more specific signal than the transaction's run signal.
 
 `make` checks that step IDs are unique and that each dependency is the same step object supplied
 earlier in the sequence. The same earlier step can appear under multiple dependency names. Literal

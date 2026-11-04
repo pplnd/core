@@ -111,3 +111,6 @@ A function `(state: S) => readonly [A, S]` can also be used directly.
 
 `State` passes state values between functions; it does not prevent a callback from mutating an
 object supplied as state. Return an updated object when the original must remain unchanged.
+
+Chains execute as nested function calls. Extremely deep synchronous chains can exceed the JavaScript
+call stack; split unusually large pipelines into smaller stages.

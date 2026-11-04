@@ -5,7 +5,7 @@ description: Check independent inputs and collect their errors before handling t
 
 <!-- BUNDLE_SIZE:START -->
 
-> 1.55 kB minified + gzipped
+> 1.51 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -15,8 +15,7 @@ description: Check independent inputs and collect their errors before handling t
 
 - `struct` combines independent field results and collects every failure in own-key enumeration
   order.
-- `apply` combines a wrapped function and argument, concatenating their errors in that order by
-  default.
+- `apply` combines a wrapped function and argument, concatenating their errors in that order.
 - `map` skips a failed value; `match` handles the complete error list or the passed value.
 
 ## Example: Account Registration
@@ -143,11 +142,11 @@ console.log(registrationResponse({ username: "longusername", email: "alex@exampl
 
 ### Combining Values
 
-| Operation                | What it does                                     | Guarantee                                                                              |
-| ------------------------ | ------------------------------------------------ | -------------------------------------------------------------------------------------- |
-| `struct(fields)`         | Combine a record of already-created validations. | Collects errors in own-key enumeration order.                                          |
-| `apply(argument)`        | Apply a wrapped function to a wrapped argument.  | Concatenates errors from the function and argument; `combineErrors` can override this. |
-| `keyed.make(validators)` | Run one validator per matching input field.      | Returns a validation for each field.                                                   |
+| Operation                | What it does                                     | Guarantee                                           |
+| ------------------------ | ------------------------------------------------ | --------------------------------------------------- |
+| `struct(fields)`         | Combine a record of already-created validations. | Collects errors in own-key enumeration order.       |
+| `apply(argument)`        | Apply a wrapped function to a wrapped argument.  | Concatenates errors from the function and argument. |
+| `keyed.make(validators)` | Run one validator per matching input field.      | Returns a validation for each field.                |
 
 ### Transforming Values
 
@@ -180,8 +179,8 @@ type.
 
 `struct` combines results that JavaScript has already evaluated; it does not schedule work or run
 checks concurrently. An empty record passes with an empty object. Errors retain field enumeration
-order and each field's internal error order. `apply` likewise receives an already-created argument;
-its optional `combineErrors` callback must return a non-empty array.
+order and each field's internal error order. `apply` likewise receives an already-created argument
+and appends the argument's errors after the function's errors.
 
 For example, errors from both fields are retained, including multiple errors from one field:
 

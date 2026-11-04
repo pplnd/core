@@ -5,7 +5,7 @@ description: Search, transform, group, and validate readonly arrays in pipelines
 
 <!-- BUNDLE_SIZE:START -->
 
-> 6.23 kB minified + gzipped
+> 6.41 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

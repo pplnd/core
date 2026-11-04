@@ -148,7 +148,7 @@ atLeastZero(-5); // 0
 atLeastZero(3);  // 3
 ```
 
-This is highly useful for preparing multi-argument functions to slot as steps inside `pipe` or `flow`. `curry` is overloaded to support functions of 2, 3, or 4 arguments:
+This is highly useful for preparing multi-argument functions to slot as steps inside `pipe` or `flow`. `curry` is overloaded to support functions of 2, 3, or 4 arguments. Functions with rest or default parameters must pass the intended arity as the second argument; an ambiguous arity throws instead of invoking the function early:
 
 ```ts
 import { curry } from "@pplnd/core";
@@ -166,7 +166,7 @@ clamp0to100(-10); // 0
 
 ## Reversing currying
 
-`uncurry` is the inverse of `curry`. It converts a curried, single-argument function back into a standard multi-argument format (supporting 2, 3, or 4 arguments). This is useful when passing curried library helpers to external APIs that expect standard JavaScript functions:
+`uncurry` is the inverse of `curry`. It converts a curried function back into a standard multi-argument format. It flattens two stages by default; pass `3` or `4` as the second argument for deeper currying. Returned thunks and tasks are preserved rather than invoked. This is useful when passing curried library helpers to external APIs that expect standard JavaScript functions:
 
 ```ts
 import { curry, uncurry } from "@pplnd/core";

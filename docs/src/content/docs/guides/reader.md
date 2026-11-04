@@ -110,3 +110,6 @@ A plain function `(environment: R) => A` is also a Reader.
 
 `Reader` does not add an error channel. If a dependency can fail and the caller needs the error,
 return a `Result` or `Task.Result` from the Reader and handle that result at the boundary.
+
+Chains execute as nested function calls. Extremely deep synchronous chains can exceed the JavaScript
+call stack; split unusually large pipelines into smaller stages.

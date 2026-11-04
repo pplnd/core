@@ -5,7 +5,7 @@ description: Represent an idle, loading, failed, or successful request with one 
 
 <!-- BUNDLE_SIZE:START -->
 
-> 1.85 kB minified + gzipped
+> 1.81 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

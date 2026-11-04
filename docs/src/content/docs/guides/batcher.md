@@ -5,7 +5,7 @@ description: Combine nearby key lookups into bulk requests and handle found, mis
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.95 kB minified + gzipped
+> 2.98 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

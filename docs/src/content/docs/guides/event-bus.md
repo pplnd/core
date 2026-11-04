@@ -5,7 +5,7 @@ description: Publish typed events, observe them, and match sequences within an a
 
 <!-- BUNDLE_SIZE:START -->
 
-> 1.26 kB minified + gzipped
+> 1.23 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

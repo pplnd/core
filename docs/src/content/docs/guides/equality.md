@@ -5,7 +5,7 @@ description: Build reusable equality checks for fields, arrays, and tuples.
 
 <!-- BUNDLE_SIZE:START -->
 
-> 254 B minified + gzipped
+> 281 B minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

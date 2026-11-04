@@ -5,7 +5,7 @@ description: Represent a value, a diagnostic, or both and handle all three cases
 
 <!-- BUNDLE_SIZE:START -->
 
-> 1.97 kB minified + gzipped
+> 1.93 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

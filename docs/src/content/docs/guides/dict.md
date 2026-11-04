@@ -5,7 +5,7 @@ description: Read and update readonly maps in pipelines.
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.44 kB minified + gzipped
+> 2.41 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

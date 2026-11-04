@@ -5,7 +5,7 @@ description: Define state transitions and run state-scoped effects with an actor
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.02 kB minified + gzipped
+> 2.04 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -99,17 +99,18 @@ const uploadMachine = Machine.make<UploadState, UploadEvents>({
     },
   });
 
-const describe = Machine.match<UploadState, string>({
-  idle: () => "Select a file",
-  uploading: ({ value }) => `Uploading ${value.fileName}`,
-  complete: ({ value }) => `Uploaded to ${value.location}`,
-  failed: ({ value }) => `Upload failed: ${value.message}`,
-});
+const describe = (state: UploadState) =>
+  Machine.match(state, {
+    idle: () => "Select a file",
+    uploading: ({ value }) => `Uploading ${value.fileName}`,
+    complete: ({ value }) => `Uploaded to ${value.location}`,
+    failed: ({ value }) => `Upload failed: ${value.message}`,
+  });
 
 const actor = Machine.interpret(uploadMachine, {
   initial: Machine.state("idle"),
 });
-const unsubscribe = actor.subscribe((state) => console.log(pipe(state, describe)));
+const unsubscribe = actor.subscribe((state) => console.log(describe(state)));
 
 actor.send({ kind: "START", value: { fileName: "report.txt", contents: "Report" } });
 actor.send({ kind: "CANCEL" }); // Aborts the request and returns to idle.
@@ -125,12 +126,13 @@ work ignores its signal. To use a machine as a reducer without entry or exit eff
 
 ### Defining and Inspecting
 
-| Signature                     | What it does                                | Return type or behavior              |
-| :---------------------------- | :------------------------------------------ | :----------------------------------- |
-| `Machine.state(kind, value?)` | Creates a state, optionally with a payload. | A state with a `kind` discriminator. |
-| `Machine.make(states)`        | Defines a state transition table.           | `Machine<States, Events>`            |
-| `Machine.is(kind)`            | Checks a state's kind.                      | Type guard.                          |
-| `Machine.match(cases)`        | Handles each state kind.                    | The matching handler's result.       |
+| Signature                         | What it does                                         | Return type or behavior              |
+| :-------------------------------- | :--------------------------------------------------- | :----------------------------------- |
+| `Machine.state(kind, value?)`     | Creates a state, optionally with a payload.          | A state with a `kind` discriminator. |
+| `Machine.make(states)`            | Defines a state transition table.                    | `Machine<States, Events>`            |
+| `Machine.is(kind)`                | Checks a state's kind.                               | Type guard.                          |
+| `Machine.match(state, cases)`     | Handles each state kind and infers the return union. | The matching handler's result.       |
+| `Machine.match<States, R>(cases)` | Curried form for `pipe`; requires explicit types.    | The matching handler's result.       |
 
 ### Transitioning and Running
 

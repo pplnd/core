@@ -5,7 +5,7 @@ description: Parse, calculate, compare, and aggregate numbers in pipelines.
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.01 kB minified + gzipped
+> 2.03 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

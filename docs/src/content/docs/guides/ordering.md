@@ -5,7 +5,7 @@ description: Build sort comparators from fields and tiebreakers.
 
 <!-- BUNDLE_SIZE:START -->
 
-> 258 B minified + gzipped
+> 280 B minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

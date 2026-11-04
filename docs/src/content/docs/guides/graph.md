@@ -5,7 +5,7 @@ description: Run asynchronous tasks after their dependencies are ready.
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.82 kB minified + gzipped
+> 2.83 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -50,28 +50,21 @@ import { Graph, Task } from "@pplnd/core";
 type ReportInput = { path: string };
 const node = Graph.nodeFactory<ReportInput>();
 
-const manifest = node("manifest", {
-  run: ({ ctx }) => Task.Result.tryCatch(
+const manifest = node("manifest", ({ ctx }) =>
+  Task.Result.tryCatch(
     (signal) => readFile(ctx.input.path, { encoding: "utf8", signal }),
     { onError: (error) => `Could not read manifest: ${String(error)}` },
-  ),
-});
+  ));
 
-const bytes = node("bytes", {
-  deps: { manifest },
-  run: ({ deps }) => Task.Result.make.ok(new TextEncoder().encode(deps.manifest).length),
-});
-const lines = node("lines", {
-  deps: { manifest },
-  run: ({ deps }) => Task.Result.make.ok(deps.manifest.split("\n").length),
-});
-const report = node("report", {
-  deps: { bytes, lines },
-  run: ({ deps }) => Task.Result.make.ok({ bytes: deps.bytes, lines: deps.lines }),
-});
+const bytes = node("bytes", { manifest }, ({ deps }) =>
+  Task.Result.make.ok(new TextEncoder().encode(deps.manifest).length));
+const lines = node("lines", { manifest }, ({ deps }) =>
+  Task.Result.make.ok(deps.manifest.split("\n").length));
+const report = node("report", { bytes, lines }, ({ deps }) =>
+  Task.Result.make.ok({ bytes: deps.bytes, lines: deps.lines }));
 
 const reportGraph = Graph.make(report, { concurrency: 2 });
-const result = await Graph.run(reportGraph, { input: { path: "package.json" } });
+const result = await Graph.run(reportGraph, { path: "package.json" });
 if (result.kind === "Ok") console.log(result.value);
 else console.error(result.error);
 ```
@@ -80,12 +73,13 @@ else console.error(result.error);
 
 ### Defining and Running
 
-| Signature                       | What it does                                         | Result or behavior                      |
-| :------------------------------ | :--------------------------------------------------- | :-------------------------------------- |
-| `Graph.nodeFactory<Input>()`    | Creates a node constructor sharing an input type.    | Infers dependencies and outputs.        |
-| `Graph.node(id, { deps, run })` | Defines a task and optional named dependencies.      | The callback receives `ctx` and `deps`. |
-| `Graph.make(target, options?)`  | Builds a reusable graph from reachable dependencies. | Throws for duplicate IDs or a cycle.    |
-| `Graph.run(graph, options?)`    | Starts an independent graph execution.               | A deferred result for the target.       |
+| Signature                            | What it does                                         | Result or behavior                      |
+| :----------------------------------- | :--------------------------------------------------- | :-------------------------------------- |
+| `Graph.nodeFactory<Input>()`         | Creates a node constructor sharing an input type.    | Infers dependencies and outputs.        |
+| `Graph.node(id, run)`                | Defines a dependency-free task.                      | The callback receives `ctx`.            |
+| `Graph.node(id, deps, run)`          | Defines a task with named dependencies.              | The callback receives `ctx` and `deps`. |
+| `Graph.make(target, options?)`       | Builds a reusable graph from reachable dependencies. | Throws for duplicate IDs or a cycle.    |
+| `Graph.run(graph, input?, options?)` | Starts an independent graph execution.               | A deferred result for the target.       |
 
 A typed node factory lets reusable nodes share an input contract without repeating its type.
 `Graph.node` also creates nodes directly. Graph options accept `concurrency`. Supply `input` to
@@ -105,7 +99,8 @@ contract and cannot be used to construct a graph until its input type is specifi
 
 A failure prevents unstarted dependents from running. Active work receives an aborted signal, but
 must cooperate with that signal to stop. A caller can pass a signal in the run options:
-`Graph.run(graph, { input, signal })`.
+`Graph.run(graph, input, { signal })`. For a graph with no input, pass `undefined` as the input:
+`Graph.run(graph, undefined, { signal })`.
 
 Cancellation settles the graph with `Graph.Aborted` and the signal's reason, even if an active task
 ignores the signal and continues running. Node callbacks, tasks, timeout handlers, and retry
