@@ -38,4 +38,22 @@ describe("Brand type-level tests", () => {
 
 		expectTypeOf(userId).not.toEqualTypeOf(productId);
 	});
+
+	it("stacks brands without collapsing to never", () => {
+		type NonEmpty = Brand<"NonEmpty", string>;
+		type Trimmed = Brand<"Trimmed", NonEmpty>;
+
+		const toNonEmpty = Brand.wrap<"NonEmpty", string>();
+		const nonEmpty = toNonEmpty("value");
+		const trimmed = Brand.wrap<"Trimmed", NonEmpty>()(nonEmpty);
+
+		expectTypeOf<Trimmed>().not.toBeNever();
+		expectTypeOf(trimmed).toEqualTypeOf<Trimmed>();
+		expectTypeOf(trimmed).toMatchTypeOf<NonEmpty>();
+		expectTypeOf(trimmed).toMatchTypeOf<Brand<"Trimmed", string>>();
+		expectTypeOf(trimmed).toMatchTypeOf<string>();
+
+		// @ts-expect-error a differently tagged brand remains incompatible
+		const _other: Brand<"Other", NonEmpty> = trimmed;
+	});
 });

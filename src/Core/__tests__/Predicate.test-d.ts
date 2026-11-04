@@ -39,4 +39,13 @@ describe("Predicate type-level tests", () => {
 		// @ts-expect-error cannot combine number predicate and string predicate
 		expectTypeOf(pipe(isPositive, Predicate.and(isString))).toBeFunction();
 	});
+
+	it("and/or: accept a subtype predicate followed by a supertype predicate", () => {
+		type Person = { readonly name: string; };
+		type Employee = Person & { readonly salary: number; };
+		const hasSalary: Predicate<Employee> = (value) => value.salary > 0;
+		const hasName: Predicate<Person> = (value) => value.name.length > 0;
+		expectTypeOf(pipe(hasSalary, Predicate.and(hasName))).toEqualTypeOf<Predicate<Employee>>();
+		expectTypeOf(pipe(hasSalary, Predicate.or(hasName))).toEqualTypeOf<Predicate<Employee>>();
+	});
 });

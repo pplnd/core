@@ -101,3 +101,19 @@ test("NonEmpty: singleton, from.set, reduce, map, to.array preserve non-empty br
 	const arr = Uniq.NonEmpty.to.array(single);
 	expectTypeOf(arr).toEqualTypeOf<readonly [number, ...number[]]>();
 });
+
+test("union widening: membership and set algebra accept supertype sets", () => {
+	const roles: ReadonlySet<"admin" | "viewer"> = new Set(["admin", "viewer"]);
+	expectTypeOf(pipe(roles, Uniq.has("admin"))).toEqualTypeOf<boolean>();
+	expectTypeOf(pipe(roles, Uniq.insert("admin"))).toEqualTypeOf<ReadonlySet<"admin" | "viewer">>();
+	expectTypeOf(pipe(roles, Uniq.remove("admin"))).toEqualTypeOf<ReadonlySet<"admin" | "viewer">>();
+	expectTypeOf(pipe(roles, Uniq.toggle("admin"))).toEqualTypeOf<ReadonlySet<"admin" | "viewer">>();
+	expectTypeOf(pipe(roles, Uniq.union(new Set<"admin">(["admin"])))).toEqualTypeOf<ReadonlySet<"admin" | "viewer">>();
+	expectTypeOf(pipe(roles, Uniq.intersection(new Set<"admin">(["admin"])))).toEqualTypeOf<
+		ReadonlySet<"admin" | "viewer">
+	>();
+	expectTypeOf(pipe(roles, Uniq.difference(new Set<"admin">(["admin"])))).toEqualTypeOf<
+		ReadonlySet<"admin" | "viewer">
+	>();
+	expectTypeOf(pipe(roles, Uniq.is.subsetOf(new Set<"admin" | "viewer">(["admin"])))).toEqualTypeOf<boolean>();
+});

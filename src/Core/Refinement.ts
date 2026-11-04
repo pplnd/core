@@ -29,6 +29,8 @@ export type Refinement<A, B extends A> = (value: A) => value is B;
 const fromPredicate = <A, B extends A>(predicate: (value: A) => boolean): Refinement<A, B> =>
 	predicate as Refinement<A, B>;
 
+type NarrowTo<A, B> = B extends A ? B : B & A;
+
 export const Refinement = {
 	// --- from ---
 	from: {
@@ -74,9 +76,9 @@ export const Refinement = {
 	 * ```
 	 */
 	compose:
-		<A, B extends A, C extends B>(bc: Refinement<B, C>) =>
-		(ab: Refinement<A, B>): Refinement<A, C> =>
-		(value): value is C => ab(value) && bc(value),
+		<B, C extends B>(bc: Refinement<B, C>) =>
+		<A>(ab: (value: A) => value is B & A): Refinement<A, NarrowTo<A, C>> =>
+		(value): value is NarrowTo<A, C> => ab(value) && bc(value),
 
 	/**
 	 * Intersects two refinements: the result narrows `A` to `B & C`, passing only
@@ -96,8 +98,8 @@ export const Refinement = {
 	 */
 	and:
 		<A, C extends A>(second: Refinement<A, C>) =>
-		<B extends A>(first: Refinement<A, B>): Refinement<A, B & C> =>
-		(value): value is B & C => first(value) && second(value),
+		<B extends A, D extends B>(first: Refinement<B, D>): Refinement<B, D & C> =>
+		(value): value is D & C => first(value) && second(value),
 
 	/**
 	 * Unions two refinements: the result narrows `A` to `B | C`, passing when either
@@ -118,8 +120,11 @@ export const Refinement = {
 	 */
 	or:
 		<A, C extends A>(second: Refinement<A, C>) =>
-		<B extends A>(first: Refinement<A, B>): Refinement<A, B | C> =>
-		(value): value is B | C => first(value) || second(value),
+		<B extends A, D extends B>(first: Refinement<B, D>): Refinement<
+			B,
+			D | (C extends B ? C : C & B)
+		> =>
+		(value): value is D | (C extends B ? C : C & B) => first(value) || second(value),
 
 	// --- to ---
 	to: {
@@ -158,8 +163,9 @@ export const Refinement = {
 		 * pipe("hi", Refinement.to.Result(isNonEmpty, () => "must not be empty")); // Ok("hi")
 		 * ```
 		 */
-		Result: <A, B extends A, E>(refinement: Refinement<A, B>, onFail: (value: A) => E) => (value: A): CoreResult<E, B> =>
-			refinement(value) ? CoreResult.make.ok(value) : CoreResult.make.err(onFail(value)),
+		Result:
+			<A, B extends A, const E>(refinement: Refinement<A, B>, onFail: (value: A) => E) => (value: A): CoreResult<E, B> =>
+				refinement(value) ? CoreResult.make.ok(value) : CoreResult.make.err(onFail(value)),
 
 		/**
 		 * Converts a `Refinement<A, B>` into a `Predicate<A>`, discarding the compile-time

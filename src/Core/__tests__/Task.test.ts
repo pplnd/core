@@ -798,6 +798,45 @@ test("abortable: second call cancels first in-flight call", async () => {
 	expect(firstSignalAborted).toBe(true);
 });
 
+test("abortable: re-entrant restart inside an abort listener keeps the newest call active", async () => {
+	const signals: AbortSignal[] = [];
+	let reentered = false;
+	let thirdDeferred: Deferred<void> | undefined;
+
+	const { task, abort } = Task.abortable((signal) => {
+		signals.push(signal);
+		if (signals.length === 1) {
+			signal.addEventListener("abort", () => {
+				if (!reentered) {
+					reentered = true;
+					thirdDeferred = task();
+				}
+			}, { once: true });
+		}
+		if (signal.aborted) { return Promise.resolve(); }
+		return new Promise<void>((resolve) => {
+			signal.addEventListener("abort", () => resolve(), { once: true });
+		});
+	});
+
+	const first = task();
+	const second = task();
+
+	expect(signals).toHaveLength(3);
+	expect(signals[0].aborted).toBe(true);
+	expect(signals[1].aborted).toBe(false);
+	expect(signals[2].aborted).toBe(true);
+
+	if (thirdDeferred === undefined) { throw new Error("expected a re-entrant task"); }
+
+	abort();
+	expect(signals[1].aborted).toBe(true);
+
+	await first;
+	await second;
+	await thirdDeferred;
+});
+
 test("timeout: removes outer signal listener after normal completion", async () => {
 	const outerController = new AbortController();
 	let innerSignal: AbortSignal | undefined;

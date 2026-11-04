@@ -106,3 +106,7 @@ test("negative: flags invalid transforms and non-Task.Validation struct fields",
 	// @ts-expect-error Struct field values must be Task.Validation instances
 	expectTypeOf(Task.Validation.struct({ a: 123 })).toBeFunction();
 });
+
+test("struct: empty fields collapse the error channel to never", () => {
+	expectTypeOf(Task.Validation.struct({})).toEqualTypeOf<Task.Validation<never, {}>>();
+});

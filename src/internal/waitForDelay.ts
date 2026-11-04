@@ -1,3 +1,5 @@
+import { clampTimerDelay } from "./timers.ts";
+
 export const waitForDelay = (duration: number, signal?: AbortSignal): Promise<void> =>
 	new Promise((resolve) => {
 		if (signal?.aborted) {
@@ -14,6 +16,6 @@ export const waitForDelay = (duration: number, signal?: AbortSignal): Promise<vo
 		timer = setTimeout(() => {
 			signal?.removeEventListener("abort", onAbort);
 			resolve();
-		}, duration);
+		}, clampTimerDelay(duration));
 		signal?.addEventListener("abort", onAbort, { once: true });
 	});

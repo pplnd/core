@@ -28,6 +28,20 @@ describe("Bool type-level tests", () => {
 			}
 		};
 		checkNullable("test");
+
+		const checkNumber = (value: number) => {
+			if (Bool.is.falsy(value)) {
+				expectTypeOf(value).toEqualTypeOf<number>();
+			}
+		};
+		checkNumber(NaN);
+
+		const checkLiteral = (value: 0 | 1) => {
+			if (Bool.is.falsy(value)) {
+				expectTypeOf(value).toEqualTypeOf<0>();
+			}
+		};
+		checkLiteral(0);
 	});
 
 	it("inspects boolean combinators and lazy evaluation", () => {
@@ -44,6 +58,10 @@ describe("Bool type-level tests", () => {
 
 		const matched = pipe(true, Bool.match({ true: () => "yes", false: () => 0 }));
 		expectTypeOf(matched).toEqualTypeOf<string | number>();
+
+		const matchedArrays = pipe(true, Bool.match({ true: () => ["a"], false: () => [] }));
+		expectTypeOf(matchedArrays).toEqualTypeOf<string[]>();
+		matchedArrays.push("b");
 	});
 
 	it("inspects conversions", () => {

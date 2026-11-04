@@ -17,12 +17,15 @@
 export type Ordering<A> = (first: A, second: A) => number;
 
 const stringOrd: Ordering<string> = (first, second) => (first < second ? -1 : (first > second ? 1 : 0));
-const numberOrd: Ordering<number> = (first, second) => (first < second ? -1 : (first > second ? 1 : 0));
-const dateOrd: Ordering<Date> = (first, second) => {
-	const a = first.getTime();
-	const b = second.getTime();
-	return a < b ? -1 : (a > b ? 1 : 0);
+const numberOrd: Ordering<number> = (first, second) => {
+	const firstNaN = Number.isNaN(first);
+	const secondNaN = Number.isNaN(second);
+	if (firstNaN || secondNaN) {
+		return firstNaN && secondNaN ? 0 : firstNaN ? 1 : -1;
+	}
+	return first < second ? -1 : (first > second ? 1 : 0);
 };
+const dateOrd: Ordering<Date> = (first, second) => numberOrd(first.getTime(), second.getTime());
 
 export const Ordering = {
 	/**
@@ -38,7 +41,7 @@ export const Ordering = {
 	string: stringOrd,
 
 	/**
-	 * Numeric ordering returning `-1`, `0`, or `1`.
+	 * Numeric ordering returning `-1`, `0`, or `1`. `NaN` sorts after all valid numbers.
 	 *
 	 * @see {@link Ordering.date} for chronological ordering.
 	 *
@@ -51,6 +54,7 @@ export const Ordering = {
 
 	/**
 	 * Ordering for `Date` values by numeric time value returning `-1`, `0`, or `1`.
+	 * Invalid dates sort after all valid dates.
 	 *
 	 * @see {@link Ordering.number} for numeric ordering.
 	 *
@@ -85,7 +89,7 @@ export const Ordering = {
 	 * const byDeptThenSalary = pipe(byDept, Ordering.thenBy(bySalary));
 	 * ```
 	 */
-	thenBy: <A>(other: Ordering<A>) => (ordering: Ordering<A>): Ordering<A> => (first, second) => {
+	thenBy: <A>(other: Ordering<A>) => <B extends A>(ordering: Ordering<B>): Ordering<B> => (first, second) => {
 		const result = ordering(first, second);
 		return result !== 0 ? result : other(first, second);
 	},

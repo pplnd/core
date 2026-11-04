@@ -128,6 +128,18 @@ test("findIndex: returns None for empty array", () => {
 	expect(result).toStrictEqual(Maybe.make.none());
 });
 
+test("findFirst: passes only the item to the predicate", () => {
+	const extraCounts: number[] = [];
+	const predicate = (value: number, ...extra: unknown[]) => {
+		extraCounts.push(extra.length);
+		return value === 2;
+	};
+
+	expect(pipe([1, 2, 3], Arr.findFirst(predicate))).toStrictEqual(Maybe.make.some(2));
+	expect(pipe([1, 2, 3], Arr.findIndex(predicate))).toStrictEqual(Maybe.make.some(1));
+	expect(extraCounts).toStrictEqual([0, 0, 0, 0]);
+});
+
 // --- Transform: map, filter, partition, groupBy, uniq, uniqBy, sortBy ---
 
 test("map: transforms each element", () => {
@@ -410,6 +422,11 @@ test("chunksOf: returns empty array for negative size", () => {
 	expect(result).toStrictEqual([]);
 });
 
+test("chunksOf: rejects non-integer and NaN sizes", () => {
+	expect(pipe([1, 2, 3], Arr.chunksOf(1.5))).toStrictEqual([]);
+	expect(pipe([1, 2, 3], Arr.chunksOf(NaN))).toStrictEqual([]);
+});
+
 test("chunksOf: returns empty array for empty array", () => {
 	const result = pipe([] as number[], Arr.chunksOf(3));
 	expect(result).toStrictEqual([]);
@@ -477,6 +494,10 @@ test("reduce: builds object from entries", () => {
 		Arr.reduce({} as Record<string, number>, (acc, [k, v]) => ({ ...acc, [k]: v })),
 	);
 	expect(result).toStrictEqual({ a: 1, b: 2, c: 3 });
+});
+
+test("reduce: does not pass index or array to a binary reducer", () => {
+	expect(pipe([1, 5, 2], Arr.reduce(0, Math.max))).toBe(5);
 });
 
 // --- Traverse / Sequence (Option) ---
@@ -645,6 +666,21 @@ test("traverse.Task: resolves to empty array for empty input", async () => {
 	const emptyNums: number[] = [];
 	const result = await pipe(emptyNums, Arr.traverse.Task((n) => Task.make(n)))();
 	expect(result).toStrictEqual([]);
+});
+
+test("traverse.Task: defers the transform until the task is invoked", async () => {
+	let calls = 0;
+	const task = pipe(
+		[1, 2],
+		Arr.traverse.Task((n) => {
+			calls++;
+			return Task.make(n * 10);
+		}),
+	);
+
+	expect(calls).toBe(0);
+	await task();
+	expect(calls).toBe(2);
 });
 
 test("traverse.Task: forwards abort signal to every task", async () => {
@@ -910,6 +946,11 @@ test("drop: returns entire array for count 0", () => {
 	expect(result).toStrictEqual([1, 2, 3]);
 });
 
+test("drop: clamps negative and NaN counts to zero", () => {
+	expect(pipe([1, 2, 3], Arr.drop(-1))).toStrictEqual([1, 2, 3]);
+	expect(pipe([1, 2, 3], Arr.drop(NaN))).toStrictEqual([1, 2, 3]);
+});
+
 test("takeWhile: takes elements while predicate holds", () => {
 	const result = pipe([1, 2, 3, 4, 1], Arr.takeWhile((n) => n < 3));
 	expect(result).toStrictEqual([1, 2]);
@@ -995,6 +1036,10 @@ test("splitAt: clamps index beyond length to end", () => {
 
 test("splitAt: clamps negative index to start", () => {
 	expect(pipe([1, 2, 3], Arr.splitAt(-5))).toStrictEqual([[], [1, 2, 3]]);
+});
+
+test("splitAt: clamps NaN to the start", () => {
+	expect(pipe([1, 2, 3], Arr.splitAt(NaN))).toStrictEqual([[], [1, 2, 3]]);
 });
 
 test("splitAt: returns two empty arrays for empty input", () => {
@@ -1256,6 +1301,11 @@ test("NonEmpty.reduce: reduces elements from left without initial value", () => 
 	expect(result).toBe(10);
 });
 
+test("NonEmpty.reduce: does not pass index or array to a binary reducer", () => {
+	const input: Arr.NonEmpty<number> = [1, 5, 2];
+	expect(pipe(input, Arr.NonEmpty.reduce(Math.max))).toBe(5);
+});
+
 test("NonEmpty.map: maps elements and preserves NonEmpty type", () => {
 	const result = pipe(Arr.NonEmpty.singleton(1), Arr.NonEmpty.map((n) => n * 2));
 	expect(result).toStrictEqual([2]);
@@ -1383,6 +1433,13 @@ test("windowed: creates sliding windows with size and step", () => {
 	expect(pipe([], Arr.windowed(2))).toStrictEqual([]);
 });
 
+test("windowed: rejects non-integer and NaN sizes or steps", () => {
+	expect(pipe([1, 2, 3, 4], Arr.windowed(1.5))).toStrictEqual([]);
+	expect(pipe([1, 2, 3, 4], Arr.windowed(NaN))).toStrictEqual([]);
+	expect(pipe([1, 2, 3, 4], Arr.windowed(2, { step: 1.5 }))).toStrictEqual([]);
+	expect(pipe([1, 2, 3, 4], Arr.windowed(2, { step: NaN }))).toStrictEqual([]);
+});
+
 // --- unfold ---
 
 test("unfold: generates array from seed until None", () => {
@@ -1414,4 +1471,30 @@ test("is: distinguishes empty and non-empty arrays", () => {
 	if (Arr.is.nonEmpty(nonEmptyList)) {
 		expectTypeOf(nonEmptyList).toEqualTypeOf<Arr.NonEmpty<number>>();
 	}
+});
+
+test("take: normalizes non-finite and fractional counts", () => {
+	const items = [1, 2, 3];
+	expect(pipe(items, Arr.take(Number.NaN))).toStrictEqual([]);
+	expect(pipe(items, Arr.take(Number.POSITIVE_INFINITY))).toStrictEqual([1, 2, 3]);
+	expect(pipe(items, Arr.take(2.9))).toStrictEqual([1, 2]);
+});
+
+test("drop: normalizes non-finite and fractional counts", () => {
+	const items = [1, 2, 3];
+	expect(pipe(items, Arr.drop(Number.NaN))).toStrictEqual([1, 2, 3]);
+	expect(pipe(items, Arr.drop(Number.POSITIVE_INFINITY))).toStrictEqual([]);
+	expect(pipe(items, Arr.drop(1.9))).toStrictEqual([2, 3]);
+});
+
+test("splitAt: normalizes non-finite and fractional indices", () => {
+	const items = [1, 2, 3];
+	expect(Arr.splitAt(Number.POSITIVE_INFINITY)(items)).toStrictEqual([[1, 2, 3], []]);
+	expect(Arr.splitAt(Number.NaN)(items)).toStrictEqual([[], [1, 2, 3]]);
+	expect(Arr.splitAt(1.9)(items)).toStrictEqual([[1], [2, 3]]);
+});
+
+test("sequence.Task: forwards the concurrency option", async () => {
+	const result = await Arr.sequence.Task([Task.make(1), Task.make(2)], { concurrency: 1 })();
+	expect(result).toStrictEqual([1, 2]);
 });

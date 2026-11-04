@@ -197,7 +197,11 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 		? Math.max(1, Math.floor(config.failureThreshold))
 		: 1;
 	const rawResetMs = Duration.to.milliseconds(config.resetTimeout);
-	const resetTimeoutMs = Number.isFinite(rawResetMs) ? Math.max(0, Math.floor(rawResetMs)) : 0;
+	const resetTimeoutMs = Number.isNaN(rawResetMs)
+		? 0
+		: Number.isFinite(rawResetMs)
+		? Math.max(0, Math.floor(rawResetMs))
+		: Number.POSITIVE_INFINITY;
 	const successThreshold = config.successThreshold !== undefined && Number.isFinite(config.successThreshold)
 		? Math.max(1, Math.floor(config.successThreshold))
 		: 1;
@@ -210,6 +214,7 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 	type InternalKind = "Closed" | "Open" | "HalfOpen";
 
 	let currentKind: InternalKind = "Closed";
+	let epoch = 0;
 	let consecutiveFailures = 0;
 	let failureTimestamps: number[] = [];
 	let openedAt = 0;
@@ -266,29 +271,32 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 		}
 	};
 
-	const recordClosedFailure = (err: E): void => {
+	const recordClosedFailure = (err: E): boolean => {
 		const now = Date.now();
 		if (windowMs !== undefined) {
 			failureTimestamps.push(now);
 			pruneWindowFailures(now, windowMs);
 			if (failureTimestamps.length >= failureThreshold) {
 				currentKind = "Open";
+				epoch++;
 				openedAt = now;
 				lastError = err;
 				consecutiveFailures = 0;
 				failureTimestamps = [];
-				notifySubscribers();
+				return true;
 			}
-		} else {
-			consecutiveFailures++;
-			if (consecutiveFailures >= failureThreshold) {
-				currentKind = "Open";
-				openedAt = now;
-				lastError = err;
-				consecutiveFailures = 0;
-				notifySubscribers();
-			}
+			return false;
 		}
+		consecutiveFailures++;
+		if (consecutiveFailures >= failureThreshold) {
+			currentKind = "Open";
+			epoch++;
+			openedAt = now;
+			lastError = err;
+			consecutiveFailures = 0;
+			return true;
+		}
+		return false;
 	};
 
 	const executeClosed = <EIn extends E, A>(
@@ -297,10 +305,16 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 	): Deferred<Result<EIn | CircuitBreaker.OpenError<E>, A>> =>
 		Deferred.from.Promise(
 			new Promise<Result<EIn | CircuitBreaker.OpenError<E>, A>>((resolve) => {
+				const startEpoch = epoch;
 				const deferred = task(signal);
 
 				deferred.then((result) => {
 					if (signal?.aborted) {
+						resolve(result);
+						return;
+					}
+
+					if (epoch !== startEpoch || currentKind !== "Closed") {
 						resolve(result);
 						return;
 					}
@@ -313,12 +327,10 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 
 					const err = result.error;
 					const trips = shouldTrip(err as E);
-
-					if (trips) {
-						recordClosedFailure(err as E);
-					}
+					const tripped = trips && recordClosedFailure(err as E);
 
 					resolve(result);
+					if (tripped) { notifySubscribers(); }
 				});
 			}),
 		);
@@ -363,15 +375,14 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 						consecutiveSuccesses++;
 						if (consecutiveSuccesses >= successThreshold) {
 							currentKind = "Closed";
+							epoch++;
 							consecutiveFailures = 0;
 							failureTimestamps = [];
 							lastError = undefined;
 							consecutiveSuccesses = 0;
-							notifySubscribers();
-						} else {
-							notifySubscribers();
 						}
 						resolve(result);
+						notifySubscribers();
 						return;
 					}
 
@@ -380,25 +391,24 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 
 					if (trips) {
 						currentKind = "Open";
+						epoch++;
 						openedAt = Date.now();
 						lastError = err as E;
 						consecutiveSuccesses = 0;
-						notifySubscribers();
 					} else {
 						consecutiveSuccesses++;
 						if (consecutiveSuccesses >= successThreshold) {
 							currentKind = "Closed";
+							epoch++;
 							consecutiveFailures = 0;
 							failureTimestamps = [];
 							lastError = undefined;
 							consecutiveSuccesses = 0;
-							notifySubscribers();
-						} else {
-							notifySubscribers();
 						}
 					}
 
 					resolve(result);
+					notifySubscribers();
 				});
 			}),
 		);
@@ -422,7 +432,12 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 				return Deferred.from.Promise(Promise.resolve(Result.make.err(openErr)));
 			}
 
+			if (signal?.aborted) {
+				return executeClosed(task, signal);
+			}
+
 			currentKind = "HalfOpen";
+			epoch++;
 			consecutiveSuccesses = 0;
 		}
 
@@ -449,6 +464,7 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 	const reset = (): void => {
 		const wasClosed = currentKind === "Closed" && consecutiveFailures === 0 && failureTimestamps.length === 0;
 		currentKind = "Closed";
+		epoch++;
 		consecutiveFailures = 0;
 		failureTimestamps = [];
 		openedAt = 0;

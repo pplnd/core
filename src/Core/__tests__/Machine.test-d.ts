@@ -132,6 +132,17 @@ test("match: enforces exhaustive branch coverage and infers return type", () => 
 	Machine.match<AuthState, string>({ loggedOut: () => "out", authenticating: () => "auth", authenticated: () => "ok" });
 });
 
+test("match: data-first form infers heterogeneous branch returns", () => {
+	const state = getAuthState();
+	const result = Machine.match(state, {
+		loggedOut: () => null,
+		authenticating: (s) => s.value.email,
+		authenticated: (s) => s.value.token,
+		failed: (s) => s.value.error,
+	});
+	expectTypeOf(result).toEqualTypeOf<string | null>();
+});
+
 // =============================================================================
 // 5. Machine.transition & Actor.send Event Verification
 // =============================================================================

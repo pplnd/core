@@ -157,3 +157,25 @@ test("NonEmpty: maintains non-empty branded dictionary guarantees", () => {
 	const mappedKey = pipe(singleton, Dict.NonEmpty.mapWithKey((k, v) => `${k}:${v}`));
 	expectTypeOf(mappedKey).toEqualTypeOf<Dict.NonEmpty<string, string>>();
 });
+
+test("union widening: lookup and map algebra accept supertype maps", () => {
+	const roles: ReadonlyMap<"admin" | "viewer", number> = new Map([["admin", 1], ["viewer", 2]]);
+	expectTypeOf(pipe(roles, Dict.lookup("admin"))).toEqualTypeOf<Maybe<number>>();
+	expectTypeOf(pipe(roles, Dict.has("admin"))).toEqualTypeOf<boolean>();
+	expectTypeOf(pipe(roles, Dict.insert("admin", 1))).toEqualTypeOf<ReadonlyMap<"admin" | "viewer", number>>();
+	expectTypeOf(pipe(roles, Dict.remove("admin"))).toEqualTypeOf<ReadonlyMap<"admin" | "viewer", number>>();
+	expectTypeOf(pipe(roles, Dict.union(new Map<"admin", number>([["admin", 1]])))).toEqualTypeOf<
+		ReadonlyMap<"admin" | "viewer", number>
+	>();
+	expectTypeOf(pipe(roles, Dict.intersection(new Map<"admin", number>([["admin", 1]])))).toEqualTypeOf<
+		ReadonlyMap<"admin" | "viewer", number>
+	>();
+	expectTypeOf(pipe(roles, Dict.difference(new Map<"admin", number>([["admin", 1]])))).toEqualTypeOf<
+		ReadonlyMap<"admin" | "viewer", number>
+	>();
+});
+
+test("absent channels: empty nullable and compact inputs default to never", () => {
+	expectTypeOf(Dict.from.nullable(null)).toEqualTypeOf<Maybe<ReadonlyMap<never, never>>>();
+	expectTypeOf(Dict.compact(new Map<never, never>())).toEqualTypeOf<ReadonlyMap<never, never>>();
+});

@@ -15,6 +15,20 @@ export const EVENT_BUS_STATE: unique symbol = Symbol.for("@pplnd/core/EventBus.s
 export type EventBusOptions = { readonly id?: string; };
 
 /**
+ * One forward link in an ancestry chain. Used to detect only true forwarding cycles.
+ *
+ * @internal
+ */
+export type EventBusForwardLink = (msg: unknown) => void;
+
+/**
+ * A queued delivery together with the forward links traversed on the path that produced it.
+ *
+ * @internal
+ */
+export type EventBusDelivery = { readonly message: unknown; readonly ancestry: ReadonlySet<EventBusForwardLink>; };
+
+/**
  * Low-level operational state backing an `EventBus` instance.
  *
  * Manages subscriber registration, cached snapshot arrays for zero-allocation emission loops,
@@ -49,9 +63,11 @@ export type EventBusInternalState = {
 	/**
 	 * Breadth-first reentrancy queue buffering events emitted synchronously by subscriber callbacks.
 	 *
-	 * Processed sequentially in FIFO order by the active emission trampoline loop.
+	 * Processed sequentially in FIFO order by the active emission trampoline loop. Each delivery
+	 * carries its own forward ancestry so fan-in branches and sequential re-emissions do not share
+	 * cycle-detection state.
 	 */
-	readonly queue: Array<unknown>;
+	readonly queue: Array<EventBusDelivery>;
 
 	/**
 	 * Guard flag tracking whether an emission trampoline loop is actively draining the queue.

@@ -218,6 +218,17 @@ test("assign: appends new keys only — existing keys and primitive accumulators
 	expectTypeOf(Result.assign("label", (n: number) => Result.make.ok(n))).toBeFunction();
 });
 
+test("assign: rejects keys present on any union branch", () => {
+	type Account = { kind: "guest"; guestId: string; } | { kind: "member"; userId: string; };
+	const guest = (): Account => ({ kind: "guest", guestId: "g1" });
+	const member = (): Account => ({ kind: "member", userId: "u1" });
+	const account: Result<never, Account> = constTruthyBool() ? Result.make.ok(member()) : Result.make.ok(guest());
+
+	// @ts-expect-error — `userId` already exists on the member branch
+	const overwritten = pipe(account, Result.assign("userId", () => Result.make.ok(123)));
+	expectTypeOf(overwritten).toBeObject();
+});
+
 test("negative: flags missing match handlers, invalid transforms, and variant incompatibilities", () => {
 	const naturalUnion: Result<string, number> = constTruthyBool() ? Result.make.ok(42) : Result.make.err("err");
 
@@ -256,4 +267,16 @@ test("negative: flags missing match handlers, invalid transforms, and variant in
 
 	// @ts-expect-error Err cannot be assigned to Ok
 	const _errAsOk: Result.Ok<number> = Result.make.err("err");
+});
+
+test("chain: infallible transform preserves the upstream error channel", () => {
+	const result: Result<"err", number> = constTruthyBool() ? Result.make.ok(1) : Result.make.err("err");
+	const chained = pipe(result, Result.chain((n) => Result.make.ok(n + 1)));
+	expectTypeOf(chained).toEqualTypeOf<Result<"err", number>>();
+});
+
+test("converters: single-variant channels default to never", () => {
+	const error = Result.make.err("failed");
+	expectTypeOf(Result.to.Maybe(error)).toEqualTypeOf<Maybe<never>>();
+	expectTypeOf(Result.to.Validation(error)).toEqualTypeOf<Validation<"failed", never>>();
 });

@@ -67,7 +67,7 @@ test("curry: allows reuse of partial applications (3-arg)", () => {
 test("curry: round-trips 3-argument function with uncurry", () => {
 	const add3 = (a: number, b: number, c: number) => a + b + c;
 	const curried = curry(add3);
-	const uncurried = uncurry(curried);
+	const uncurried = uncurry(curried, 3);
 	expect(uncurried(1, 2, 3)).toBe(6);
 });
 
@@ -102,6 +102,25 @@ test("curry: allows reuse of partial applications (4-arg)", () => {
 test("curry: round-trips 4-argument function with uncurry", () => {
 	const add4 = (a: number, b: number, c: number, d: number) => a + b + c + d;
 	const curried = curry(add4);
-	const uncurried = uncurry(curried);
+	const uncurried = uncurry(curried, 4);
 	expect(uncurried(1, 2, 3, 4)).toBe(10);
+});
+
+// --- explicit arity for rest and default parameters ---
+
+test("curry: supports rest-parameter functions with explicit arity", () => {
+	const sum3 = (...values: [number, number, number]) => values[0] + values[1] + values[2];
+	const curried = curry(sum3, 3);
+	expect(curried(1)(2)(3)).toBe(6);
+});
+
+test("curry: supports default parameters with explicit arity", () => {
+	const add3 = (a: number, b: number, c = 1) => a + b + c;
+	const curried = curry(add3, 3);
+	expect(curried(1)(2)(3)).toBe(6);
+});
+
+test("curry: rejects ambiguous arity instead of invoking early", () => {
+	const variadic = (...values: number[]) => values.length;
+	expect(() => curry(variadic)).toThrow(/arity/i);
 });

@@ -1,7 +1,7 @@
 // =============================================================================
 // Imports
 // =============================================================================
-import type { WithKind, WithValue } from "../internal/InternalTypes";
+import type { KeysOfUnion, WithKind, WithValue } from "../internal/InternalTypes";
 import { type Result, Result as CoreResult } from "./Result.ts";
 import { type Validation, Validation as CoreValidation } from "./Validation.ts";
 
@@ -115,7 +115,7 @@ export const Maybe = {
 		 * Maybe.to.nullable(Maybe.make.none());   // null
 		 * ```
 		 */
-		nullable: <A>(maybe: Maybe<A>): A | null => (isSome(maybe) ? maybe.value : null),
+		nullable: <A = never>(maybe: Maybe<A>): A | null => (isSome(maybe) ? maybe.value : null),
 
 		/**
 		 * Extracts the value from a Maybe, returning undefined if None.
@@ -128,7 +128,7 @@ export const Maybe = {
 		 * Maybe.to.undefined(Maybe.make.none());   // undefined
 		 * ```
 		 */
-		undefined: <A>(maybe: Maybe<A>): A | undefined => (isSome(maybe) ? maybe.value : globalThis.undefined),
+		undefined: <A = never>(maybe: Maybe<A>): A | undefined => (isSome(maybe) ? maybe.value : globalThis.undefined),
 
 		/**
 		 * Converts a Maybe to a Result.
@@ -150,7 +150,7 @@ export const Maybe = {
 		 * ); // Err("Value was missing")
 		 * ```
 		 */
-		Result: <const E>(onNone: () => E) => <A>(maybe: Maybe<A>): Result<E, A> =>
+		Result: <const E>(onNone: () => E) => <A = never>(maybe: Maybe<A>): Result<E, A> =>
 			isSome(maybe) ? CoreResult.make.ok(maybe.value) : CoreResult.make.err(onNone()),
 
 		/**
@@ -166,7 +166,7 @@ export const Maybe = {
 		 * pipe(Maybe.make.none(), Maybe.to.Validation(() => "missing"));   // Failed(["missing"])
 		 * ```
 		 */
-		Validation: <const E>(onNone: () => E) => <A>(maybe: Maybe<A>): Validation<E, A> =>
+		Validation: <const E>(onNone: () => E) => <A = never>(maybe: Maybe<A>): Validation<E, A> =>
 			isSome(maybe) ? CoreValidation.make.passed(maybe.value) : CoreValidation.make.failed(onNone()),
 	},
 
@@ -326,7 +326,7 @@ export const Maybe = {
 	 * pipe(Maybe.make.none<string>(), Maybe.getOrElse(() => null)); // null — typed as string | null
 	 * ```
 	 */
-	getOrElse: <B>(fallback: () => B) => <A>(maybe: Maybe<A>): A | B => isSome(maybe) ? maybe.value : fallback(),
+	getOrElse: <B>(fallback: () => B) => <A = never>(maybe: Maybe<A>): A | B => isSome(maybe) ? maybe.value : fallback(),
 
 	/**
 	 * Executes a side effect on the value without changing the Maybe.
@@ -363,7 +363,7 @@ export const Maybe = {
 	 * );
 	 * ```
 	 */
-	tapNone: (sideEffect: () => void) => <A>(maybe: Maybe<A>): Maybe<A> => {
+	tapNone: (sideEffect: () => void) => <A = never>(maybe: Maybe<A>): Maybe<A> => {
 		if (isNone(maybe)) {
 			sideEffect();
 		}
@@ -405,7 +405,10 @@ export const Maybe = {
 	 * pipe(Maybe.make.some(10), Maybe.recover(() => Maybe.make.some(42))); // Some(10)
 	 * ```
 	 */
-	recover: <B>(fallback: () => Maybe<B>) => <A>(maybe: Maybe<A>): Maybe<A | B> => (isSome(maybe) ? maybe : fallback()),
+	recover:
+		<B = never>(fallback: () => Maybe<B>) => <A = never>(
+			maybe: Maybe<A>,
+		): Maybe<A | B> => (isSome(maybe) ? maybe : fallback()),
 
 	/**
 	 * Applies a function wrapped in a Maybe to a value wrapped in a Maybe.
@@ -436,7 +439,7 @@ export const Maybe = {
 	 * pipe(Maybe.make.some(42), Maybe.assignTo("value")); // Some({ value: 42 })
 	 * ```
 	 */
-	assignTo: <K extends string>(key: K) => <A = unknown>(maybe: Maybe<A>): Maybe<{ [P in K]: A; }> =>
+	assignTo: <K extends string>(key: K) => <A = never>(maybe: Maybe<A>): Maybe<{ [P in K]: A; }> =>
 		isSome(maybe) ? makeSome({ [key]: maybe.value } as { [P in K]: A; }) : maybe,
 
 	/**
@@ -455,7 +458,10 @@ export const Maybe = {
 	 * ```
 	 */
 	assign:
-		<K extends string, A extends object, B>(key: K extends keyof A ? never : K, transform: (value: A) => Maybe<B>) =>
+		<K extends string, A extends object, B>(
+			key: K extends KeysOfUnion<A> ? never : K,
+			transform: (value: A) => Maybe<B>,
+		) =>
 		(maybe: Maybe<A>): Maybe<A & { [P in K]: B; }> => {
 			if (!isSome(maybe)) {
 				return maybe;

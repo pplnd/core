@@ -119,6 +119,20 @@ test("range: matches default behavior when step is 1", () => {
 	expect(Num.range(1, 4, 1)).toStrictEqual(Num.range(1, 4));
 });
 
+test("range: includes exactly reachable fractional endpoints", () => {
+	expect(Num.range(1, 1.2, 0.2)).toStrictEqual([1, 1.2]);
+
+	const tenths = Num.range(0.1, 2, 0.1);
+	expect(tenths).toHaveLength(20);
+	expect(tenths.at(-1)).toBe(2);
+});
+
+test("range: never includes a value above the end", () => {
+	const values = Num.range(0, 1, 0.3);
+	expect(values).toHaveLength(4);
+	expect(values.at(-1)).toBeLessThanOrEqual(1);
+});
+
 // ---------------------------------------------------------------------------
 // clamp
 // ---------------------------------------------------------------------------
@@ -245,6 +259,11 @@ test("divide: composes with Arr.filterMap", () => {
 	expect(pipe([10, 20, 30], Arr.filterMap(Num.divide(10)))).toStrictEqual([1, 2, 3]);
 });
 
+test("divide: returns None when the result is NaN", () => {
+	expect(pipe(NaN, Num.divide(2))).toStrictEqual(Maybe.make.none());
+	expect(pipe(Infinity, Num.divide(Infinity))).toStrictEqual(Maybe.make.none());
+});
+
 // ---------------------------------------------------------------------------
 // abs
 // ---------------------------------------------------------------------------
@@ -349,6 +368,11 @@ test("remainder: composes with Arr.filterMap", () => {
 	expect(pipe([10, 11, 12], Arr.filterMap(Num.remainder(3)))).toStrictEqual([1, 2, 0]);
 });
 
+test("remainder: returns None when the result is NaN", () => {
+	expect(pipe(NaN, Num.remainder(2))).toStrictEqual(Maybe.make.none());
+	expect(pipe(Infinity, Num.remainder(2))).toStrictEqual(Maybe.make.none());
+});
+
 // ---------------------------------------------------------------------------
 // sum
 // ---------------------------------------------------------------------------
@@ -388,6 +412,11 @@ test("min: returns None for empty array", () => {
 	expect(Num.min([])).toStrictEqual(Maybe.make.none());
 });
 
+test("min: returns None regardless of NaN position", () => {
+	expect(Num.min([NaN, 1])).toStrictEqual(Maybe.make.none());
+	expect(Num.min([1, NaN])).toStrictEqual(Maybe.make.none());
+});
+
 // ---------------------------------------------------------------------------
 // max
 // ---------------------------------------------------------------------------
@@ -399,6 +428,11 @@ test("max: computes maximum of numbers", () => {
 
 test("max: returns None for empty array", () => {
 	expect(Num.max([])).toStrictEqual(Maybe.make.none());
+});
+
+test("max: returns None regardless of NaN position", () => {
+	expect(Num.max([NaN, 1])).toStrictEqual(Maybe.make.none());
+	expect(Num.max([1, NaN])).toStrictEqual(Maybe.make.none());
 });
 
 // ---------------------------------------------------------------------------
@@ -432,4 +466,11 @@ test("format: returns None for NaN or non-finite numbers", () => {
 	const fmt = Num.format();
 	expect(fmt(NaN)).toStrictEqual(Maybe.make.none());
 	expect(fmt(Infinity)).toStrictEqual(Maybe.make.none());
+});
+
+test("from.string: rejects non-finite numeric strings", () => {
+	expect(Num.from.string("Infinity")).toStrictEqual(Maybe.make.none());
+	expect(Num.from.string("-Infinity")).toStrictEqual(Maybe.make.none());
+	expect(Num.from.string("NaN")).toStrictEqual(Maybe.make.none());
+	expect(Num.from.string("1e3")).toStrictEqual(Maybe.make.some(1000));
 });

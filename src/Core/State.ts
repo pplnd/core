@@ -1,3 +1,4 @@
+import type { KeysOfUnion } from "../internal/InternalTypes";
 import type { Lens } from "./Lens.ts";
 
 /**
@@ -6,7 +7,8 @@ import type { Lens } from "./Lens.ts";
  *
  * At runtime a `State<S, A>` is just a function from an initial state to a pair
  * `[value, nextState]`. Nothing runs until you supply the initial state with
- * `State.run`, `State.evaluate`, or `State.execute`.
+ * `State.run`, `State.evaluate`, or `State.execute`. Chains execute as nested function calls;
+ * extremely deep synchronous chains can exceed the JavaScript call stack.
  *
  * @example
  * ```ts
@@ -258,7 +260,7 @@ export const State = {
 	 */
 	assign:
 		<K extends string, S, A extends object, B>(
-			key: K extends keyof A ? never : K,
+			key: K extends KeysOfUnion<A> ? never : K,
 			transform: (value: A) => State<S, B>,
 		) =>
 		(state: State<S, A>): State<S, A & { [P in K]: B; }> =>

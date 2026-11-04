@@ -239,42 +239,6 @@ test("apply: succeeds when all validations pass", () => {
 	expect(result).toStrictEqual({ kind: "Passed", value: { name: "Alice", email: "alice@example.com", age: 30 } });
 });
 
-// --- apply with combineErrors option ---
-
-test("apply: uses combineErrors when accumulating errors", () => {
-	const fnVal = constFalseBool() ? Validation.make.passed((n: number) => n * 2) : Validation.make.failed("err1");
-	const argVal = constFalseBool() ? Validation.make.passed(5) : Validation.make.failed("err2");
-
-	const concat = (e1: readonly [string, ...string[]], e2: readonly [string, ...string[]]) =>
-		[...e1, ...e2].map((s) => s.toUpperCase()) as unknown as readonly [string, ...string[]];
-
-	const result = pipe(fnVal, Validation.apply(argVal, { combineErrors: concat }));
-	expect(result).toStrictEqual(Validation.make.failedAll(["ERR1", "ERR2"]));
-});
-
-test("apply: handles Passed fnVal with Passed or Failed argVal", () => {
-	const fnVal = Validation.make.passed((n: number) => n * 2);
-	const argPassed = Validation.make.passed(5);
-	const argFailed = Validation.make.failed<string>("err1");
-
-	const concat = (e1: readonly [string, ...string[]], e2: readonly [string, ...string[]]) => [...e1, ...e2] as any;
-
-	expect(pipe(fnVal, Validation.apply(argPassed, { combineErrors: concat }))).toStrictEqual(Validation.make.passed(10));
-	expect(pipe(fnVal, Validation.apply(argFailed, { combineErrors: concat }))).toStrictEqual(
-		Validation.make.failed("err1"),
-	);
-});
-
-test("apply: handles Failed fnVal with Passed argVal", () => {
-	const fnVal = constFalseBool() ? Validation.make.passed((n: number) => n * 2) : Validation.make.failed("err1");
-	const argPassed = Validation.make.passed(5);
-	const concat = (e1: readonly [string, ...string[]], e2: readonly [string, ...string[]]) => [...e1, ...e2] as any;
-
-	expect(pipe(fnVal, Validation.apply(argPassed, { combineErrors: concat }))).toStrictEqual(
-		Validation.make.failed("err1"),
-	);
-});
-
 // ---------------------------------------------------------------------------
 // match (data-last)
 // ---------------------------------------------------------------------------
@@ -628,21 +592,6 @@ test("apply: infers error union properly in pipelines without options", () => {
 	expect(pureRes).toStrictEqual(Validation.make.passed("123"));
 });
 
-test("apply: infers combined error type when combineErrors option is provided", () => {
-	const fn = Validation.make.passed((n: number) => n * 2);
-	const arg = Validation.make.passed(5);
-	const res = pipe(
-		fn,
-		Validation.apply(arg, {
-			combineErrors: (
-				e1: readonly string[],
-				e2: readonly number[],
-			): readonly [string] => [`${e1.join(",")}-${e2.join(",")}`],
-		}),
-	);
-	expect(res).toStrictEqual(Validation.make.passed(10));
-});
-
 // --- from.nullable ---
 
 test("from.nullable: returns Valid for non-null values", () => {
@@ -901,4 +850,29 @@ test("keyed: ignores inherited prototype properties across all helpers", () => {
 	expect(Validation.keyed.is.failed(keyedObj)).toBe(false);
 	expect(Validation.keyed.getPassed(keyedObj)).toStrictEqual(Maybe.make.some({ a: "ok" }));
 	expect(Validation.keyed.getErrors(keyedObj)).toStrictEqual(Maybe.make.none());
+});
+
+test("keyed: processes symbol-keyed validators and results", () => {
+	const score = Symbol("score");
+	const validate = Validation.keyed.make({
+		name: (s: string) => Validation.make.passed(s.toUpperCase()),
+		[score]: (n: number) => (n > 0 ? Validation.make.passed(n) : Validation.make.failed("positive")),
+	});
+
+	const passed = validate({ name: "alice", [score]: 2 });
+	expect(Validation.keyed.is.passed(passed)).toBe(true);
+	expect(Validation.keyed.getPassed(passed)).toStrictEqual(Maybe.make.some({ name: "ALICE", [score]: 2 }));
+
+	const failed = validate({ name: "alice", [score]: 0 });
+	expect(Validation.keyed.is.passed(failed)).toBe(false);
+	expect(Validation.keyed.is.failed(failed)).toBe(true);
+	expect(Validation.keyed.getErrors(failed)).toStrictEqual(Maybe.make.some({ [score]: ["positive"] }));
+});
+
+test("make.failedAll: copies the caller's error array", () => {
+	const errors: [string, ...string[]] = ["a", "b"];
+	const result = Validation.make.failedAll(errors);
+	errors.push("c");
+	expect(result.errors).toStrictEqual(["a", "b"]);
+	expect(result.errors).not.toBe(errors);
 });

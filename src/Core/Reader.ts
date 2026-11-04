@@ -1,7 +1,10 @@
+import type { KeysOfUnion } from "../internal/InternalTypes";
+
 /**
  * A computation that reads from a shared environment `R` and produces a value `A`.
  * Use Reader to thread a dependency (config, logger, DB pool) through a pipeline
- * without passing it explicitly to every function.
+ * without passing it explicitly to every function. Chains execute as nested function calls;
+ * extremely deep synchronous chains can exceed the JavaScript call stack.
  *
  * @example
  * ```ts
@@ -25,12 +28,12 @@
  */
 export type Reader<R, A> = (env: R) => A;
 
-const mapReader = <A, B>(transform: (value: A) => B) => <R = never>(reader: Reader<R, A>): Reader<R, B> => (env) =>
+const mapReader = <A, B>(transform: (value: A) => B) => <R = unknown>(reader: Reader<R, A>): Reader<R, B> => (env) =>
 	transform(reader(env));
 
 const chainReader =
 	<A, R2, B>(transform: (value: A) => Reader<R2, B>) =>
-	<R1 = never>(reader: Reader<R1, A>): Reader<R1 & R2, B> =>
+	<R1 = unknown>(reader: Reader<R1, A>): Reader<R1 & R2, B> =>
 	(env) => transform(reader(env))(env);
 
 export const Reader = {
@@ -117,7 +120,7 @@ export const Reader = {
 	 * ```
 	 */
 	apply:
-		<R2, A>(arg: Reader<R2, A>) => <B, R1 = never>(reader: Reader<R1, (value: A) => B>): Reader<R1 & R2, B> => (env) =>
+		<R2, A>(arg: Reader<R2, A>) => <B, R1 = unknown>(reader: Reader<R1, (value: A) => B>): Reader<R1 & R2, B> => (env) =>
 			reader(env)(arg(env)),
 
 	/**
@@ -135,7 +138,7 @@ export const Reader = {
 	 * )(appConfig);
 	 * ```
 	 */
-	tap: <A>(sideEffect: (value: A) => void) => <R = never>(reader: Reader<R, A>): Reader<R, A> => (env) => {
+	tap: <A>(sideEffect: (value: A) => void) => <R = unknown>(reader: Reader<R, A>): Reader<R, A> => (env) => {
 		const a = reader(env);
 		sideEffect(a);
 		return a;
@@ -191,8 +194,9 @@ export const Reader = {
 	 * pipe(Reader.make(42), Reader.assignTo("value")); // Reader({ value: 42 })
 	 * ```
 	 */
-	assignTo: <K extends string>(key: K) => <R = never, A = unknown>(reader: Reader<R, A>): Reader<R, { [P in K]: A; }> =>
-		mapReader<A, { [P in K]: A; }>((a) => ({ [key]: a } as { [P in K]: A; }))(reader),
+	assignTo:
+		<K extends string>(key: K) => <R = unknown, A = unknown>(reader: Reader<R, A>): Reader<R, { [P in K]: A; }> =>
+			mapReader<A, { [P in K]: A; }>((a) => ({ [key]: a } as { [P in K]: A; }))(reader),
 
 	/**
 	 * Evaluates a new Reader using the current accumulator and attaches the output to a new key.
@@ -209,10 +213,10 @@ export const Reader = {
 	 */
 	assign:
 		<K extends string, R2, A extends object, B>(
-			key: K extends keyof A ? never : K,
+			key: K extends KeysOfUnion<A> ? never : K,
 			transform: (value: A) => Reader<R2, B>,
 		) =>
-		<R1 = never>(reader: Reader<R1, A>): Reader<R1 & R2, A & { [P in K]: B; }> =>
+		<R1 = unknown>(reader: Reader<R1, A>): Reader<R1 & R2, A & { [P in K]: B; }> =>
 			chainReader<A, R2, A & { [P in K]: B; }>((a) =>
 				mapReader<B, A & { [P in K]: B; }>((
 					b,

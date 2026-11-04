@@ -15,18 +15,15 @@ test("rollback: executes in strict LIFO order for any failure index", async () =
 
 			for (let i = 0; i < stepCount; i++) {
 				const idx = i;
-				steps.push(Transaction.step(`s_${idx}`, {
-					run: () => {
-						executedForward.push(idx);
-						if (idx === failIndex) {
-							return Task.Result.make.err(`fail_${idx}`);
-						}
-						return Task.Result.make.ok(`val_${idx}`);
-					},
-					undo: () => {
-						executedUndo.push(idx);
-						return Task.Result.make.ok(undefined);
-					},
+				steps.push(Transaction.step(`s_${idx}`, () => {
+					executedForward.push(idx);
+					if (idx === failIndex) {
+						return Task.Result.make.err(`fail_${idx}`);
+					}
+					return Task.Result.make.ok(`val_${idx}`);
+				}, () => {
+					executedUndo.push(idx);
+					return Task.Result.make.ok(undefined);
 				}));
 			}
 
@@ -82,7 +79,7 @@ test("run: preserves all-or-nothing conservation law", async () => {
 				for (let i = 0; i < uniqueSteps.length; i++) {
 					const step = uniqueSteps[i];
 					expectedAcc[step.id] = step.val;
-					steps.push(Transaction.step(step.id, { run: () => Task.Result.make.ok(step.val), undo: makeStepUndo() }));
+					steps.push(Transaction.step(step.id, () => Task.Result.make.ok(step.val), makeStepUndo()));
 				}
 
 				const tx = Transaction.make(...steps);
@@ -106,23 +103,20 @@ test("rollback: best-effort drain guarantees every completed undo runs despite i
 
 			for (let i = 0; i < stepCount; i++) {
 				const idx = i;
-				steps.push(Transaction.step(`step_${idx}`, {
-					run: () => {
-						if (idx === failIndex) {
-							return Task.Result.make.err("final_step_failed");
-						}
-						return Task.Result.make.ok(idx);
-					},
-					undo: () => {
-						undosAttempted.push(idx);
-						if (idx % 3 === 0) {
-							return Task.Result.make.err(`err_undo_${idx}`);
-						}
-						if (idx % 3 === 1) {
-							return Task.Result.make.err(`err_undo_${idx}`);
-						}
-						return Task.Result.make.ok(undefined);
-					},
+				steps.push(Transaction.step(`step_${idx}`, () => {
+					if (idx === failIndex) {
+						return Task.Result.make.err("final_step_failed");
+					}
+					return Task.Result.make.ok(idx);
+				}, () => {
+					undosAttempted.push(idx);
+					if (idx % 3 === 0) {
+						return Task.Result.make.err(`err_undo_${idx}`);
+					}
+					if (idx % 3 === 1) {
+						return Task.Result.make.err(`err_undo_${idx}`);
+					}
+					return Task.Result.make.ok(undefined);
 				}));
 			}
 

@@ -159,3 +159,7 @@ test("negative: disallows fallible primitives and invalid signatures", () => {
 	// @ts-expect-error Task.repeat requires times
 	expectTypeOf(Task.repeat({})).toBeFunction();
 });
+
+test("race: empty input infers never", () => {
+	expectTypeOf(Task.race([])).toEqualTypeOf<Task<never>>();
+});

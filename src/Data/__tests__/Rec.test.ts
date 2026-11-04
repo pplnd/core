@@ -456,6 +456,18 @@ test("mergeWith: combines records on key collisions", () => {
 	expect(pipe({ a: 1, b: 2 }, combine({ b: 3, c: 4 }))).toStrictEqual({ a: 1, b: 5, c: 4 });
 });
 
+test("mergeWith: preserves an own __proto__ key without changing the result prototype", () => {
+	const second: Record<string, unknown> = JSON.parse('{"__proto__": {"polluted": true}, "a": 1}');
+	const result = Rec.mergeWith((_first: unknown, next: unknown) => next)({}, second);
+
+	expect(Object.hasOwn(result, "__proto__")).toBe(true);
+	expect(Object.getOwnPropertyDescriptor(result, "__proto__")?.value).toStrictEqual({ polluted: true });
+	expect(Object.getPrototypeOf(result)).toBe(Object.prototype);
+
+	const probe: { polluted?: boolean; } = {};
+	expect(probe.polluted).toBeUndefined();
+});
+
 // --- mapEntries & updateIn ---
 
 test("mapEntries: transforms key and value pairs simultaneously", () => {
@@ -479,6 +491,17 @@ test("updateIn: immutably updates deep nested record paths", () => {
 test("updateIn: creates missing intermediate objects when path does not exist", () => {
 	const res = pipe({}, Rec.updateIn(["a", "b", "c"], (val: number | undefined) => (val ?? 0) + 1));
 	expect(res).toStrictEqual({ a: { b: { c: 1 } } });
+});
+
+test("updateIn: ignores inherited keys and creates an own property", () => {
+	const res = pipe({}, Rec.updateIn(["toString"], (value: unknown) => (value === undefined ? "own" : "inherited")));
+	expect(Object.hasOwn(res, "toString")).toBe(true);
+	expect(res).toStrictEqual({ toString: "own" });
+});
+
+test("updateIn: preserves nested arrays instead of converting them to plain objects", () => {
+	const res = pipe({ items: ["a", "b"] }, Rec.updateIn(["items", "0"], (value) => String(value).toUpperCase()));
+	expect(res).toStrictEqual({ items: ["A", "b"] });
 });
 
 // =============================================================================

@@ -566,6 +566,49 @@ test("forward: delivers duplicate copies through diamond fan-in without a cycle 
 	expect(dDeliveries).toBe(2);
 });
 
+test("forward: delivers through a diamond with a shared downstream edge without a cycle error", () => {
+	const a = EventBus.make<TestSchema>();
+	const b = EventBus.make<TestSchema>();
+	const c = EventBus.make<TestSchema>();
+	const d = EventBus.make<TestSchema>();
+	const e = EventBus.make<TestSchema>();
+	let eDeliveries = 0;
+
+	EventBus.forward({ from: a, to: b });
+	EventBus.forward({ from: a, to: c });
+	EventBus.forward({ from: b, to: d });
+	EventBus.forward({ from: c, to: d });
+	EventBus.forward({ from: d, to: e });
+	EventBus.subscribe(e, "A").tap(() => {
+		eDeliveries++;
+	});
+
+	EventBus.emit(a, { kind: "A", value: { value: 1 } });
+
+	expect(eDeliveries).toBe(2);
+});
+
+test("forward: re-emitting the same message twice from a subscriber does not report a cycle", () => {
+	const a = EventBus.make<TestSchema>();
+	const b = EventBus.make<TestSchema>();
+	const c = EventBus.make<TestSchema>();
+	let bDeliveries = 0;
+	const payload = { kind: "A" as const, value: { value: 1 } };
+
+	EventBus.forward({ from: a, to: b });
+	EventBus.subscribe(b, "A").tap(() => {
+		bDeliveries++;
+	});
+	EventBus.subscribe(c, "A").tap(() => {
+		EventBus.emit(a, payload);
+		EventBus.emit(a, payload);
+	});
+
+	EventBus.emit(c, payload);
+
+	expect(bDeliveries).toBe(2);
+});
+
 test("forward: clears cycle tracking after the emission cascade completes", () => {
 	const a = EventBus.make<TestSchema>();
 	const b = EventBus.make<TestSchema>();

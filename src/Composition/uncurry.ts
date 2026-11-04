@@ -1,43 +1,43 @@
 /**
  * Converts a curried function into a multi-argument function.
- * Useful when you want to call a curried function with all arguments at once.
+ * By default flattens two argument stages. Pass `3` or `4` as the second argument for deeper
+ * currying.
  *
- * Handles functions with 0, 1, or 2 curried arguments.
+ * The returned value is never inspected or invoked. A curried factory that returns a thunk or a
+ * `Task` keeps returning that function; `uncurry` only flattens the chosen number of outer stages.
  *
  * @example
  * ```ts
- * // Thunks: () => () => C becomes () => C
- * const nested = () => () => 42;
- * uncurry(nested)(); // 42
+ * const curriedAdd = (a: number) => (b: number) => a + b;
+ * uncurry(curriedAdd)(1, 2); // 3
  *
- * // Original curried function
- * Maybe.map((n: number) => n * 2)(Maybe.make.some(5)); // Some(10)
+ * // A returned thunk stays a thunk:
+ * const factory = (id: string) => (attempt: number) => () => `${id}:${attempt}`;
+ * const load = uncurry(factory)("user-1", 2);
+ * load(); // "user-1:2"
  *
- * // Uncurried - all arguments at once
- * const mapUncurried = uncurry(Maybe.map);
- * mapUncurried((n: number) => n * 2, Maybe.make.some(5)); // Some(10)
- *
- * // Combined with flip for data-first uncurried
- * const mapDataFirst = uncurry(flip(Maybe.map));
- * mapDataFirst(Maybe.make.some(5), (n: number) => n * 2); // Some(10)
+ * // Three stages require an explicit arity:
+ * const format = (a: string) => (b: string) => (c: string) => `${a}-${b}-${c}`;
+ * uncurry(format, 3)("A", "B", "C"); // "A-B-C"
  * ```
  *
  * @see {@link flip} for reversing curried argument order
  */
-export function uncurry<C>(f: () => () => C): () => C;
-export function uncurry<A, C>(f: (a: A) => () => C): (a: A) => C;
-export function uncurry<A, B, C, D, E>(f: (a: A) => (b: B) => (c: C) => (d: D) => E): (a: A, b: B, c: C, d: D) => E;
-export function uncurry<A, B, C, D>(f: (a: A) => (b: B) => (c: C) => D): (a: A, b: B, c: C) => D;
 export function uncurry<A, B, C>(f: (a: A) => (b: B) => C): (a: A, b: B) => C;
-export function uncurry(f: (...args: any[]) => any) {
-	return (...args: any[]) => {
-		if (args.length === 0) {
-			return f()();
-		}
-		let result = f;
-		for (let i = 0; i < args.length; i++) {
-			result = result(args[i]);
-		}
-		return typeof result === "function" && result.length === 0 ? result() : result;
-	};
+export function uncurry<A, B, C, D>(f: (a: A) => (b: B) => (c: C) => D, arity: 3): (a: A, b: B, c: C) => D;
+export function uncurry<A, B, C, D, E>(
+	f: (a: A) => (b: B) => (c: C) => (d: D) => E,
+	arity: 4,
+): (a: A, b: B, c: C, d: D) => E;
+export function uncurry(f: (...args: any[]) => any, arity = 2) {
+	if (arity === 2) {
+		return (a: any, b: any) => f(a)(b);
+	}
+	if (arity === 3) {
+		return (a: any, b: any, c: any) => f(a)(b)(c);
+	}
+	if (arity === 4) {
+		return (a: any, b: any, c: any, d: any) => f(a)(b)(c)(d);
+	}
+	throw new TypeError("[uncurry] Unsupported arity; pass 2, 3, or 4.");
 }

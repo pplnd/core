@@ -255,3 +255,8 @@ test("run: preserves zero environment", () => {
 	const readNum: Reader<number, number> = (n) => n * 10;
 	expect(Reader.run(0)(readNum)).toBe(0);
 });
+
+test("make: zero-argument readers compose and receive an environment", () => {
+	const run = pipe(Reader.make(42), Reader.map((n) => n + 1));
+	expect(run({})).toBe(43);
+});

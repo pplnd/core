@@ -12,6 +12,8 @@ const makeFailed = <const E>(error: E): Task.Validation<E, never> => Task.make(C
 const makeFailedAll = <E>(errors: NonEmptyArr<E>): Task.Validation<E, never> =>
 	Task.make(CoreValidation.make.failedAll(errors));
 
+type TaskValidationErrOf<T> = T extends Task.Validation<infer E, unknown> ? E : never;
+
 export const TaskValidation = {
 	make: {
 		/**
@@ -118,7 +120,7 @@ export const TaskValidation = {
 		Result:
 			<E1, E2>(combineErrors: (errors: NonEmptyArr<E1>) => E2) =>
 			<A = unknown>(task: Task.Validation<E1, A>): Task.Result<E2, A> =>
-				Task.map(CoreValidation.to.Result<E1, E2, A>(combineErrors))(task),
+				Task.map(CoreValidation.to.Result<E1, E2>(combineErrors))(task),
 
 		/**
 		 * Converts a `Task.Validation` to a `Task.Maybe`.
@@ -231,7 +233,7 @@ export const TaskValidation = {
 	 * ); // Task resolving to 0
 	 * ```
 	 */
-	getOrElse: <B>(fallback: () => B) => <A, E = never>(task: Task.Validation<E, A>): Task<A | B> =>
+	getOrElse: <B>(fallback: () => B) => <A = never, E = never>(task: Task.Validation<E, A>): Task<A | B> =>
 		Task.map(CoreValidation.getOrElse<B>(fallback))(task),
 
 	/**
@@ -354,12 +356,12 @@ export const TaskValidation = {
 		<T extends Record<string, Task.Validation<unknown, unknown>>>(
 			fields: T,
 		): Task.Validation<
-			T[keyof T] extends Task.Validation<infer E, unknown> ? E : never,
+			TaskValidationErrOf<T[keyof T]>,
 			{ [K in keyof T]: T[K] extends Task.Validation<unknown, infer A> ? A : never; }
 		> =>
 		(signal) =>
 			Deferred.from.Promise((() => {
-				type E = T[keyof T] extends Task.Validation<infer Err, unknown> ? Err : never;
+				type E = TaskValidationErrOf<T[keyof T]>;
 				type R = { [K in keyof T]: T[K] extends Task.Validation<unknown, infer A> ? A : never; };
 				const keys = Reflect.ownKeys(fields);
 				const len = keys.length;

@@ -3,6 +3,7 @@
 // =============================================================================
 import { Maybe } from "../Core/Maybe.ts";
 import { type NonEmpty as InternalNonEmpty } from "../internal/InternalTypes";
+import { toBoundedCount, toFiniteCount } from "../internal/Numbers.ts";
 import type { Brand } from "../Types/Brand.ts";
 
 // =============================================================================
@@ -23,6 +24,14 @@ const isAscii = (text: string): boolean => {
 		}
 	}
 	return true;
+};
+
+/** Backs a UTF-16 cut point out of the middle of a surrogate pair. */
+const safeCut = (text: string, cut: number): number => {
+	if (cut <= 0 || cut >= text.length) { return Math.max(0, Math.min(cut, text.length)); }
+	const previous = text.charCodeAt(cut - 1);
+	const next = text.charCodeAt(cut);
+	return previous >= 0xD800 && previous <= 0xDBFF && next >= 0xDC00 && next <= 0xDFFF ? cut - 1 : cut;
 };
 
 let cachedSegmenter: Intl.Segmenter | undefined;
@@ -293,6 +302,7 @@ export const Str = {
 
 	/**
 	 * Pads the start of a string to a specified length. Data-last: use in `pipe`.
+	 * Fractional targets are floored; negative, `NaN`, and infinite targets leave the text unchanged.
 	 *
 	 * @see {@link padEnd} for padding the right side of a string.
 	 *
@@ -302,10 +312,12 @@ export const Str = {
 	 * pipe("hi", Str.padStart(5));     // "   hi"
 	 * ```
 	 */
-	padStart: (maxLength: number, fillString?: string) => (text: string): string => text.padStart(maxLength, fillString),
+	padStart: (maxLength: number, fillString?: string) => (text: string): string =>
+		text.padStart(toFiniteCount(maxLength, text.length), fillString),
 
 	/**
 	 * Pads the end of a string to a specified length. Data-last: use in `pipe`.
+	 * Fractional targets are floored; negative, `NaN`, and infinite targets leave the text unchanged.
 	 *
 	 * @see {@link padStart} for padding the left side of a string.
 	 *
@@ -315,7 +327,8 @@ export const Str = {
 	 * pipe("hi", Str.padEnd(5));       // "hi   "
 	 * ```
 	 */
-	padEnd: (maxLength: number, fillString?: string) => (text: string): string => text.padEnd(maxLength, fillString),
+	padEnd: (maxLength: number, fillString?: string) => (text: string): string =>
+		text.padEnd(toFiniteCount(maxLength, text.length), fillString),
 
 	/**
 	 * Safe number parsers that return `Maybe` instead of `NaN`.
@@ -360,7 +373,7 @@ export const Str = {
 
 	/**
 	 * Matches a string against a regular expression.
-	 * Pure and safe: resets `pattern.lastIndex = 0` to prevent bugs with stateful `/g` and `/y` regexes.
+	 * Clones stateful `/g` and `/y` patterns so the caller's `lastIndex` is never mutated.
 	 *
 	 * @see {@link test} for boolean validation without extracting capture groups.
 	 *
@@ -371,14 +384,14 @@ export const Str = {
 	 * ```
 	 */
 	match: (pattern: RegExp) => (text: string): Maybe<RegExpMatchArray> => {
-		pattern.lastIndex = 0;
-		const result = text.match(pattern);
+		const matcher = pattern.global || pattern.sticky ? new RegExp(pattern.source, pattern.flags) : pattern;
+		const result = text.match(matcher);
 		return result !== null ? Maybe.make.some(result) : Maybe.make.none();
 	},
 
 	/**
 	 * Tests whether a string matches a regular expression.
-	 * Pure and safe: resets `pattern.lastIndex = 0` to prevent bugs with stateful `/g` and `/y` regexes.
+	 * Clones stateful `/g` and `/y` patterns so the caller's `lastIndex` is never mutated.
 	 *
 	 * @see {@link match} for extracting capture groups into a Maybe.
 	 *
@@ -389,8 +402,8 @@ export const Str = {
 	 * ```
 	 */
 	test: (pattern: RegExp) => (text: string): boolean => {
-		pattern.lastIndex = 0;
-		return pattern.test(text);
+		const matcher = pattern.global || pattern.sticky ? new RegExp(pattern.source, pattern.flags) : pattern;
+		return matcher.test(text);
 	},
 
 	/**
@@ -414,18 +427,19 @@ export const Str = {
 	 * ```ts
 	 * pipe("Hello, world!", Str.truncate({ length: 8 })); // "Hello..."
 	 * pipe("Hello", Str.truncate({ length: 10 }));        // "Hello"
-	 * pipe("Hello, world!", Str.truncate({ length: 8, suffix: "…" })); // "Hello, w…"
+	 * pipe("Hello, world!", Str.truncate({ length: 8, suffix: "…" })); // "Hello, …"
 	 * ```
 	 */
 	truncate: (options: { length: number; suffix?: string; }) => (text: string): string => {
-		const { length: targetLength, suffix = "..." } = options;
+		const { length, suffix = "..." } = options;
+		const targetLength = toBoundedCount(length, text.length);
 		if (text.length <= targetLength) {
 			return text;
 		}
 		if (targetLength <= suffix.length) {
-			return suffix.slice(0, targetLength);
+			return suffix.slice(0, safeCut(suffix, targetLength));
 		}
-		return text.slice(0, targetLength - suffix.length) + suffix;
+		return text.slice(0, safeCut(text, targetLength - suffix.length)) + suffix;
 	},
 
 	/**

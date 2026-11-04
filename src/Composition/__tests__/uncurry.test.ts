@@ -1,32 +1,31 @@
 import { expect, test } from "vitest";
+import { Task } from "../../Core/Task.ts";
 import { uncurry } from "../uncurry.ts";
 
-// --- uncurry: thunk () => () => C ---
+// --- uncurry: returned functions are preserved ---
 
-test("uncurry: uncurries nested zero-argument functions", () => {
-	const nested = () => () => 42;
-	const flat = uncurry(nested);
-	expect(flat()).toBe(42);
+test("uncurry: preserves a returned thunk instead of invoking it", () => {
+	const factory = (id: string) => (attempt: number) => () => `${id}:${attempt}`;
+	const load = uncurry(factory)("user-1", 2);
+
+	expect(load).toBeTypeOf("function");
+	expect(load()).toBe("user-1:2");
 });
 
-test("uncurry: uncurries string thunk", () => {
-	const nested = () => () => "hello";
-	const flat = uncurry(nested);
-	expect(flat()).toBe("hello");
+test("uncurry: preserves a returned Task", async () => {
+	const factory = (id: string) => (attempt: number) => Task.make(`${id}:${attempt}`);
+	const load = uncurry(factory)("user-1", 2);
+
+	expect(load).toBeTypeOf("function");
+	await expect(load()).resolves.toBe("user-1:2");
 });
 
-// --- uncurry: partial (a) => () => C ---
+test("uncurry: rejects an unsupported explicit arity", () => {
+	const curried = (a: number) => (b: number) => a + b;
+	const arity: number = 5;
 
-test("uncurry: uncurries partially applied unary functions", () => {
-	const nested = (a: number) => () => a;
-	const flat = uncurry(nested);
-	expect(flat(42)).toBe(42);
-});
-
-test("uncurry: uncurries and computes partial function", () => {
-	const nested = (a: number) => () => a * 2;
-	const flat = uncurry(nested);
-	expect(flat(5)).toBe(10);
+	// @ts-expect-error unsupported arity is outside the public overloads
+	expect(() => uncurry(curried, arity)).toThrow(/arity/i);
 });
 
 // --- uncurry: full (a) => (b) => C ---
@@ -53,20 +52,20 @@ test("uncurry: uncurries functions with distinct argument types", () => {
 
 test("uncurry: uncurries 3-argument function", () => {
 	const curried = (a: number) => (b: number) => (c: number) => a + b + c;
-	const flat = uncurry(curried);
+	const flat = uncurry(curried, 3);
 	expect(flat(1, 2, 3)).toBe(6);
 });
 
 test("uncurry: uncurries ternary string formatting function", () => {
 	const curried = (first: string) => (middle: string) => (last: string) => `${first} ${middle} ${last}`;
-	const format = uncurry(curried);
+	const format = uncurry(curried, 3);
 	expect(format("John", "Q", "Doe")).toBe("John Q Doe");
 });
 
 test("uncurry: uncurries functions with mixed argument types", () => {
 	const curried = (name: string) => (age: number) => (active: boolean) =>
 		`${name} is ${age} and ${active ? "active" : "inactive"}`;
-	const describe = uncurry(curried);
+	const describe = uncurry(curried, 3);
 	expect(describe("Alice", 30, true)).toBe("Alice is 30 and active");
 });
 
@@ -74,18 +73,18 @@ test("uncurry: uncurries functions with mixed argument types", () => {
 
 test("uncurry: uncurries 4-argument function", () => {
 	const curried = (a: number) => (b: number) => (c: number) => (d: number) => a + b + c + d;
-	const flat = uncurry(curried);
+	const flat = uncurry(curried, 4);
 	expect(flat(1, 2, 3, 4)).toBe(10);
 });
 
 test("uncurry: uncurries 4-argument string formatting function", () => {
 	const curried = (a: string) => (b: string) => (c: string) => (d: string) => `${a}-${b}-${c}-${d}`;
-	const format = uncurry(curried);
+	const format = uncurry(curried, 4);
 	expect(format("A", "B", "C", "D")).toBe("A-B-C-D");
 });
 
 test("uncurry: uncurries 4-argument multiplication function", () => {
 	const curried = (a: number) => (b: number) => (c: number) => (d: number) => a * b * c * d;
-	const multiply = uncurry(curried);
+	const multiply = uncurry(curried, 4);
 	expect(multiply(2, 3, 4, 5)).toBe(120);
 });

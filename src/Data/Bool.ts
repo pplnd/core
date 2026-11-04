@@ -10,8 +10,10 @@ import { Result } from "../Core/Result.ts";
 const isBoolean = (value: unknown): value is boolean => typeof value === "boolean";
 const isTrue = (value: unknown): value is true => value === true;
 const isFalse = (value: unknown): value is false => value === false;
-const isTruthy = <T>(value: T): value is Exclude<T, false | 0 | 0n | "" | null | undefined> => Boolean(value);
-const isFalsy = (value: unknown): value is false | 0 | 0n | "" | null | undefined => !value;
+type Falsy = false | 0 | 0n | "" | null | undefined;
+type FalsyOf<A> = A extends number ? (number extends A ? number : A & Falsy) : A & Falsy;
+const isTruthy = <T>(value: T): value is Exclude<T, Falsy> => Boolean(value);
+const isFalsy = <A>(value: A): value is FalsyOf<A> => !value;
 
 const not = (condition: boolean): boolean => !condition;
 const and = (that: boolean) => (condition: boolean): boolean => condition && that;
@@ -39,8 +41,13 @@ const any = (conditions: readonly boolean[]): boolean => {
 	return false;
 };
 
-const match = <A, B>(cases: { readonly true: () => A; readonly false: () => B; }) => (condition: boolean): A | B =>
-	condition ? cases.true() : cases.false();
+function match<B>(cases: { readonly true: () => B; readonly false: () => B; }): (condition: boolean) => B;
+function match<A, B>(cases: { readonly true: () => A; readonly false: () => B; }): (condition: boolean) => A | B;
+function match(
+	cases: { readonly true: () => unknown; readonly false: () => unknown; },
+): (condition: boolean) => unknown {
+	return (condition: boolean): unknown => condition ? cases.true() : cases.false();
+}
 
 const fromString = (text: string): Maybe<boolean> => {
 	const trimmed = text.trim().toLowerCase();

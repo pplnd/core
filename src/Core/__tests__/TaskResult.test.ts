@@ -1361,3 +1361,15 @@ test("retry: exits wait immediately when signal is aborted synchronously inside 
 	expect(result).toStrictEqual(Result.make.err("fail"));
 	expect(elapsed).toBeLessThan(100);
 });
+
+test("retry: clamps non-finite attempts to a single run", async () => {
+	let calls = 0;
+	const task: Task.Result<"failed", never> = Task.from.sync(() => {
+		calls++;
+		return Result.make.err("failed");
+	});
+	const policy: RetryPolicy<"failed"> = { attempts: Number.NaN, getDelay: () => Duration.milliseconds(0) };
+	const result = await Task.Result.retry(policy)(task)();
+	expect(result).toStrictEqual(Result.make.err("failed"));
+	expect(calls).toBe(1);
+});

@@ -8,12 +8,13 @@ import { Result as CoreResult } from "../Core/Result.ts";
 import { Task as CoreTask } from "../Core/Task.ts";
 import { Validation as CoreValidation } from "../Core/Validation.ts";
 import { isNonEmptyArr, type NonEmptyArr } from "../internal/InternalTypes";
+import { toBoundedCount, toPositiveInteger } from "../internal/Numbers.ts";
 
 // =============================================================================
 // Private Helpers & Traverse/Sequence Implementations
 // =============================================================================
 const traverseMaybe =
-	<A, B>(transform: (item: A) => CoreMaybe<B>) => (items: readonly A[]): CoreMaybe<readonly B[]> => {
+	<A = unknown, B = unknown>(transform: (item: A) => CoreMaybe<B>) => (items: readonly A[]): CoreMaybe<readonly B[]> => {
 		const n = items.length;
 		const result = new Array<B>(n);
 		for (let i = 0; i < n; i++) {
@@ -24,11 +25,12 @@ const traverseMaybe =
 		return CoreMaybe.make.some(result);
 	};
 
-const sequenceMaybe = <A>(items: readonly CoreMaybe<A>[]): CoreMaybe<readonly A[]> =>
+const sequenceMaybe = <A = never>(items: readonly CoreMaybe<A>[]): CoreMaybe<readonly A[]> =>
 	traverseMaybe<CoreMaybe<A>, A>((item) => item)(items);
 
 const traverseResult =
-	<E, A, B>(transform: (item: A) => CoreResult<E, B>) => (items: readonly A[]): CoreResult<E, readonly B[]> => {
+	<E = never, A = unknown, B = unknown>(transform: (item: A) => CoreResult<E, B>) =>
+	(items: readonly A[]): CoreResult<E, readonly B[]> => {
 		const n = items.length;
 		const result = new Array<B>(n);
 		for (let i = 0; i < n; i++) {
@@ -39,18 +41,21 @@ const traverseResult =
 		return CoreResult.make.ok(result);
 	};
 
-const sequenceResult = <E, A>(items: readonly CoreResult<E, A>[]): CoreResult<E, readonly A[]> =>
+const sequenceResult = <E = never, A = never>(items: readonly CoreResult<E, A>[]): CoreResult<E, readonly A[]> =>
 	traverseResult<E, CoreResult<E, A>, A>((item) => item)(items);
 
 const traverseValidation =
-	<E, A, B>(transform: (item: A) => CoreValidation<E, B>) => (items: readonly A[]): CoreValidation<E, readonly B[]> => {
+	<E = never, A = unknown, B = unknown>(transform: (item: A) => CoreValidation<E, B>) =>
+	(items: readonly A[]): CoreValidation<E, readonly B[]> => {
 		const n = items.length;
 		const result = new Array<B>(n);
 		const errors: E[] = [];
 		for (let i = 0; i < n; i++) {
 			const mapped = transform(items[i]);
 			if (CoreValidation.is.failed(mapped)) {
-				errors.push(...mapped.errors);
+				for (let j = 0; j < mapped.errors.length; j++) {
+					errors.push(mapped.errors[j]);
+				}
 			} else if (errors.length === 0) {
 				result[i] = mapped.value;
 			}
@@ -58,22 +63,26 @@ const traverseValidation =
 		return isNonEmptyArr(errors) ? CoreValidation.make.failedAll(errors) : CoreValidation.make.passed(result);
 	};
 
-const sequenceValidation = <E, A>(items: readonly CoreValidation<E, A>[]): CoreValidation<E, readonly A[]> =>
-	traverseValidation<E, CoreValidation<E, A>, A>((item) => item)(items);
+const sequenceValidation = <E = never, A = never>(
+	items: readonly CoreValidation<E, A>[],
+): CoreValidation<E, readonly A[]> => traverseValidation<E, CoreValidation<E, A>, A>((item) => item)(items);
 
 const traverseTask =
-	<A, B>(transform: (item: A) => CoreTask<B>, options?: { concurrency?: number; }) =>
-	(items: readonly A[]): CoreTask<readonly B[]> => {
+	<A = unknown, B = unknown>(transform: (item: A) => CoreTask<B>, options?: { concurrency?: number; }) =>
+	(items: readonly A[]): CoreTask<readonly B[]> =>
+	(signal) => {
 		const n = items.length;
 		const tasks = new Array<CoreTask<B>>(n);
 		for (let i = 0; i < n; i++) {
 			tasks[i] = transform(items[i]);
 		}
-		return CoreTask.all(tasks, options);
+		return CoreTask.all(tasks, options)(signal);
 	};
 
-const sequenceTask = <A>(items: readonly CoreTask<A>[]): CoreTask<readonly A[]> =>
-	traverseTask<CoreTask<A>, A>((item) => item)(items);
+const sequenceTask = <A = never>(
+	items: readonly CoreTask<A>[],
+	options?: { concurrency?: number; },
+): CoreTask<readonly A[]> => traverseTask<CoreTask<A>, A>((item) => item, options)(items);
 
 /**
  * Functional array utilities that compose well with pipe.
@@ -179,8 +188,10 @@ function findFirst<A, B extends A>(predicate: (item: A) => item is B): (items: r
 function findFirst<A>(predicate: (item: A) => boolean): (items: readonly A[]) => CoreMaybe<A>;
 function findFirst<A>(predicate: (item: A) => boolean): (items: readonly A[]) => CoreMaybe<A> {
 	return (items: readonly A[]): CoreMaybe<A> => {
-		const idx = items.findIndex(predicate);
-		return idx !== -1 ? CoreMaybe.make.some(items[idx]) : CoreMaybe.make.none();
+		for (let i = 0; i < items.length; i++) {
+			if (predicate(items[i])) { return CoreMaybe.make.some(items[i]); }
+		}
+		return CoreMaybe.make.none();
 	};
 }
 
@@ -216,8 +227,10 @@ function findLast<A>(predicate: (item: A) => boolean): (items: readonly A[]) => 
  * ```
  */
 const findIndex = <A>(predicate: (item: A) => boolean) => (items: readonly A[]): CoreMaybe<number> => {
-	const idx = items.findIndex(predicate);
-	return idx !== -1 ? CoreMaybe.make.some(idx) : CoreMaybe.make.none();
+	for (let i = 0; i < items.length; i++) {
+		if (predicate(items[i])) { return CoreMaybe.make.some(i); }
+	}
+	return CoreMaybe.make.none();
 };
 
 // --- Transform ---
@@ -346,7 +359,7 @@ function partition<A>(predicate: (item: A) => boolean): (items: readonly A[]) =>
  * Arr.compact([Maybe.make.some(1), Maybe.make.none(), Maybe.make.some(3)]); // [1, 3]
  * ```
  */
-const compact = <A>(items: readonly CoreMaybe<A>[]): readonly A[] => {
+const compact = <A = never>(items: readonly CoreMaybe<A>[]): readonly A[] => {
 	const result: A[] = [];
 	for (const item of items) {
 		if (item.kind === "Some") {
@@ -367,7 +380,7 @@ const compact = <A>(items: readonly CoreMaybe<A>[]): readonly A[] => {
  * Arr.separate([Result.make.ok(1), Result.make.err("bad"), Result.make.ok(3)]); // [["bad"], [1, 3]]
  * ```
  */
-const separate = <E, A>(items: readonly CoreResult<E, A>[]): readonly [readonly E[], readonly A[]] => {
+const separate = <E = never, A = never>(items: readonly CoreResult<E, A>[]): readonly [readonly E[], readonly A[]] => {
 	const errors: E[] = [];
 	const successes: A[] = [];
 	for (const item of items) {
@@ -395,9 +408,8 @@ const separate = <E, A>(items: readonly CoreResult<E, A>[]): readonly [readonly 
  * ```
  */
 const partitionMap =
-	<A, E, B>(transform: (item: A) => CoreResult<E, B>) => (
-		items: readonly A[],
-	): readonly [readonly E[], readonly B[]] => {
+	<A = never, E = never, B = never>(transform: (item: A) => CoreResult<E, B>) =>
+	(items: readonly A[]): readonly [readonly E[], readonly B[]] => {
 		const errors: E[] = [];
 		const successes: B[] = [];
 		for (const item of items) {
@@ -574,6 +586,9 @@ const zip = <B>(other: readonly B[]) => <A>(items: readonly A[]): readonly (read
 /**
  * Combines elements from two arrays using a function. Stops at the shorter array.
  *
+ * The combine callback's parameter types must be explicit: TypeScript cannot infer both
+ * element types across the two curried data arguments.
+ *
  * @see {@link zip} for pairing elements into 2-tuples.
  *
  * @example
@@ -599,9 +614,9 @@ const zipWith =
  * pipe([1, 2, 3], Arr.intersperse(0)); // [1, 0, 2, 0, 3]
  * ```
  */
-const intersperse = <A>(separator: A) => (items: readonly A[]): readonly A[] => {
-	if (items.length <= 1) { return items; }
-	const result: A[] = [items[0]];
+const intersperse = <const A>(separator: A) => <B>(items: readonly B[]): readonly (A | B)[] => {
+	if (items.length <= 1) { return items as readonly (A | B)[]; }
+	const result: (A | B)[] = [items[0]];
 	for (let i = 1; i < items.length; i++) {
 		result.push(separator, items[i]);
 	}
@@ -616,10 +631,11 @@ const intersperse = <A>(separator: A) => (items: readonly A[]): readonly A[] => 
  * pipe([1, 2], Arr.concat([3, 4])); // [1, 2, 3, 4]
  * ```
  */
-const concat = <A>(other: readonly A[]) => (items: readonly A[]): readonly A[] => [...items, ...other];
+const concat = <const A>(other: readonly A[]) => <B>(items: readonly B[]): readonly (A | B)[] => [...items, ...other];
 
 /**
  * Splits an array into chunks of the given size.
+ * Returns an empty array when `size` is not a positive integer.
  *
  * @see {@link chunkBy} for grouping consecutive elements sharing a key.
  *
@@ -629,10 +645,11 @@ const concat = <A>(other: readonly A[]) => (items: readonly A[]): readonly A[] =
  * ```
  */
 const chunksOf = (size: number) => <A>(items: readonly A[]): readonly (readonly A[])[] => {
-	if (size <= 0) { return []; }
+	const chunkSize = toPositiveInteger(size);
+	if (chunkSize === undefined) { return []; }
 	const result: A[][] = [];
-	for (let i = 0; i < items.length; i += size) {
-		result.push(items.slice(i, i + size));
+	for (let i = 0; i < items.length; i += chunkSize) {
+		result.push(items.slice(i, i + chunkSize));
 	}
 	return result;
 };
@@ -698,7 +715,7 @@ const flatMap = <A, B>(transform: (item: A) => readonly B[]) => (items: readonly
  * ```
  */
 const reduce = <A, B>(initial: B, reducer: (accumulator: B, item: A) => B) => (items: readonly A[]): B =>
-	items.reduce(reducer, initial);
+	items.reduce((accumulator, item) => reducer(accumulator, item), initial);
 
 /**
  * Prepends a value to the beginning of an array, returning a NonEmptyArr.
@@ -710,7 +727,8 @@ const reduce = <A, B>(initial: B, reducer: (accumulator: B, item: A) => B) => (i
  * pipe([1, 2], Arr.prepend(0)); // [0, 1, 2]
  * ```
  */
-const prepend = <A>(item: A) => (items: readonly A[]): NonEmptyArr<A> => [item, ...items];
+const prepend = <const A>(item: A) => <B>(items: readonly B[]): NonEmptyArr<A | B> =>
+	[item, ...items] as unknown as NonEmptyArr<A | B>;
 
 /**
  * Appends a value to the end of an array, returning a NonEmptyArr.
@@ -722,7 +740,8 @@ const prepend = <A>(item: A) => (items: readonly A[]): NonEmptyArr<A> => [item, 
  * pipe([1, 2], Arr.append(3)); // [1, 2, 3]
  * ```
  */
-const append = <A>(item: A) => (items: readonly A[]): NonEmptyArr<A> => [...items, item] as unknown as NonEmptyArr<A>;
+const append = <const A>(item: A) => <B>(items: readonly B[]): NonEmptyArr<A | B> =>
+	[...items, item] as unknown as NonEmptyArr<A | B>;
 
 /**
  * Returns the length of an array.
@@ -789,12 +808,12 @@ const reverse = <A>(items: readonly A[]): readonly A[] => [...items].toReversed(
  * pipe([1, 2, 3], Arr.insertAt(3, 99)); // [1, 2, 3, 99]
  * ```
  */
-const insertAt = <A>(index: number, item: A) => (items: readonly A[]): readonly A[] => {
-	if (!Number.isInteger(index)) { return items; }
+const insertAt = <const A>(index: number, item: A) => <B>(items: readonly B[]): readonly (A | B)[] => {
+	if (!Number.isInteger(index)) { return items as readonly (A | B)[]; }
 	const i = Math.max(0, Math.min(index, items.length));
-	const arr = items as A[];
+	const arr = items as (A | B)[];
 	if (typeof arr.toSpliced === "function") { return arr.toSpliced(i, 0, item); }
-	const result = [...items];
+	const result = [...items] as (A | B)[];
 	result.splice(i, 0, item);
 	return result;
 };
@@ -832,7 +851,8 @@ const removeAt = (index: number) => <A>(items: readonly A[]): readonly A[] => {
  * pipe([1, 2, 3, 4], Arr.take(2)); // [1, 2]
  * ```
  */
-const take = (count: number) => <A>(items: readonly A[]): readonly A[] => count <= 0 ? [] : items.slice(0, count);
+const take = (count: number) => <A>(items: readonly A[]): readonly A[] =>
+	items.slice(0, toBoundedCount(count, items.length));
 
 /**
  * Drops the first n elements from an array.
@@ -845,7 +865,8 @@ const take = (count: number) => <A>(items: readonly A[]): readonly A[] => count 
  * pipe([1, 2, 3, 4], Arr.drop(2)); // [3, 4]
  * ```
  */
-const drop = (count: number) => <A>(items: readonly A[]): readonly A[] => items.slice(count);
+const drop = (count: number) => <A>(items: readonly A[]): readonly A[] =>
+	items.slice(toBoundedCount(count, items.length));
 
 /**
  * Takes elements from the start while the predicate holds.
@@ -908,7 +929,7 @@ const scan = <A, B>(initial: B, reducer: (accumulator: B, item: A) => B) => (ite
 
 /**
  * Splits an array at an index into a `[before, after]` tuple.
- * Negative indices clamp to 0; indices beyond the array length clamp to the end.
+ * Negative and `NaN` indices clamp to 0; indices beyond the array length clamp to the end.
  *
  * @example
  * ```ts
@@ -918,7 +939,7 @@ const scan = <A, B>(initial: B, reducer: (accumulator: B, item: A) => B) => (ite
  * ```
  */
 const splitAt = (index: number) => <A>(items: readonly A[]): readonly [readonly A[], readonly A[]] => {
-	const i = Math.max(0, index);
+	const i = toBoundedCount(index, items.length);
 	return [items.slice(0, i), items.slice(i)];
 };
 
@@ -1083,8 +1104,10 @@ const chunkBy = <A, K>(keySelector: (item: A) => K) => (items: readonly A[]): re
  * Arr.dedupeAdjacent()([1, 1, 2, 2, 1, 3]); // [1, 2, 1, 3]
  * ```
  */
-const dedupeAdjacent =
-	<A>(areEqual: Equality<A> = (first, second) => Object.is(first, second)) => (items: readonly A[]): readonly A[] => {
+function dedupeAdjacent(): <A>(items: readonly A[]) => readonly A[];
+function dedupeAdjacent<A>(areEqual: Equality<A>): (items: readonly A[]) => readonly A[];
+function dedupeAdjacent(areEqual: Equality<unknown> = (first, second) => Object.is(first, second)) {
+	return <A>(items: readonly A[]): readonly A[] => {
 		if (items.length === 0) {
 			return [];
 		}
@@ -1096,10 +1119,11 @@ const dedupeAdjacent =
 		}
 		return result;
 	};
+}
 
 /**
  * Produces a sliding window of `size` elements over an array, advancing by `step` (default `1`).
- * Returns an empty array if `size <= 0` or `size > items.length`.
+ * Returns an empty array if `size` or `step` is not a positive integer, or if `size > items.length`.
  *
  * @example
  * ```ts
@@ -1109,13 +1133,14 @@ const dedupeAdjacent =
  */
 const windowed =
 	(windowSize: number, options?: { step?: number; }) => <A>(items: readonly A[]): readonly (readonly A[])[] => {
-		const step = options?.step ?? 1;
-		if (windowSize <= 0 || step <= 0 || items.length < windowSize) {
+		const normalizedSize = toPositiveInteger(windowSize);
+		const normalizedStep = options?.step === undefined ? 1 : toPositiveInteger(options.step);
+		if (normalizedSize === undefined || normalizedStep === undefined || items.length < normalizedSize) {
 			return [];
 		}
 		const result: A[][] = [];
-		for (let i = 0; i <= items.length - windowSize; i += step) {
-			result.push(items.slice(i, i + windowSize));
+		for (let i = 0; i <= items.length - normalizedSize; i += normalizedStep) {
+			result.push(items.slice(i, i + normalizedSize));
 		}
 		return result;
 	};
@@ -1227,7 +1252,8 @@ const ArrNonEmpty = {
 	 * pipe([1, 2, 3] as Arr.NonEmpty<number>, Arr.NonEmpty.reduce((a, b) => a + b)); // 6
 	 * ```
 	 */
-	reduce: <A>(reducer: (accumulator: A, item: A) => A) => (items: NonEmptyArr<A>): A => items.reduce(reducer),
+	reduce: <A>(reducer: (accumulator: A, item: A) => A) => (items: NonEmptyArr<A>): A =>
+		items.reduce((accumulator, item) => reducer(accumulator, item)),
 
 	/**
 	 * Transforms each element of a non-empty array, preserving non-emptiness.
@@ -1260,8 +1286,8 @@ const ArrNonEmpty = {
 	 * pipe([1, 2, 3] as Arr.NonEmpty<number>, Arr.NonEmpty.intersperse(0)); // [1, 0, 2, 0, 3]
 	 * ```
 	 */
-	intersperse: <A>(separator: A) => (items: NonEmptyArr<A>): NonEmptyArr<A> =>
-		intersperse(separator)(items) as unknown as NonEmptyArr<A>,
+	intersperse: <const A>(separator: A) => <B>(items: NonEmptyArr<B>): NonEmptyArr<A | B> =>
+		intersperse(separator)(items) as unknown as NonEmptyArr<A | B>,
 
 	/**
 	 * Concatenates a non-empty array with another array, preserving non-emptiness.
@@ -1271,8 +1297,8 @@ const ArrNonEmpty = {
 	 * pipe([1, 2] as Arr.NonEmpty<number>, Arr.NonEmpty.concat([3, 4])); // [1, 2, 3, 4]
 	 * ```
 	 */
-	concat: <A>(other: readonly A[]) => (items: NonEmptyArr<A>): NonEmptyArr<A> =>
-		concat(other)(items) as unknown as NonEmptyArr<A>,
+	concat: <const A>(other: readonly A[]) => <B>(items: NonEmptyArr<B>): NonEmptyArr<A | B> =>
+		concat(other)(items) as unknown as NonEmptyArr<A | B>,
 
 	/**
 	 * Reverses a non-empty array, preserving non-emptiness.

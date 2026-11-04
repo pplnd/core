@@ -21,7 +21,7 @@ function formatBytes(bytes: number): string {
 }
 
 function getMeasuredSizes(): Map<string, SizeItem> {
-	const coreDist = path.join(projectRoot, "dist/core.mjs");
+	const coreDist = path.join(projectRoot, "dist/index.mjs");
 	if (!fs.existsSync(coreDist)) {
 		execSync("pnpm build", { cwd: projectRoot, stdio: "pipe" });
 	}

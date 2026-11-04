@@ -1,4 +1,9 @@
-import { EVENT_BUS_STATE, type EventBusInternalState, toInternalEventBus } from "../internal/EventBus.util.ts";
+import {
+	EVENT_BUS_STATE,
+	type EventBusForwardLink,
+	type EventBusInternalState,
+	toInternalEventBus,
+} from "../internal/EventBus.util.ts";
 
 // ---------------------------------------------------------------------------
 // EventBus<S>
@@ -199,73 +204,59 @@ const makeEventBus = <S extends Record<string, unknown>>(options?: EventBus.Opti
 };
 
 /**
- * Module-level state for one synchronous delivery cascade across all buses.
+ * Forward links traversed by the delivery currently being dispatched.
  *
- * `depth` counts how many nested `emitSingleBus` frames are currently active. The outermost `emit`
- * call is frame 1; every nested or re-entrant emission increases the depth. When the depth returns
- * to 0, the cascade has fully completed.
- *
- * `trace` records which message objects have already passed through each forward link during the
- * current cascade. `forward` re-emits the exact message object it received, so a message that loops
- * back to a bus it already visited passes through the same forward link again. Seeing the same
- * message object on the same forward link twice means a forwarding cycle. The trace is cleared when
- * `depth` returns to 0, so independent `emit` calls never affect each other.
+ * Every new `emit` starts with an empty ancestry; a forwarder appends its own link before
+ * re-emitting. The value is pushed before and popped after each subscriber dispatch, so queued
+ * deliveries and nested buses keep independent histories. This detects true cycles without
+ * rejecting acyclic fan-in or sequential re-emissions.
  *
  * @internal
  */
-const forwardCascade: { depth: number; trace: Map<(msg: unknown) => void, Set<unknown>> | null; } = {
-	depth: 0,
-	trace: null,
-};
+const EMPTY_ANCESTRY: ReadonlySet<EventBusForwardLink> = new Set();
+const forwardAncestryStack: Array<ReadonlySet<EventBusForwardLink>> = [EMPTY_ANCESTRY];
 
 /**
  * Dispatches a message to all subscribers of a single `EventBus` instance.
  *
  * Employs a synchronous breadth-first queue trampoline:
- * 1. Pushes `msg` to `internal.queue`.
+ * 1. Pushes the message and its ancestry to `internal.queue`.
  * 2. If already in an emission loop, returns immediately (the active loop will drain the queue).
  * 3. Otherwise, marks `isEmitting = true` and drains `internal.queue` sequentially in FIFO order.
  * 4. Reuses the cached `internal.subscriberArray` snapshot, or lazily builds it via `Array.from(subscribers)`
  *    if invalidated by subscriber mutations (`add` / `delete`).
- *
- * Every entry frame increments `forwardCascade.depth`; the frame that returns the depth to 0 owns
- * the end of the cascade and clears `forwardCascade.trace`.
  *
  * @internal
  */
 const emitSingleBus = (
 	bus: EventBus<Record<string, unknown>>,
 	msg: EventBus.Message<Record<string, unknown>>,
+	ancestry: ReadonlySet<EventBusForwardLink> = EMPTY_ANCESTRY,
 ): void => {
 	const internal = toInternalEventBus(bus)[EVENT_BUS_STATE];
-	forwardCascade.depth++;
+	internal.queue.push({ message: msg, ancestry });
+	if (internal.isEmitting) { return; }
+	internal.isEmitting = true;
 	try {
-		internal.queue.push(msg);
-		if (internal.isEmitting) {
-			return;
-		}
-		internal.isEmitting = true;
-		try {
-			let queueHead = 0;
-			while (queueHead < internal.queue.length) {
-				const nextMsg = internal.queue[queueHead++];
-				internal.subscriberArray ??= Array.from(internal.subscribers);
-				const subscribers = internal.subscriberArray;
+		let queueHead = 0;
+		while (queueHead < internal.queue.length) {
+			const delivery = internal.queue[queueHead++];
+			internal.subscriberArray ??= Array.from(internal.subscribers);
+			const subscribers = internal.subscriberArray;
+			forwardAncestryStack.push(delivery.ancestry);
+			try {
 				for (let i = 0; i < subscribers.length; i++) {
 					if (internal.subscribers.has(subscribers[i])) {
-						subscribers[i](nextMsg);
+						subscribers[i](delivery.message);
 					}
 				}
+			} finally {
+				forwardAncestryStack.pop();
 			}
-		} finally {
-			internal.queue.length = 0;
-			internal.isEmitting = false;
 		}
 	} finally {
-		forwardCascade.depth--;
-		if (forwardCascade.depth === 0) {
-			forwardCascade.trace = null;
-		}
+		internal.queue.length = 0;
+		internal.isEmitting = false;
 	}
 };
 
@@ -279,22 +270,25 @@ function emitEventBus<const M extends { kind: string; value: unknown; }, const B
 		& B
 		& { [I in keyof B]: B[I] extends EventBus<infer S> ? [M] extends [EventBus.Message<S>] ? B[I] : never : never; },
 	message: M,
+	ancestry?: ReadonlySet<EventBusForwardLink>,
 ): void;
 function emitEventBus<S extends Record<string, unknown>, K extends keyof S & string>(
 	target: EventBus<S> | ReadonlyArray<EventBus<S>>,
 	message: EventBus.Message<S, K>,
+	ancestry?: ReadonlySet<EventBusForwardLink>,
 ): void;
 function emitEventBus(
 	target: EventBus<any> | ReadonlyArray<EventBus<any>>,
 	message: { kind: string; value: unknown; },
+	ancestry?: ReadonlySet<EventBusForwardLink>,
 ): void {
 	const msg = message as unknown as EventBus.Message<Record<string, unknown>>;
 	if (Array.isArray(target)) {
 		for (let i = 0; i < target.length; i++) {
-			emitSingleBus(target[i] as unknown as EventBus<Record<string, unknown>>, msg);
+			emitSingleBus(target[i] as unknown as EventBus<Record<string, unknown>>, msg, ancestry);
 		}
 	} else {
-		emitSingleBus(target as unknown as EventBus<Record<string, unknown>>, msg);
+		emitSingleBus(target as unknown as EventBus<Record<string, unknown>>, msg, ancestry);
 	}
 }
 
@@ -332,26 +326,19 @@ function forwardEventBus(
 		if (filterSet !== null && !filterSet.has(typedMsg.kind)) {
 			return;
 		}
-		// The same message object has already passed through this forward link during the current
-		// cascade, so the message has looped back to a bus it already visited. Throw to stop the
-		// cycle and report the misconfiguration instead of delivering indefinitely.
-		if (forwardCascade.trace === null) {
-			forwardCascade.trace = new Map();
-		}
-		let seenMessages = forwardCascade.trace.get(handler);
-		if (seenMessages === undefined) {
-			seenMessages = new Set();
-			forwardCascade.trace.set(handler, seenMessages);
-		}
-		if (seenMessages.has(msg)) {
+		// A message that reaches this link again on the same ancestry has looped back. Acyclic
+		// fan-in and sequential re-emissions start from separate ancestries and are not cycles.
+		const currentAncestry = forwardAncestryStack[forwardAncestryStack.length - 1]!;
+		if (currentAncestry.has(handler)) {
 			throw new Error(
 				`EventBus: forwarding cycle detected for message kind "${typedMsg.kind}" on bus "${
 					internalFrom.options?.id ?? "(anonymous)"
 				}"`,
 			);
 		}
-		seenMessages.add(msg);
-		emitEventBus(options.to, typedMsg as any);
+		const ancestry = new Set(currentAncestry);
+		ancestry.add(handler);
+		emitEventBus(options.to, typedMsg as any, ancestry);
 	};
 
 	internalFrom.subscribers.add(handler);

@@ -1,6 +1,7 @@
 /**
  * Applies a projection to both arguments of a binary function before calling it.
  * Most useful for building comparators and equality checks over projected values.
+ * Callback parameters must be annotated; TypeScript cannot infer both projections from curried arguments.
  *
  * @example
  * ```ts

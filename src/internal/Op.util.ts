@@ -8,6 +8,7 @@ import type { Op } from "../Core/Op.ts";
 import { Result } from "../Core/Result.ts";
 import { Duration } from "../Types/Duration.ts";
 import type { RetryPolicy } from "../Types/RetryPolicy.ts";
+import { clampTimerDelay } from "./timers.ts";
 
 // ---------------------------------------------------------------------------
 // Internal singletons & helpers
@@ -65,7 +66,7 @@ export const cancellableWait = (duration: Duration, signal: AbortSignal): Promis
 		timerId = setTimeout(() => {
 			signal.removeEventListener("abort", onAbort);
 			resolve();
-		}, rawMs);
+		}, clampTimerDelay(rawMs));
 		signal.addEventListener("abort", onAbort, { once: true });
 	});
 };
@@ -168,7 +169,7 @@ export const execute = <Args extends readonly unknown[], E, A>(
 				timerId = undefined;
 				controller.abort();
 				resolve(err(timeoutOptions.onTimeout()));
-			}, getMs(timeoutOptions.duration));
+			}, clampTimerDelay(getMs(timeoutOptions.duration)));
 		}),
 	]));
 };
@@ -337,15 +338,17 @@ export const makeExclusive = <Args extends readonly unknown[], E, A>(
 					currentResolve = undefined;
 					currentController = undefined;
 					r?.(outcome);
-					emit(outcome);
+
 					if (cooldown !== undefined) {
 						const rawCooldown = getMs(cooldown);
 						if (rawCooldown > 0) {
 							cooldownTimer = setTimeout(() => {
 								cooldownTimer = undefined;
-							}, rawCooldown);
+							}, clampTimerDelay(rawCooldown));
 						}
 					}
+
+					emit(outcome);
 				});
 			}),
 		);
@@ -429,8 +432,13 @@ export const makeQueue = <Args extends readonly unknown[], E, A>(
 		}
 	};
 
-	const startOne = (args: Args, resolve: (o: Op.Outcome<E, A>) => void, myGeneration: number): void => {
-		inFlight++;
+	const startOne = (
+		args: Args,
+		resolve: (o: Op.Outcome<E, A>) => void,
+		myGeneration: number,
+		preReserved = false,
+	): void => {
+		if (!preReserved) { inFlight++; }
 		const controller = new AbortController();
 		inflightControllers.add(controller);
 		inflightResolvers.push(resolve);
@@ -455,12 +463,25 @@ export const makeQueue = <Args extends readonly unknown[], E, A>(
 
 			inFlight--;
 			resolve(outcome);
-			emit(outcome);
 
-			// oxlint-disable-next-line no-unmodified-loop-condition
+			const reservedItems: Array<{ input: Args; resolve: (o: Op.Outcome<E, A>) => void; }> = [];
 			while (inFlight < maxConcurrency && queue.length > 0) {
 				const next = queue.shift()!;
-				startOne(next.input, next.resolve, generation);
+				inFlight++;
+				reservedItems.push(next);
+			}
+
+			emit(outcome);
+
+			if (generation !== myGeneration) {
+				for (const item of reservedItems) {
+					item.resolve(_abortedNil);
+				}
+				return;
+			}
+
+			for (const item of reservedItems) {
+				startOne(item.input, item.resolve, myGeneration, true);
 			}
 		});
 	};
@@ -798,7 +819,7 @@ export const makeDebounced = <Args extends readonly unknown[], E, A>(
 			const maxDelay = firstCallAt + getMs(maxWait) - Date.now();
 			delay = Math.min(getMs(duration), Math.max(0, maxDelay));
 		}
-		timerId = setTimeout(fireTrailing, delay);
+		timerId = setTimeout(fireTrailing, clampTimerDelay(delay));
 	};
 
 	const inDebounceWindow = (): boolean =>
@@ -966,7 +987,7 @@ export const makeThrottled = <Args extends readonly unknown[], E, A>(
 				startCooldown(); // trailing fire holds its own cooldown window
 				fireOp(toRun, resolve);
 			}
-		}, getMs(duration));
+		}, clampTimerDelay(getMs(duration)));
 	};
 
 	const run = (...args: Args): Deferred<Op.Outcome<E, A>> => {
@@ -1076,8 +1097,13 @@ export const makeConcurrent = <Args extends readonly unknown[], E, A>(
 		}
 	};
 
-	const startOne = (args: Args, resolve: (o: Op.Outcome<E, A>) => void, myGeneration: number): void => {
-		inflight++;
+	const startOne = (
+		args: Args,
+		resolve: (o: Op.Outcome<E, A>) => void,
+		myGeneration: number,
+		preReserved = false,
+	): void => {
+		if (!preReserved) { inflight++; }
 		const controller = new AbortController();
 		controllers.add(controller);
 		inflightResolvers.push(resolve);
@@ -1102,12 +1128,25 @@ export const makeConcurrent = <Args extends readonly unknown[], E, A>(
 
 			inflight--;
 			resolve(outcome);
-			emit(outcome);
 
-			// oxlint-disable-next-line no-unmodified-loop-condition
+			const reservedItems: Array<{ input: Args; resolve: (o: Op.Outcome<E, A>) => void; }> = [];
 			while (inflight < maxConcurrency && overflowQueue.length > 0) {
 				const next = overflowQueue.shift()!;
-				startOne(next.input, next.resolve, generation);
+				inflight++;
+				reservedItems.push(next);
+			}
+
+			emit(outcome);
+
+			if (generation !== myGeneration) {
+				for (const item of reservedItems) {
+					item.resolve(_abortedNil);
+				}
+				return;
+			}
+
+			for (const item of reservedItems) {
+				startOne(item.input, item.resolve, myGeneration, true);
 			}
 		});
 	};

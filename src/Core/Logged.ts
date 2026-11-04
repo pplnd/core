@@ -1,4 +1,4 @@
-import { WithLog, WithValue } from "../internal/InternalTypes";
+import type { KeysOfUnion, WithLog, WithValue } from "../internal/InternalTypes";
 import type { Lens } from "./Lens.ts";
 import type { Pair } from "./Pair.ts";
 
@@ -225,7 +225,7 @@ export const Logged = {
 	 */
 	assign:
 		<K extends string, L2, A extends object, B>(
-			key: K extends keyof A ? never : K,
+			key: K extends KeysOfUnion<A> ? never : K,
 			transform: (value: A) => Logged<L2, B>,
 		) =>
 		<L1 = never>(logged: Logged<L1, A>): Logged<L1 | L2, A & { [P in K]: B; }> => {

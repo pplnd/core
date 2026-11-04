@@ -45,7 +45,7 @@ describe("Refinement type-level tests", () => {
 		expectTypeOf(toMaybe("hello")).toEqualTypeOf<Maybe<NonEmptyString>>();
 
 		const toResult = Refinement.to.Result(isNonEmpty, () => "empty_error");
-		expectTypeOf(toResult("hello")).toEqualTypeOf<Result<string, NonEmptyString>>();
+		expectTypeOf(toResult("hello")).toEqualTypeOf<Result<"empty_error", NonEmptyString>>();
 
 		const toPredicate = Refinement.to.Predicate(isNonEmpty);
 		expectTypeOf(toPredicate).toEqualTypeOf<Predicate<string>>();
@@ -59,5 +59,14 @@ describe("Refinement type-level tests", () => {
 
 		// @ts-expect-error cannot compose number refinement with string refinement
 		expectTypeOf(pipe(isNumber, Refinement.compose(isNonEmpty))).toBeFunction();
+	});
+
+	it("compose: infers a standalone supertype input", () => {
+		type Positive = number & { readonly _tag: "Positive"; };
+		const isNumber: Refinement<string | number, number> = (value): value is number => typeof value === "number";
+		const isPositive: Refinement<number, Positive> = (value): value is Positive => value > 0;
+		const toPositive = Refinement.compose(isPositive);
+		const composed = toPositive(isNumber);
+		expectTypeOf(composed).toEqualTypeOf<Refinement<string | number, Positive>>();
 	});
 });

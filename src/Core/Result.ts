@@ -1,7 +1,7 @@
 // =============================================================================
 // Imports
 // =============================================================================
-import type { NonEmptyArr, WithError, WithKind, WithValue } from "../internal/InternalTypes";
+import type { KeysOfUnion, NonEmptyArr, WithError, WithKind, WithValue } from "../internal/InternalTypes";
 import { type Maybe, Maybe as CoreMaybe } from "./Maybe.ts";
 import { type Validation, Validation as CoreValidation } from "./Validation.ts";
 
@@ -167,8 +167,9 @@ export const Result = {
 	 * pipe(Result.make.ok(-1), Result.chain(validatePositive)); // Err("Must be positive")
 	 * ```
 	 */
-	chain: <E2, A, B>(transform: (value: A) => Result<E2, B>) => <E1 = never>(result: Result<E1, A>): Result<E1 | E2, B> =>
-		isOk(result) ? transform(result.value) : result,
+	chain:
+		<E2 = never, A = unknown, B = unknown>(transform: (value: A) => Result<E2, B>) =>
+		<E1 = never>(result: Result<E1, A>): Result<E1 | E2, B> => isOk(result) ? transform(result.value) : result,
 
 	/**
 	 * Pattern matches on a Result, returning the result of the matching case.
@@ -203,7 +204,7 @@ export const Result = {
 	 * pipe(Result.make.err("error"), Result.getOrElse(() => null)); // null — typed as number | null
 	 * ```
 	 */
-	getOrElse: <B>(fallback: () => B) => <A, E = never>(result: Result<E, A>): A | B =>
+	getOrElse: <B>(fallback: () => B) => <A = never, E = never>(result: Result<E, A>): A | B =>
 		isOk(result) ? result.value : fallback(),
 
 	/**
@@ -370,7 +371,7 @@ export const Result = {
 		 * Result.to.Maybe(Result.make.err("oops")); // None
 		 * ```
 		 */
-		Maybe: <E, A>(result: Result<E, A>): Maybe<A> =>
+		Maybe: <A = never, E = never>(result: Result<E, A>): Maybe<A> =>
 			isOk(result) ? CoreMaybe.make.some(result.value) : CoreMaybe.make.none(),
 		/**
 		 * Converts a `Result` to a `Validation`. `Ok(a)` becomes `Passed(a)`; `Err(e)` becomes `Failed([e])`.
@@ -383,7 +384,7 @@ export const Result = {
 		 * Result.to.Validation(Result.make.err("bad")); // Failed(["bad"])
 		 * ```
 		 */
-		Validation: <E, A>(result: Result<E, A>): Validation<E, A> => CoreValidation.from.Result(result),
+		Validation: <A = never, E = never>(result: Result<E, A>): Validation<E, A> => CoreValidation.from.Result(result),
 	},
 
 	// --- sequence ---
@@ -456,7 +457,7 @@ export const Result = {
 	 */
 	assign:
 		<K extends string, E2, A extends object, B>(
-			key: K extends keyof A ? never : K,
+			key: K extends KeysOfUnion<A> ? never : K,
 			transform: (value: A) => Result<E2, B>,
 		) =>
 		<E1 = never>(result: Result<E1, A>): Result<E1 | E2, A & { [P in K]: B; }> => {

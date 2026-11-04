@@ -3,6 +3,14 @@ import { pipe } from "../../Composition/pipe.ts";
 import { Combinable } from "../Combinable.ts";
 import { Maybe } from "../Maybe.ts";
 
+test("struct: includes symbol-keyed fields in empty and combine", () => {
+	const total = Symbol("total");
+	const struct = Combinable.struct({ [total]: Combinable.sum });
+
+	expect(struct.empty).toStrictEqual({ [total]: 0 });
+	expect(struct.combine({ [total]: 2 })({ [total]: 1 })).toStrictEqual({ [total]: 3 });
+});
+
 // ---------------------------------------------------------------------------
 // string
 // ---------------------------------------------------------------------------

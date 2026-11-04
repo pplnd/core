@@ -18,9 +18,9 @@
  * expensive(3); // logs "Computing...", returns 6
  *
  * // With custom key function for objects
- * const fetchUser = memoize(
- *   (opts: { id: string }) => fetch(`/users/${opts.id}`),
- *   { key: (opts) => opts.id }
+ * const format = memoize(
+ *   (item: { price: number; currency: string }) => `${item.currency}${item.price.toFixed(2)}`,
+ *   { key: (item) => `${item.currency}:${item.price}` }
  * );
  * // With bounded cache size (LRU eviction)
  * const bounded = memoize(
@@ -32,15 +32,24 @@
 export const memoize = <A, B>(f: (a: A) => B, options?: {
 	readonly key?: (a: A) => unknown;
 	/**
-	 * Maximum number of entries to store in the cache before evicting the least recently used (LRU) entry.
+	 * Maximum number of entries to store before evicting the least recently used entry.
+	 * Fractional values are floored; `0` disables caching; `Infinity` means unbounded.
+	 * Negative or `NaN` values disable caching.
 	 */
 	readonly maxSize?: number;
 }): (a: A) => B => {
 	const cache = new Map<unknown, B>();
 	const keyFn = options?.key ?? ((a) => a);
-	const maxSize = options?.maxSize;
+	const rawMaxSize = options?.maxSize;
+	const maxSize = rawMaxSize === undefined || rawMaxSize === Infinity
+		? undefined
+		: Number.isFinite(rawMaxSize)
+		? Math.max(0, Math.floor(rawMaxSize))
+		: 0;
 
 	return (a: A): B => {
+		if (maxSize === 0) { return f(a); }
+
 		const key = keyFn(a);
 
 		if (cache.has(key)) {

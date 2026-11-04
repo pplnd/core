@@ -393,6 +393,15 @@ test("match: remains pure against stateful global RegExp", () => {
 	expect(Maybe.is.some(second)).toBe(true);
 });
 
+test("match: preserves the caller's lastIndex and accepts frozen global regexes", () => {
+	const regex = /abc/g;
+	regex.lastIndex = 3;
+
+	expect(Maybe.is.some(Str.match(regex)("abc"))).toBe(true);
+	expect(regex.lastIndex).toBe(3);
+	expect(Str.test(Object.freeze(/abc/g))("abc")).toBe(true);
+});
+
 test("test: returns true for matching regex", () => {
 	const result = pipe("user@example.com", Str.test(/^[^@]+@[^@]+$/));
 	expect(result).toBe(true);
@@ -407,6 +416,14 @@ test("test: remains pure against stateful global RegExp", () => {
 	const regex = /pattern/g;
 	expect(Str.test(regex)("pattern")).toBe(true);
 	expect(Str.test(regex)("pattern")).toBe(true);
+});
+
+test("test: preserves the caller's lastIndex", () => {
+	const regex = /pattern/g;
+	regex.lastIndex = 2;
+
+	expect(Str.test(regex)("pattern")).toBe(true);
+	expect(regex.lastIndex).toBe(2);
 });
 
 // ---------------------------------------------------------------------------
@@ -449,4 +466,26 @@ test("truncate: truncates strings exceeding length", () => {
 	expect(pipe("Hello", Str.truncate({ length: 10 }))).toBe("Hello");
 	expect(pipe("Hello, world!", Str.truncate({ length: 8, suffix: "…" }))).toBe("Hello, …");
 	expect(pipe("Hello, world!", Str.truncate({ length: 2 }))).toBe("..");
+});
+
+test("truncate: normalizes negative, NaN, Infinity, and fractional lengths", () => {
+	expect(pipe("Hello, world!", Str.truncate({ length: -1 }))).toBe("");
+	expect(pipe("Hello, world!", Str.truncate({ length: Number.NaN }))).toBe("");
+	expect(pipe("Hello, world!", Str.truncate({ length: Number.POSITIVE_INFINITY }))).toBe("Hello, world!");
+	expect(pipe("Hello, world!", Str.truncate({ length: 3.9 }))).toBe("...");
+});
+
+test("padding: treats infinite targets as no-ops and floors fractional targets", () => {
+	expect(pipe("hi", Str.padStart(Number.POSITIVE_INFINITY, "0"))).toBe("hi");
+	expect(pipe("hi", Str.padEnd(Number.POSITIVE_INFINITY, "0"))).toBe("hi");
+	expect(pipe("hi", Str.padStart(-2, "0"))).toBe("hi");
+	expect(pipe("hi", Str.padEnd(Number.NaN, "0"))).toBe("hi");
+	expect(pipe("hi", Str.padStart(3.9, "0"))).toBe("0hi");
+});
+
+test("truncate: never splits a surrogate pair", () => {
+	expect(pipe("😀😀", Str.truncate({ length: 1, suffix: "" }))).toBe("");
+	expect(pipe("😀😀", Str.truncate({ length: 2, suffix: "" }))).toBe("😀");
+	expect(pipe("😀😀", Str.truncate({ length: 3, suffix: "" }))).toBe("😀");
+	expect(pipe("😀😀", Str.truncate({ length: 1, suffix: "😀" }))).toBe("");
 });

@@ -38,6 +38,22 @@ const makeErrTask = <E>(error: E, delayMs = 0): Task.Result<E, never> => (signal
 		}),
 	);
 
+/** A task whose settlement the test controls explicitly. */
+const makeControlledTask = <E, A>() => {
+	let settle: ((result: Result<E, A>) => void) | undefined;
+	const task: Task.Result<E, A> = () =>
+		Deferred.from.Promise(
+			new Promise<Result<E, A>>((resolve) => {
+				settle = resolve;
+			}),
+		);
+	const complete = (result: Result<E, A>): void => {
+		if (settle === undefined) { throw new Error("task has not started"); }
+		settle(result);
+	};
+	return { task, complete };
+};
+
 // -----------------------------------------------------------------------------
 // Initial state & make options
 // -----------------------------------------------------------------------------
@@ -427,6 +443,18 @@ test("reset: does not notify subscribers if circuit was already clean Closed", (
 	expect(called).toBe(false);
 });
 
+test("reset: a stale Closed failure settling afterwards does not reopen the breaker", async () => {
+	const breaker = CircuitBreaker.make<string>({ failureThreshold: 1, resetTimeout: Duration.milliseconds(100) });
+	const gate = makeControlledTask<string, number>();
+
+	const pending = breaker.run(gate.task);
+	breaker.reset();
+	gate.complete(Result.make.err("stale"));
+
+	await pending;
+	expect(breaker.state()).toStrictEqual({ kind: "Closed", failures: 0 });
+});
+
 test("run: handles call-site pre-aborted signal directly", async () => {
 	const breaker = CircuitBreaker.make<string>({ failureThreshold: 2, resetTimeout: Duration.milliseconds(50) });
 
@@ -436,6 +464,40 @@ test("run: handles call-site pre-aborted signal directly", async () => {
 	const task = makeOkTask("immediate_abort");
 	const res = await breaker.run(task, { signal: controller.signal });
 	expect(res).toStrictEqual(Result.make.ok("immediate_abort"));
+});
+
+test("run: a pre-aborted call after the cooldown does not start a HalfOpen probe", async () => {
+	const breaker = CircuitBreaker.make<string>({ failureThreshold: 1, resetTimeout: Duration.milliseconds(20) });
+	await breaker.run(makeErrTask("trip"));
+	await sleep(30);
+
+	const transitions: CircuitBreaker.State<string>[] = [];
+	breaker.subscribe((state) => transitions.push(state));
+
+	const controller = new AbortController();
+	controller.abort();
+
+	const res = await breaker.run(makeOkTask("ignored"), { signal: controller.signal });
+	expect(res).toStrictEqual(Result.make.ok("ignored"));
+	expect(transitions).toStrictEqual([]);
+});
+
+test("run: a pre-aborted call in HalfOpen settles without starting a probe", async () => {
+	const breaker = CircuitBreaker.make<string>({
+		failureThreshold: 1,
+		resetTimeout: Duration.milliseconds(20),
+		successThreshold: 2,
+	});
+	await breaker.run(makeErrTask("trip"));
+	await sleep(30);
+	await breaker.run(makeOkTask("first")); // one successful probe; circuit stays HalfOpen
+
+	const controller = new AbortController();
+	controller.abort();
+
+	const res = await breaker.run(makeOkTask("ignored"), { signal: controller.signal });
+	expect(res).toStrictEqual(Result.make.ok("ignored"));
+	expect(breaker.state()).toStrictEqual({ kind: "HalfOpen", probeInFlight: false, consecutiveSuccesses: 1 });
 });
 
 test("reset: forces circuit from Open to Closed and clears failures", async () => {
@@ -751,4 +813,15 @@ test("make: normalizes NaN resetTimeout to 0ms (evaluates immediately to HalfOpe
 	await breaker.run(makeErrTask("err"));
 	// Since resetTimeout is 0ms, cooldown has elapsed immediately
 	expect(CircuitBreaker.is.halfOpen(breaker.state())).toBe(true);
+});
+
+test("make: keeps an infinite resetTimeout open", async () => {
+	const breaker = CircuitBreaker.make<string>({
+		failureThreshold: 1,
+		resetTimeout: Duration.milliseconds(Number.POSITIVE_INFINITY),
+	});
+	await breaker.run(makeErrTask("err"));
+	expect(CircuitBreaker.is.open(breaker.state())).toBe(true);
+	await sleep(5);
+	expect(CircuitBreaker.is.open(breaker.state())).toBe(true);
 });

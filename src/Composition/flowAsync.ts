@@ -2,6 +2,7 @@ import type { Awaitable } from "../internal/InternalTypes";
 
 /**
  * Composes asynchronous or synchronous functions from left to right, returning a reusable async function.
+ * The first function is unary and may receive an `Awaitable` value. Multi-argument entry points require a wrapper.
  *
  * @example
  * ```ts

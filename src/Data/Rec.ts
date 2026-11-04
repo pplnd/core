@@ -29,7 +29,7 @@ const _setKey = <A>(record: Record<string, A>, key: string, value: A): void => {
 };
 
 const traverseMaybe =
-	<A, B>(transform: (value: A) => CoreMaybe<B>) =>
+	<A = unknown, B = unknown>(transform: (value: A) => CoreMaybe<B>) =>
 	(record: Readonly<Record<string, A>>): CoreMaybe<Readonly<Record<string, B>>> => {
 		const recordKeys = Object.keys(record);
 		if (recordKeys.length === 0) {
@@ -47,11 +47,12 @@ const traverseMaybe =
 		return { kind: "Some", value: result };
 	};
 
-const sequenceMaybe = <A>(record: Readonly<Record<string, CoreMaybe<A>>>): CoreMaybe<Readonly<Record<string, A>>> =>
-	traverseMaybe<CoreMaybe<A>, A>((value) => value)(record);
+const sequenceMaybe = <A = never>(
+	record: Readonly<Record<string, CoreMaybe<A>>>,
+): CoreMaybe<Readonly<Record<string, A>>> => traverseMaybe<CoreMaybe<A>, A>((value) => value)(record);
 
 const traverseResult =
-	<E, A, B>(transform: (value: A) => CoreResult<E, B>) =>
+	<E = never, A = unknown, B = unknown>(transform: (value: A) => CoreResult<E, B>) =>
 	(record: Readonly<Record<string, A>>): CoreResult<E, Readonly<Record<string, B>>> => {
 		const recordKeys = Object.keys(record);
 		const result: Record<string, B> = {};
@@ -66,7 +67,7 @@ const traverseResult =
 		return { kind: "Ok", value: result };
 	};
 
-const sequenceResult = <E, A>(
+const sequenceResult = <E = never, A = never>(
 	record: Readonly<Record<string, CoreResult<E, A>>>,
 ): CoreResult<E, Readonly<Record<string, A>>> => traverseResult<E, CoreResult<E, A>, A>((value) => value)(record);
 
@@ -265,7 +266,7 @@ const lookup = <K extends string>(key: K) => <V = unknown>(record: Readonly<Reco
  * Rec.keys({ a: 1, b: 2 }); // ["a", "b"]
  * ```
  */
-const keys = <T extends Record<string, unknown>>(record: T): readonly (keyof T & string)[] =>
+const keys = <T extends object>(record: T): readonly (keyof T & string)[] =>
 	Object.keys(record) as (keyof T & string)[];
 
 /**
@@ -279,7 +280,7 @@ const keys = <T extends Record<string, unknown>>(record: T): readonly (keyof T &
  * Rec.values({ a: 1, b: 2 }); // [1, 2]
  * ```
  */
-const values = <T extends Record<string, unknown>>(record: T): readonly T[keyof T & string][] =>
+const values = <T extends object>(record: T): readonly T[keyof T & string][] =>
 	Object.values(record) as T[keyof T & string][];
 
 /**
@@ -293,8 +294,8 @@ const values = <T extends Record<string, unknown>>(record: T): readonly T[keyof 
  * Rec.entries({ a: 1, b: 2 }); // [["a", 1], ["b", 2]]
  * ```
  */
-const entries = <T extends Record<string, unknown>>(record: T): readonly (readonly [keyof T, T[keyof T]])[] =>
-	Object.entries(record) as unknown as (readonly [keyof T, T[keyof T]])[];
+const entries = <T extends object>(record: T): readonly (readonly [keyof T & string, T[keyof T & string]])[] =>
+	Object.entries(record) as unknown as (readonly [keyof T & string, T[keyof T & string]])[];
 
 // --- from ---
 const RecFrom = {
@@ -348,18 +349,16 @@ const groupBy =
  * pipe({ a: 1, b: 2, c: 3 }, Rec.pick("a", "c")); // { a: 1, c: 3 }
  * ```
  */
-const pick =
-	<K extends string>(...pickedKeys: readonly K[]) =>
-	<A extends Readonly<Record<string, unknown>>>(record: A): Pick<A, K & keyof A> => {
-		const result = {} as Pick<A, K & keyof A>;
-		for (let i = 0; i < pickedKeys.length; i++) {
-			const key = pickedKeys[i];
-			if (Object.hasOwn(record, key)) {
-				_setKey(result as Record<string, unknown>, key, (record as Record<string, unknown>)[key]);
-			}
+const pick = <K extends string>(...pickedKeys: readonly K[]) => <A extends object>(record: A): Pick<A, K & keyof A> => {
+	const result = {} as Pick<A, K & keyof A>;
+	for (let i = 0; i < pickedKeys.length; i++) {
+		const key = pickedKeys[i];
+		if (Object.hasOwn(record, key)) {
+			_setKey(result as Record<string, unknown>, key, (record as Record<string, unknown>)[key]);
 		}
-		return result;
-	};
+	}
+	return result;
+};
 
 /**
  * Omits specific keys from a record.
@@ -371,20 +370,18 @@ const pick =
  * pipe({ a: 1, b: 2, c: 3 }, Rec.omit("b")); // { a: 1, c: 3 }
  * ```
  */
-const omit =
-	<K extends string>(...omittedKeys: readonly K[]) =>
-	<A extends Readonly<Record<string, unknown>>>(record: A): Omit<A, K> => {
-		const omitSet = new Set<string>(omittedKeys);
-		const result = {} as Record<string, unknown>;
-		const recKeys = Object.keys(record);
-		for (let i = 0; i < recKeys.length; i++) {
-			const key = recKeys[i];
-			if (!omitSet.has(key)) {
-				_setKey(result, key, (record as Record<string, unknown>)[key]);
-			}
+const omit = <K extends string>(...omittedKeys: readonly K[]) => <A extends object>(record: A): Omit<A, K> => {
+	const omitSet = new Set<string>(omittedKeys);
+	const result = {} as Record<string, unknown>;
+	const recKeys = Object.keys(record);
+	for (let i = 0; i < recKeys.length; i++) {
+		const key = recKeys[i];
+		if (!omitSet.has(key)) {
+			_setKey(result, key, (record as Record<string, unknown>)[key]);
 		}
-		return result as Omit<A, K>;
-	};
+	}
+	return result as Omit<A, K>;
+};
 
 /**
  * Merges two records. Values from the second record take precedence.
@@ -396,15 +393,15 @@ const omit =
  * pipe({ a: 1, b: 2 }, Rec.merge({ b: 3, c: 4 })); // { a: 1, b: 3, c: 4 }
  * ```
  */
-const merge =
-	<A>(other: Readonly<Record<string, A>>) => (record: Readonly<Record<string, A>>): Readonly<Record<string, A>> => ({
-		...record,
-		...other,
-	});
+const merge = <const O extends object>(other: O) => <M extends object>(record: M): Readonly<Omit<M, keyof O> & O> =>
+	({ ...record, ...other }) as Readonly<Omit<M, keyof O> & O>;
 
 /**
  * Merges two records using a custom combination function on key collisions.
  * Supports both uncurried `Rec.mergeWith(combine)(first, second)` and curried `pipe(first, Rec.mergeWith(combine)(second))`.
+ *
+ * The combine callback's parameter types must be explicit: TypeScript cannot infer them across
+ * the two curried record arguments.
  *
  * @see {@link merge} for shallow merging with right-precedence.
  *
@@ -431,9 +428,9 @@ function mergeWith<A>(
 			const result: Record<string, A> = { ...first };
 			for (const [k, v] of Object.entries(second)) {
 				if (Object.hasOwn(result, k)) {
-					result[k] = combine(result[k], v);
+					_setKey(result, k, combine(result[k], v));
 				} else {
-					result[k] = v;
+					_setKey(result, k, v);
 				}
 			}
 			return result;
@@ -443,9 +440,9 @@ function mergeWith<A>(
 			const result: Record<string, A> = { ...first };
 			for (const [k, v] of Object.entries(second)) {
 				if (Object.hasOwn(result, k)) {
-					result[k] = combine(result[k], v);
+					_setKey(result, k, combine(result[k], v));
 				} else {
-					result[k] = v;
+					_setKey(result, k, v);
 				}
 			}
 			return result;
@@ -500,7 +497,7 @@ const mapKeys =
  * // { a: 1, c: 3 }
  * ```
  */
-const compact = <A>(record: Readonly<Record<string, CoreMaybe<A>>>): Readonly<Record<string, A>> => {
+const compact = <A = never>(record: Readonly<Record<string, CoreMaybe<A>>>): Readonly<Record<string, A>> => {
 	const recKeys = Object.keys(record);
 	if (recKeys.length === 0) {
 		return {};
@@ -563,12 +560,13 @@ const updateIn =
 		const updateNode = (obj: unknown, pathKeys: readonly string[]): unknown => {
 			const [head, ...tail] = pathKeys;
 			const current = (obj && typeof obj === "object" ? obj : {}) as Record<string, unknown>;
-			const result: Record<string, unknown> = { ...current };
+			const result = (Array.isArray(current) ? current.slice() : { ...current }) as Record<string, unknown>;
+			const currentValue = Object.hasOwn(current, head) ? current[head] : undefined;
 			if (tail.length === 0) {
-				_setKey(result, head, transform(current[head] as T));
+				_setKey(result, head, transform(currentValue as T));
 				return result;
 			}
-			_setKey(result, head, updateNode(current[head], tail));
+			_setKey(result, head, updateNode(currentValue, tail));
 			return result;
 		};
 		return updateNode(record, path) as Readonly<Record<string, unknown>>;

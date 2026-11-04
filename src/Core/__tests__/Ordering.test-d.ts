@@ -44,3 +44,11 @@ test("type errors: rejects invalid types in comparison and combinators", () => {
 	// @ts-expect-error thenBy requires matching element type
 	expectTypeOf(pipe(Ordering.number, Ordering.thenBy(Ordering.string))).toBeFunction();
 });
+
+test("thenBy: accepts a subtype ordering followed by a supertype ordering", () => {
+	type Person = { readonly name: string; };
+	type Employee = Person & { readonly salary: number; };
+	const bySalary: Ordering<Employee> = (a, b) => a.salary - b.salary;
+	const byName: Ordering<Person> = (a, b) => a.name.localeCompare(b.name);
+	expectTypeOf(pipe(bySalary, Ordering.thenBy(byName))).toEqualTypeOf<Ordering<Employee>>();
+});

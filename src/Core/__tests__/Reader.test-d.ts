@@ -101,3 +101,9 @@ test("negative: enforces environment and argument constraints at compile time", 
 	// @ts-expect-error apply expects Reader of function on piped data, but received Reader<Env, string>
 	expectTypeOf(pipe(r, Reader.apply(numReader))).toBeFunction();
 });
+
+test("zero-argument readers compose with a config", () => {
+	const pure = Reader.make(42);
+	expectTypeOf(pipe(pure, Reader.map((n) => n + 1))).toEqualTypeOf<Reader<unknown, number>>();
+	expectTypeOf(pipe(pure, Reader.chain((n) => Reader.make(n + 1)))).toEqualTypeOf<Reader<unknown, number>>();
+});

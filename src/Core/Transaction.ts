@@ -32,15 +32,17 @@ const _internalStep = Symbol("Transaction.internalStep");
  * @example
  * ```ts
  * const step = Transaction.stepFactory<OrderInput>();
- * const reservation = step("reservation", {
- *   run: ({ ctx }) => inventoryApi.reserve(ctx.input.sku, ctx.input.qty),
- *   undo: ({ ctx }) => inventoryApi.release(ctx.output.id),
- * });
- * const payment = step("payment", {
- *   deps: { reservation },
- *   run: ({ ctx, deps }) => stripeApi.charge(ctx.input.customerId, deps.reservation.totalCents),
- *   undo: ({ ctx }) => stripeApi.refund(ctx.output.chargeId),
- * });
+ * const reservation = step(
+ *   "reservation",
+ *   ({ ctx }) => inventoryApi.reserve(ctx.input.sku, ctx.input.qty),
+ *   ({ ctx }) => inventoryApi.release(ctx.output.id),
+ * );
+ * const payment = step(
+ *   "payment",
+ *   { reservation },
+ *   ({ ctx, deps }) => stripeApi.charge(ctx.input.customerId, deps.reservation.totalCents),
+ *   ({ ctx }) => stripeApi.refund(ctx.output.chargeId),
+ * );
  * const checkout = Transaction.make(reservation, payment);
  *
  * const outcome = await Transaction.run(checkout, orderInput);
@@ -128,31 +130,36 @@ export namespace Transaction {
 		readonly [K in keyof D]: undefined extends D[K] ? OutputOf<Exclude<D[K], undefined>> | undefined : OutputOf<D[K]>;
 	};
 
-	/** Settings for a step, including its named dependencies and optional compensation. */
-	export type StepConfig<D extends Record<string, AnyStepInternal | undefined>, Input, E, Out, EUndo = never> = {
-		/** Earlier steps whose output values are needed by this step. */
-		readonly deps?: D;
-		/** Creates the task to run with the execution input and dependency outputs. */
-		readonly run: (
-			context: { readonly ctx: { readonly input: Input; }; readonly deps: DependencyOutputs<D>; },
-		) => Task.Result<E, Out>;
-		/** Compensates a completed step if a later step fails. */
-		readonly undo?: (
-			context: { readonly ctx: { readonly input: Input; readonly output: Out; }; readonly deps: DependencyOutputs<D>; },
-		) => Task.Result<EUndo, unknown>;
-	};
+	/** Creates the task for a step using the run input and dependency outputs. */
+	export type StepRun<D extends Record<string, AnyStepInternal | undefined>, Input, E, Out> = (
+		context: { readonly ctx: { readonly input: Input; }; readonly deps: DependencyOutputs<D>; },
+	) => Task.Result<E, Out>;
+
+	/** Compensates a completed step if a later step fails. */
+	export type StepUndo<D extends Record<string, AnyStepInternal | undefined>, Input, Out, EUndo> = (
+		context: { readonly ctx: { readonly input: Input; readonly output: Out; }; readonly deps: DependencyOutputs<D>; },
+	) => Task.Result<EUndo, unknown>;
 
 	/** Creates independently reusable steps sharing an input contract. */
-	export type StepFactory<Input> = <
-		const Id extends string,
-		const D extends Record<string, AnyStepInternal | undefined> = Record<never, never>,
-		E = never,
-		Out = never,
-		EUndo = never,
-	>(
-		id: Id extends "initial" ? never : Id,
-		config: StepConfig<D, Input, E, Out, EUndo>,
-	) => Step<Id, Input, E, Out, EUndo, D>;
+	export type StepFactory<Input> = {
+		<const Id extends string, E = never, Out = never, EUndo = never>(
+			id: Id extends "initial" ? never : Id,
+			run: StepRun<Record<never, never>, Input, E, Out>,
+			undo?: StepUndo<Record<never, never>, Input, Out, EUndo>,
+		): Step<Id, Input, E, Out, EUndo, Record<never, never>>;
+		<
+			const Id extends string,
+			const D extends Record<string, AnyStepInternal | undefined> = Record<never, never>,
+			E = never,
+			Out = never,
+			EUndo = never,
+		>(
+			id: Id extends "initial" ? never : Id,
+			deps: D,
+			run: StepRun<D, Input, E, Out>,
+			undo?: StepUndo<D, Input, Out, EUndo>,
+		): Step<Id, Input, E, Out, EUndo, D>;
+	};
 
 	/**
 	 * Execution options and telemetry hooks for `Transaction.run`.
@@ -282,8 +289,13 @@ const drainUndoStack = async (
 // Public Constructors & Combinators
 // =============================================================================
 
-/** Creates a reusable step with named dependencies and optional compensation. */
-const step = <
+/** Creates a reusable step with optional dependencies and optional compensation. */
+function step<const Id extends string, Input = void, E = never, Out = never, EUndo = never>(
+	id: Id extends "initial" ? never : Id,
+	run: Transaction.StepRun<Record<never, never>, Input, E, Out>,
+	undo?: Transaction.StepUndo<Record<never, never>, Input, Out, EUndo>,
+): Transaction.Step<Id, Input, E, Out, EUndo, Record<never, never>>;
+function step<
 	const Id extends string,
 	const D extends Record<string, AnyStepInternal | undefined> = Record<never, never>,
 	Input = void,
@@ -292,21 +304,39 @@ const step = <
 	EUndo = never,
 >(
 	id: Id extends "initial" ? never : Id,
-	config: Transaction.StepConfig<D, Input, E, Out, EUndo>,
-): Transaction.Step<Id, Input, E, Out, EUndo, D> => {
+	deps: D,
+	run: Transaction.StepRun<D, Input, E, Out>,
+	undo?: Transaction.StepUndo<D, Input, Out, EUndo>,
+): Transaction.Step<Id, Input, E, Out, EUndo, D>;
+function step(
+	id: string,
+	arg2: Record<string, AnyStepInternal | undefined> | Transaction.StepRun<any, any, any, any>,
+	arg3?: Transaction.StepRun<any, any, any, any> | Transaction.StepUndo<any, any, any, any>,
+	arg4?: Transaction.StepUndo<any, any, any, any>,
+) {
 	if (id.length === 0) {
 		throw new TypeError("[Transaction.step] A non-empty string 'id' is required.");
 	}
 	if (id === "initial") {
 		throw new TypeError("[Transaction.step] Step id cannot be 'initial' as it is a reserved context key.");
 	}
+
+	const hasDeps = typeof arg2 !== "function";
+	const deps = hasDeps ? arg2 as Record<string, AnyStepInternal | undefined> : undefined;
+	const run = (hasDeps ? arg3 : arg2) as Transaction.StepRun<any, any, any, any> | undefined;
+	const undo = (hasDeps ? arg4 : arg3) as Transaction.StepUndo<any, any, any, any> | undefined;
+
+	if (typeof run !== "function") {
+		throw new TypeError("[Transaction.step] A run callback is required.");
+	}
+
 	const value = {
 		kind: "TransactionStep" as const,
 		id,
-		[_internalStep]: { id, deps: Object.freeze({ ...config.deps }), run: config.run, undo: config.undo },
+		[_internalStep]: { id, deps: Object.freeze({ ...deps }), run, undo },
 	};
-	return value as unknown as Transaction.Step<Id, Input, E, Out, EUndo, D>;
-};
+	return value as unknown as Transaction.Step<string, any, any, any, any, any>;
+}
 
 /** Assembles steps in execution order and validates their dependencies. */
 const makeTransaction = <const S extends readonly AnyStepInternal[]>(
@@ -354,7 +384,7 @@ const makeTransaction = <const S extends readonly AnyStepInternal[]>(
 function runTransaction<Acc extends Record<string, unknown>, E, EUndo>(
 	transaction: Transaction<void, Acc, E, EUndo>,
 	input?: undefined,
-	options?: Transaction.RunOptions,
+	options?: Transaction.RunOptions<NoInfer<E>, NoInfer<EUndo>>,
 ): Deferred<Result<Transaction.Failure<E | Transaction.Aborted, EUndo>, Acc>>;
 
 /**
@@ -363,7 +393,7 @@ function runTransaction<Acc extends Record<string, unknown>, E, EUndo>(
 function runTransaction<In, Acc extends Record<string, unknown>, E, EUndo>(
 	transaction: Transaction<In, Acc, E, EUndo>,
 	input: NoInfer<In>,
-	options?: Transaction.RunOptions,
+	options?: Transaction.RunOptions<NoInfer<E>, NoInfer<EUndo>>,
 ): Deferred<Result<Transaction.Failure<E | Transaction.Aborted, EUndo>, Acc>>;
 
 function runTransaction<In, Acc extends Record<string, unknown>, E, EUndo>(
@@ -452,7 +482,7 @@ export const Transaction = {
 	 * @example
 	 * ```ts
 	 * const step = Transaction.stepFactory<Order>();
-	 * const reserve = step("reserve", { run: ({ ctx }) => reserveStock(ctx.input.sku) });
+	 * const reserve = step("reserve", ({ ctx }) => reserveStock(ctx.input.sku));
 	 * ```
 	 */
 	stepFactory: <Input>(): Transaction.StepFactory<Input> => step,
@@ -479,10 +509,11 @@ export const Transaction = {
 	 * @example
 	 * ```ts
 	 * const step = Transaction.stepFactory<OrderInput>();
-	 * const reserve = step("inventory", {
-	 *   run: ({ ctx }) => reserveInventory(ctx.input.sku),
-	 *   undo: ({ ctx }) => releaseInventory(ctx.output.id),
-	 * });
+	 * const reserve = step(
+	 *   "inventory",
+	 *   ({ ctx }) => reserveInventory(ctx.input.sku),
+	 *   ({ ctx }) => releaseInventory(ctx.output.id),
+	 * );
 	 * ```
 	 */
 	step,

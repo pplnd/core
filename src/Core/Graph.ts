@@ -22,8 +22,14 @@ const _internalGraph = Symbol("Graph.internalGraph");
  * The plan checks for cycles when constructed and schedules each node after its dependencies succeed.
  */
 export type Graph<E = unknown, Out = unknown, Input = void> = WithKind<"Graph"> & {
-	readonly [_graphBrand]: { readonly _error: () => E; readonly _output: () => Out; readonly _input: Input; };
+	readonly [_graphBrand]: {
+		readonly _error: () => E;
+		readonly _output: () => Out;
+		readonly _input: (_input: Input) => void;
+	};
 };
+
+type NodeErrorOf<N> = N extends Graph.Node<any, infer E, any, any> ? E : never;
 
 export namespace Graph {
 	/** The caller cancelled a graph run. */
@@ -36,13 +42,20 @@ export namespace Graph {
 	 */
 	export type Node<Id extends string = string, E = unknown, Out = unknown, Input = void> = WithKind<"GraphNode"> & {
 		readonly id: Id;
-		readonly [_nodeBrand]: { readonly _error: () => E; readonly _output: () => Out; readonly _input: Input; };
+		readonly [_nodeBrand]: {
+			readonly _error: () => E;
+			readonly _output: () => Out;
+			readonly _input: (_input: Input) => void;
+		};
 	};
 
 	/**
 	 * Matches any valid `Node` instance regardless of generic parameters.
+	 *
+	 * `Input` defaults to `never` because the input phantom is contravariant: every node accepts
+	 * `never`, so `AnyNode<never>` is the wildcard that any node is assignable to.
 	 */
-	export type AnyNode<Input = unknown> = Node<string, any, any, Input>;
+	export type AnyNode<Input = never> = Node<string, any, any, Input>;
 
 	/**
 	 * Extracts the successful output value type of a `Node`.
@@ -62,40 +75,36 @@ export namespace Graph {
 	/**
 	 * Computes the union of error types across all dependency nodes in a dictionary.
 	 */
-	export type DepsErrors<Deps extends Record<string, AnyNode>> = Deps[keyof Deps] extends Node<any, infer E, any, any>
-		? E
-		: never;
+	export type DepsErrors<Deps extends Record<string, AnyNode>> = NodeErrorOf<Deps[keyof Deps]>;
 
 	/**
-	 * Configuration options for constructing a DAG node.
+	 * Execution context for a node's run callback.
 	 */
-	export type NodeConfig<Deps extends Record<string, AnyNode> | undefined, Input, E, Out> = {
-		/**
-		 * Upstream dependency nodes required to execute this step.
-		 */
-		readonly deps?: Deps;
-
-		/**
-		 * Execution task evaluating to a fallible `Task.Result`.
-		 */
-		readonly run: (
-			context: {
-				readonly ctx: { readonly input: NodeInput<Deps, Input>; };
-				readonly deps: Deps extends Record<string, AnyNode> ? DepsOutputs<Deps> : {};
-			},
-		) => Task.Result<E, Out>;
-	};
+	export type NodeRun<Deps extends Record<string, AnyNode> | undefined, Input, E, Out> = (
+		context: {
+			readonly ctx: { readonly input: NodeInput<Deps, Input>; };
+			readonly deps: Deps extends Record<string, AnyNode> ? DepsOutputs<Deps> : {};
+		},
+	) => Task.Result<E, Out>;
 
 	/** Creates reusable nodes sharing an input contract. */
-	export type NodeFactory<Input> = <
-		Id extends string,
-		const Deps extends Record<string, AnyNode> | undefined = undefined,
-		E = never,
-		Out = never,
-	>(
-		id: Id,
-		config: NodeConfig<Deps, Input, E, Out> & CompatibleDependencies<Input, Deps>,
-	) => Node<Id, E | ([Deps] extends [Record<string, AnyNode>] ? DepsErrors<Deps> : never), Out, NodeInput<Deps, Input>>;
+	export type NodeFactory<Input> = {
+		<Id extends string, E = never, Out = never>(
+			id: Id,
+			run: NodeRun<undefined, Input, E, Out>,
+		): Node<Id, E, Out, NodeInput<undefined, Input>>;
+		<Id extends string, const Deps extends Record<string, AnyNode>, E = never, Out = never>(
+			id: Id,
+			deps: Deps & CompatibleDependencies<Input, Deps>,
+			run: NodeRun<Deps, Input, E, Out>,
+		): Node<Id, E | DepsErrors<Deps>, Out, NodeInput<Deps, Input>>;
+	};
+
+	/** Options controlling graph execution. */
+	export type RunOptions = {
+		/** Caller cancellation signal. */
+		readonly signal?: AbortSignal;
+	};
 
 	/**
 	 * Options controlling graph execution.
@@ -111,7 +120,9 @@ export namespace Graph {
 
 type UnionToIntersection<U> = (U extends unknown ? (value: U) => void : never) extends (value: infer I) => void ? I
 	: never;
-type InputOf<N> = N extends Graph.Node<any, any, any, infer I> ? I : never;
+// An erased `AnyNode` map carries `never`; treat it as `unknown` so graph construction still
+// rejects dependency maps whose input contract cannot be validated.
+type InputOf<N> = N extends Graph.Node<any, any, any, infer I> ? ([I] extends [never] ? unknown : I) : never;
 type CompatibleDependencies<I, D> = D extends Record<string, Graph.AnyNode>
 	? [keyof D] extends [never] ? unknown
 	: unknown extends InputOf<D[keyof D]> ? never : [I] extends [DependencyInput<D>] ? unknown
@@ -180,48 +191,52 @@ const toInternalGraph = <E, Out, Input>(graph: Graph<E, Out, Input>): InternalGr
  *
  * @example
  * ```ts
- * const user = Graph.node("user", {
- *   run: () => fetchUser("u_1"),
- * });
+ * const user = Graph.node("user", () => fetchUser("u_1"));
  *
- * const permissions = Graph.node("permissions", {
- *   deps: { user },
- *   run: ({ deps }) => fetchPermissions(deps.user.roleId),
- * });
+ * const permissions = Graph.node("permissions", { user }, ({ deps }) =>
+ *   fetchPermissions(deps.user.roleId));
  * ```
  */
-const makeNode = <
+function makeNode<Id extends string, Input = unknown, E = never, Out = never>(
+	id: Id,
+	run: Graph.NodeRun<undefined, Input, E, Out>,
+): Graph.Node<Id, E, Out, NodeInput<undefined, Input>>;
+function makeNode<
 	Id extends string,
-	const Deps extends Record<string, Graph.AnyNode> | undefined = undefined,
+	const Deps extends Record<string, Graph.AnyNode>,
 	Input = unknown,
 	E = never,
 	Out = never,
 >(
 	id: Id,
-	config: Graph.NodeConfig<Deps, Input, E, Out>,
-): Graph.Node<
-	Id,
-	E | ([Deps] extends [Record<string, Graph.AnyNode>] ? Graph.DepsErrors<Deps> : never),
-	Out,
-	NodeInput<Deps, Input>
-> => {
+	deps: Deps,
+	run: Graph.NodeRun<Deps, Input, E, Out>,
+): Graph.Node<Id, E | Graph.DepsErrors<Deps>, Out, NodeInput<Deps, Input>>;
+function makeNode(
+	id: string,
+	arg2: Record<string, Graph.AnyNode> | Graph.NodeRun<any, any, any, any>,
+	arg3?: Graph.NodeRun<any, any, any, any>,
+) {
 	if (id.length === 0) {
 		throw new TypeError("[Graph.node] A non-empty string 'id' is required.");
+	}
+
+	const hasDeps = typeof arg2 !== "function";
+	const deps = hasDeps ? arg2 as Record<string, Graph.AnyNode> : undefined;
+	const run = (hasDeps ? arg3 : arg2) as Graph.NodeRun<any, any, any, any> | undefined;
+
+	if (typeof run !== "function") {
+		throw new TypeError("[Graph.node] A run callback is required.");
 	}
 
 	const nodeObj = {
 		kind: "GraphNode" as const,
 		id,
-		[_internalNode]: { id, deps: config.deps ? Object.freeze({ ...config.deps }) : undefined, run: config.run as any },
+		[_internalNode]: { id, deps: deps ? Object.freeze({ ...deps }) : undefined, run },
 	};
 
-	return nodeObj as unknown as Graph.Node<
-		Id,
-		E | ([Deps] extends [Record<string, Graph.AnyNode>] ? Graph.DepsErrors<Deps> : never),
-		Out,
-		NodeInput<Deps, Input>
-	>;
-};
+	return nodeObj as unknown as Graph.Node<string, any, any, any>;
+}
 
 /**
  * Builds a reusable execution plan for a target node and its dependencies.
@@ -352,20 +367,23 @@ const makeGraph = <Id extends string, E, Out, Input>(
  *
  * @example
  * ```ts
- * const outcome = await Graph.run(dashboardGraph, { input: reportInput, signal });
+ * const outcome = await Graph.run(dashboardGraph, reportInput, { signal });
  * ```
  */
 function runGraph<E, Out>(
 	graph: Graph<E, Out, void>,
-	options?: { readonly signal?: AbortSignal; },
+	input?: undefined,
+	options?: Graph.RunOptions,
 ): Deferred<Result<E | Graph.Aborted, Out>>;
 function runGraph<E, Out, Input>(
 	graph: Graph<E, Out, Input>,
-	options: { readonly input: NoInfer<Input>; readonly signal?: AbortSignal; },
+	input: NoInfer<Input>,
+	options?: Graph.RunOptions,
 ): Deferred<Result<E | Graph.Aborted, Out>>;
 function runGraph<E, Out, Input>(
 	graph: Graph<E, Out, Input>,
-	runOptions?: { readonly input?: Input; readonly signal?: AbortSignal; },
+	input?: Input,
+	runOptions?: Graph.RunOptions,
 ): Deferred<Result<E | Graph.Aborted, Out>> {
 	const callerSignal = runOptions?.signal;
 	return Deferred.from.Promise(
@@ -435,7 +453,7 @@ function runGraph<E, Out, Input>(
 				}
 
 				const task: Task.Result<unknown, unknown> = (signal) =>
-					nodeInternal.run({ ctx: { input: runOptions?.input }, deps: inputs ?? {} })(signal);
+					nodeInternal.run({ ctx: { input }, deps: inputs ?? {} })(signal);
 
 				const nodeOutcome = await Deferred.to.Promise(task(activeSignal));
 
@@ -501,10 +519,10 @@ export const Graph = {
 	 * @example
 	 * ```ts
 	 * const node = Graph.nodeFactory<ReportInput>();
-	 * const customer = node("customer", { run: ({ ctx }) => findCustomer(ctx.input.id) });
+	 * const customer = node("customer", ({ ctx }) => findCustomer(ctx.input.id));
 	 * ```
 	 */
-	nodeFactory: <Input>(): Graph.NodeFactory<Input> => makeNode,
+	nodeFactory: <Input>(): Graph.NodeFactory<Input> => makeNode as unknown as Graph.NodeFactory<Input>,
 	node: makeNode,
 	make: makeGraph,
 	run: runGraph,

@@ -77,6 +77,17 @@ test("is: refines state variant kinds accurately", () => {
 	expect(isAuthenticating(loggedOut)).toBe(false);
 });
 
+test("match: data-first form executes the matching handler", () => {
+	const state: AuthState = Machine.state("authenticating", { email: "dev@example.com" });
+	const result = Machine.match(state, {
+		loggedOut: () => "out",
+		authenticating: (s: Extract<AuthState, { readonly kind: "authenticating"; }>) => s.value.email,
+		authenticated: (s: Extract<AuthState, { readonly kind: "authenticated"; }>) => s.value.token,
+		failed: (s: Extract<AuthState, { readonly kind: "failed"; }>) => s.value.error,
+	});
+	expect(result).toBe("dev@example.com");
+});
+
 test("match: executes the matching handler branch and returns value", () => {
 	const machine = createAuthMachine();
 	const state = Machine.transition(machine, { kind: "SUBMIT", value: { email: "dev@example.com" } })(
@@ -481,6 +492,27 @@ test("interpret: completes transition after exit, listener, and entry throw", ()
 	expect(() => actor.send({ kind: "NEXT" })).toThrow("exit failed");
 	expect(calls).toStrictEqual(["exit", "listener", "entry"]);
 	expect(actor.getState().kind).toBe("next");
+});
+
+test("interpret: rolls back the initial entry before propagating its error", () => {
+	type State = Machine.State<"start", void, never>;
+	type Events = { GO: void; };
+	let exited = false;
+	const machine = Machine.make<State, Events>({
+		start: {
+			entry: () => {
+				throw new Error("initial entry failed");
+			},
+			exit: () => {
+				exited = true;
+			},
+		},
+	});
+	const bus = EventBus.make<Events>();
+
+	expect(() => Machine.interpret(machine, { initial: Machine.state("start"), bus })).toThrow("initial entry failed");
+	expect(exited).toBe(true);
+	expect(() => EventBus.emit(bus, { kind: "GO", value: undefined })).not.toThrow();
 });
 
 test("interpret: propagates cleanup failure after a queued initial transition", () => {

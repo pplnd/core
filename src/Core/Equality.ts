@@ -13,10 +13,13 @@
  */
 export type Equality<A> = (first: A, second: A) => boolean;
 
+const sameValueZero = (first: number, second: number): boolean =>
+	first === second || (Number.isNaN(first) && Number.isNaN(second));
+
 const stringEq: Equality<string> = (first, second) => first === second;
-const numberEq: Equality<number> = (first, second) => first === second;
+const numberEq: Equality<number> = (first, second) => sameValueZero(first, second);
 const booleanEq: Equality<boolean> = (first, second) => first === second;
-const dateEq: Equality<Date> = (first, second) => first.getTime() === second.getTime();
+const dateEq: Equality<Date> = (first, second) => sameValueZero(first.getTime(), second.getTime());
 
 export const Equality = {
 	/**
@@ -33,7 +36,7 @@ export const Equality = {
 	string: stringEq,
 
 	/**
-	 * Equality for numbers. Uses strict equality.
+	 * Equality for numbers. Uses `SameValueZero`: `NaN` equals `NaN`, and `0` equals `-0`.
 	 *
 	 * @see {@link Equality.date} for chronological timestamp equality.
 	 *
@@ -57,7 +60,7 @@ export const Equality = {
 	boolean: booleanEq,
 
 	/**
-	 * Equality for `Date` values. Compares by numeric time value.
+	 * Equality for `Date` values. Compares by numeric time value; two `Invalid Date` values are equal.
 	 *
 	 * @see {@link Equality.number} for numeric value equality.
 	 *
@@ -121,11 +124,12 @@ export const Equality = {
 	 * exact(userA, userB); // true only if name AND role match
 	 * ```
 	 */
-	and: <A>(other: Equality<A>) => (equality: Equality<A>): Equality<A> => (first, second) =>
+	and: <A>(other: Equality<A>) => <B extends A>(equality: Equality<B>): Equality<B> => (first, second) =>
 		equality(first, second) && other(first, second),
 
 	/**
 	 * Derives deep equality for a record from field-level `Equality` checkers.
+	 * Own string and symbol keys are compared.
 	 *
 	 * @see {@link Equality.tuple} for positional tuple equality.
 	 * @see {@link Equality.by} to compare single record fields.
@@ -138,8 +142,8 @@ export const Equality = {
 	 * });
 	 * ```
 	 */
-	struct: <R extends Record<string, unknown>>(fields: { [K in keyof R]: Equality<R[K]>; }): Equality<R> => {
-		const keys = Object.keys(fields) as (keyof R)[];
+	struct: <R extends object>(fields: { [K in keyof R]: Equality<R[K]>; }): Equality<R> => {
+		const keys = Reflect.ownKeys(fields) as (keyof R)[];
 		const len = keys.length;
 		return (first, second) => {
 			for (let i = 0; i < len; i++) {

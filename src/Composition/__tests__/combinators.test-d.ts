@@ -41,6 +41,13 @@ describe("composition combinators type-level tests", () => {
 			str: (n) => `n: ${n}`,
 		});
 		expectTypeOf(standaloneStruct(5)).toEqualTypeOf<{ double: number; str: string; }>();
+
+		const inferredStruct = struct({ double: (n: number) => n * 2, label: (n: number) => `n: ${n}` });
+		expectTypeOf(inferredStruct(5)).toEqualTypeOf<{ double: number; label: string; }>();
+
+		const flag = Symbol("flag");
+		const symbolStruct = struct({ [flag]: (n: number) => n > 0 });
+		expectTypeOf(symbolStruct(1)[flag]).toEqualTypeOf<boolean>();
 	});
 
 	it("inspects converge, juxt, and on with readonly tuples", () => {

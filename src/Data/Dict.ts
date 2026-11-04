@@ -13,6 +13,9 @@ import type { Brand } from "../Types/Brand.ts";
  */
 type NonEmptyMap<K, V> = Brand<InternalNonEmpty<"Dict">, ReadonlyMap<K, V>>;
 
+type MapKey<M> = M extends ReadonlyMap<infer K, any> ? K : never;
+type MapValue<M> = M extends ReadonlyMap<any, infer V> ? V : never;
+
 // =============================================================================
 // Private Helpers & Combinator Implementations
 // =============================================================================
@@ -85,7 +88,7 @@ const DictFrom = {
 	 * Dict.from.nullable(null);                 // None
 	 * ```
 	 */
-	nullable: <K, V>(dict: ReadonlyMap<K, V> | null | undefined): Maybe<ReadonlyMap<K, V>> =>
+	nullable: <K = never, V = never>(dict: ReadonlyMap<K, V> | null | undefined): Maybe<ReadonlyMap<K, V>> =>
 		dict === null || dict === undefined ? Maybe.make.none() : Maybe.make.some(dict),
 };
 
@@ -142,14 +145,14 @@ const groupBy = <A, K>(keySelector: (item: A) => K) => (items: readonly A[]): Re
  *
  * @see {@link lookup} for retrieving the value associated with a key.
  */
-const has = <K>(key: K) => <V = unknown>(dict: ReadonlyMap<K, V>): boolean => dict.has(key);
+const has = <const K>(key: K) => (dict: ReadonlyMap<unknown, unknown>): boolean => dict.has(key);
 
 /**
  * Retrieves the value associated with a key wrapped in a `Maybe`.
  *
  * @see {@link has} for checking key existence without retrieving the value.
  */
-const lookup = <K>(key: K) => <V = unknown>(dict: ReadonlyMap<K, V>): Maybe<V> => {
+const lookup = <const K>(key: K) => <V = never>(dict: ReadonlyMap<unknown, V>): Maybe<V> => {
 	const val = dict.get(key);
 	return val !== undefined || dict.has(key) ? Maybe.make.some(val as V) : Maybe.make.none();
 };
@@ -194,28 +197,34 @@ const entries = <K, V>(dict: ReadonlyMap<K, V>): readonly (readonly [K, V])[] =>
  * @see {@link remove} for deleting a key from a dictionary.
  * @see {@link upsert} for conditional insertion/update.
  */
-const insert = <K, V>(key: K, value: V) => (dict: ReadonlyMap<K, V>): ReadonlyMap<K, V> => {
-	const res = new globalThis.Map(dict);
-	res.set(key, value);
-	return res;
-};
+const insert =
+	<const K, V>(key: K, value: V) =>
+	<M extends ReadonlyMap<unknown, unknown>>(dict: M): ReadonlyMap<MapKey<M> | K, MapValue<M> | V> => {
+		const res = new globalThis.Map<MapKey<M> | K, MapValue<M> | V>(dict as ReadonlyMap<MapKey<M>, MapValue<M>>);
+		res.set(key, value);
+		return res;
+	};
 
 /**
  * Returns a new dictionary with the specified key removed.
  *
  * @see {@link insert} for adding or replacing a key in a dictionary.
  */
-const remove = <K>(key: K) => <V = unknown>(dict: ReadonlyMap<K, V>): ReadonlyMap<K, V> => {
-	if (!dict.has(key)) {
-		return dict;
-	}
-	const res = new globalThis.Map(dict);
-	res.delete(key);
-	return res;
-};
+const remove =
+	<const K>(key: K) => <M extends ReadonlyMap<unknown, unknown>>(dict: M): ReadonlyMap<MapKey<M>, MapValue<M>> => {
+		if (!dict.has(key)) {
+			return dict as ReadonlyMap<MapKey<M>, MapValue<M>>;
+		}
+		const res = new globalThis.Map<MapKey<M>, MapValue<M>>(dict as ReadonlyMap<MapKey<M>, MapValue<M>>);
+		res.delete(key as unknown as MapKey<M>);
+		return res;
+	};
 
 /**
  * Inserts or updates a key using a callback that receives the existing value if present.
+ *
+ * When the dictionary's value type is wider than the callback's inferred type, annotate the
+ * callback parameter explicitly; the value type is supplied by the second argument.
  *
  * @see {@link insert} for unconditional key setting.
  */
@@ -286,7 +295,7 @@ const filterWithKey =
 /**
  * Removes all `None` values from a dictionary, unwrapping `Some` values.
  */
-const compact = <K, A>(dict: ReadonlyMap<K, Maybe<A>>): ReadonlyMap<K, A> => {
+const compact = <K = never, A = never>(dict: ReadonlyMap<K, Maybe<A>>): ReadonlyMap<K, A> => {
 	const res = new globalThis.Map<K, A>();
 	for (const [k, v] of dict) {
 		if (v.kind === "Some") {
@@ -319,19 +328,23 @@ const filterMap =
  * @see {@link intersection} for keeping only common keys.
  * @see {@link difference} for removing keys present in the other dictionary.
  */
-const union = <K, V>(other: ReadonlyMap<K, V>) => (dict: ReadonlyMap<K, V>): ReadonlyMap<K, V> => {
-	if (dict.size === 0) {
-		return other;
-	}
-	if (other.size === 0) {
-		return dict;
-	}
-	const res = new globalThis.Map(dict);
-	for (const [k, v] of other) {
-		res.set(k, v);
-	}
-	return res;
-};
+const union =
+	<const O extends ReadonlyMap<unknown, unknown>>(other: O) =>
+	<M extends ReadonlyMap<unknown, unknown>>(dict: M): ReadonlyMap<MapKey<M> | MapKey<O>, MapValue<M> | MapValue<O>> => {
+		if (dict.size === 0) {
+			return other as unknown as ReadonlyMap<MapKey<M> | MapKey<O>, MapValue<M> | MapValue<O>>;
+		}
+		if (other.size === 0) {
+			return dict as unknown as ReadonlyMap<MapKey<M> | MapKey<O>, MapValue<M> | MapValue<O>>;
+		}
+		const res = new globalThis.Map<MapKey<M> | MapKey<O>, MapValue<M> | MapValue<O>>(
+			dict as ReadonlyMap<MapKey<M>, MapValue<M>>,
+		);
+		for (const [k, v] of other as ReadonlyMap<MapKey<O>, MapValue<O>>) {
+			res.set(k, v);
+		}
+		return res;
+	};
 
 /**
  * Returns a new dictionary containing only keys present in both dictionaries.
@@ -339,15 +352,17 @@ const union = <K, V>(other: ReadonlyMap<K, V>) => (dict: ReadonlyMap<K, V>): Rea
  * @see {@link union} for combining all keys from both dictionaries.
  * @see {@link difference} for subtracting keys.
  */
-const intersection = <K, V>(other: ReadonlyMap<K, V>) => (dict: ReadonlyMap<K, V>): ReadonlyMap<K, V> => {
-	const res = new globalThis.Map<K, V>();
-	for (const [k, v] of dict) {
-		if (other.has(k)) {
-			res.set(k, v);
+const intersection =
+	<const O extends ReadonlyMap<unknown, unknown>>(other: O) =>
+	<M extends ReadonlyMap<unknown, unknown>>(dict: M): ReadonlyMap<MapKey<M>, MapValue<M>> => {
+		const res = new globalThis.Map<MapKey<M>, MapValue<M>>();
+		for (const [k, v] of dict as ReadonlyMap<MapKey<M>, MapValue<M>>) {
+			if (other.has(k)) {
+				res.set(k, v);
+			}
 		}
-	}
-	return res;
-};
+		return res;
+	};
 
 /**
  * Returns a new dictionary containing keys from `dict` that are not in `other`.
@@ -355,18 +370,20 @@ const intersection = <K, V>(other: ReadonlyMap<K, V>) => (dict: ReadonlyMap<K, V
  * @see {@link union} for combining all keys.
  * @see {@link intersection} for keeping only common keys.
  */
-const difference = <K, V>(other: ReadonlyMap<K, V>) => (dict: ReadonlyMap<K, V>): ReadonlyMap<K, V> => {
-	if (other.size === 0) {
-		return dict;
-	}
-	const res = new globalThis.Map<K, V>();
-	for (const [k, v] of dict) {
-		if (!other.has(k)) {
-			res.set(k, v);
+const difference =
+	<const O extends ReadonlyMap<unknown, unknown>>(other: O) =>
+	<M extends ReadonlyMap<unknown, unknown>>(dict: M): ReadonlyMap<MapKey<M>, MapValue<M>> => {
+		if (other.size === 0) {
+			return dict as ReadonlyMap<MapKey<M>, MapValue<M>>;
 		}
-	}
-	return res;
-};
+		const res = new globalThis.Map<MapKey<M>, MapValue<M>>();
+		for (const [k, v] of dict as ReadonlyMap<MapKey<M>, MapValue<M>>) {
+			if (!other.has(k)) {
+				res.set(k, v);
+			}
+		}
+		return res;
+	};
 
 /**
  * Reduces dictionary values from an initial value.

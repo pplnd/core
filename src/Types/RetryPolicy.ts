@@ -1,3 +1,4 @@
+import { clampTimerDelay, MAX_TIMER_MS } from "../internal/timers.ts";
 import { Duration } from "./Duration.ts";
 
 /**
@@ -101,18 +102,21 @@ export const RetryPolicy = {
 		},
 	): RetryPolicy<E> => {
 		const attempts = Number.isInteger(options.attempts) && options.attempts > 0 ? options.attempts : 1;
-		const initialMs = Duration.to.milliseconds(options.initial);
-		const factor = options.factor ?? 2;
+		const initialMs = Math.max(0, Duration.to.milliseconds(options.initial));
+		const rawFactor = options.factor ?? 2;
+		const factor = Number.isFinite(rawFactor) ? Math.max(0, rawFactor) : 2;
 		const jitter = options.jitter ?? false;
-		const maxMs = options.maxDelay ? Duration.to.milliseconds(options.maxDelay) : undefined;
+		const maxMs = options.maxDelay !== undefined ? Math.max(0, Duration.to.milliseconds(options.maxDelay)) : undefined;
 
 		return {
 			attempts,
 			getDelay: (attempt: number) => {
-				const rawMs = initialMs * (factor ** Math.max(0, attempt - 1));
-				const cappedMs = maxMs !== undefined ? Math.min(rawMs, maxMs) : rawMs;
+				const safeAttempt = Number.isFinite(attempt) ? Math.max(0, attempt) : 1;
+				const rawMs = initialMs * (factor ** Math.max(0, safeAttempt - 1));
+				const finiteRaw = Number.isFinite(rawMs) ? rawMs : maxMs ?? MAX_TIMER_MS;
+				const cappedMs = maxMs !== undefined ? Math.min(finiteRaw, maxMs) : finiteRaw;
 				const finalMs = jitter ? Math.random() * cappedMs : cappedMs;
-				return Duration.milliseconds(finalMs);
+				return Duration.milliseconds(clampTimerDelay(finalMs));
 			},
 			...(options.when !== undefined ? { when: options.when } : {}),
 			...(options.onRetry !== undefined ? { onRetry: options.onRetry } : {}),

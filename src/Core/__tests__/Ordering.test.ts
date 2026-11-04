@@ -185,3 +185,18 @@ test("thenBy: short-circuits second ordering when first is decisive", () => {
 	ord("a", "b");
 	expect(called).toBe(false);
 });
+
+test("number: places NaN after valid values", () => {
+	expect(Ordering.number(Number.NaN, Number.NaN)).toBe(0);
+	expect(Ordering.number(Number.NaN, 1)).toBe(1);
+	expect(Ordering.number(1, Number.NaN)).toBe(-1);
+	expect([3, Number.NaN, 1].toSorted(Ordering.number)).toStrictEqual([1, 3, Number.NaN]);
+});
+
+test("date: places Invalid Date after valid values", () => {
+	const invalid = new Date(Number.NaN);
+	const valid = new Date("2024-01-01");
+	expect(Ordering.date(invalid, valid)).toBe(1);
+	expect(Ordering.date(valid, invalid)).toBe(-1);
+	expect([valid, invalid].toSorted(Ordering.date)).toStrictEqual([valid, invalid]);
+});

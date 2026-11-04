@@ -356,9 +356,23 @@ type TimeoutErrorOf<O> = O extends { timeout?: infer T; }
 type CombinedError<E, O> = E | TimeoutErrorOf<O>;
 
 // Extracts the key type from the `keyed` strategy's `key` function, defaulting to the first argument type.
-type KeyType<Args extends readonly unknown[], O> = O extends { key: (...args: Args) => infer K; } ? K
+type KeyType<Args extends readonly unknown[], O> = "key" extends keyof O
+	? NonNullable<O["key"]> extends (...args: Args) => infer K ? K
+	: Args extends readonly [infer First, ...unknown[]] ? First
+	: unknown
 	: Args extends readonly [infer First, ...unknown[]] ? First
 	: unknown;
+
+type OverflowOf<O> = "overflow" extends keyof O ? O["overflow"] : undefined;
+type PerKeyOf<O> = "perKey" extends keyof O ? O["perKey"] : undefined;
+
+type ConcurrentStates<E, A, O> =
+	| (Extract<OverflowOf<O>, "queue"> extends never ? never : Op.ConcurrentQueueState<E, A>)
+	| (Extract<OverflowOf<O>, "drop" | undefined> extends never ? never : Op.ConcurrentDropState<E, A>);
+
+type KeyedPerKeyStates<E, A, O> =
+	| (Extract<PerKeyOf<O>, "restartable"> extends never ? never : Op.KeyedRestartablePerKey<E, A>)
+	| (Extract<PerKeyOf<O>, "exclusive" | undefined> extends never ? never : Op.KeyedExclusivePerKey<E, A>);
 
 type OptionValue<O, K extends PropertyKey> = K extends keyof O ? O[K] : never;
 type QueueExtra<O> =
@@ -383,29 +397,10 @@ type DispatchStrategy<Args extends readonly unknown[], E, A, O> = O extends { st
 	: Op.Manager<Args, CombinedError<E, O>, A, Op.ThrottledState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
 	: O extends { strategy: "debounced"; }
 		? Op.Manager<Args, CombinedError<E, O>, A, Op.DebouncedState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
-	: O extends { strategy: "concurrent"; overflow: infer V; }
-		? Op.Manager<
-			Args,
-			CombinedError<E, O>,
-			A,
-			| ("queue" extends V ? Op.ConcurrentQueueState<CombinedError<E, O>, A> : never)
-			| ("drop" extends V ? Op.ConcurrentDropState<CombinedError<E, O>, A> : never)
-			| MaybeRetry<E, O>
-		>
-	: O extends { strategy: "concurrent"; overflow: "queue"; }
-		? Op.Manager<Args, CombinedError<E, O>, A, Op.ConcurrentQueueState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
 	: O extends { strategy: "concurrent"; }
-		? Op.Manager<Args, CombinedError<E, O>, A, Op.ConcurrentDropState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
-	: O extends { strategy: "keyed"; perKey: infer V; }
-		? Op.KeyedManager<
-			Args,
-			KeyType<Args, O>,
-			CombinedError<E, O>,
-			| ("restartable" extends V ? Op.KeyedRestartablePerKey<CombinedError<E, O>, A> : never)
-			| ("exclusive" extends V ? Op.KeyedExclusivePerKey<CombinedError<E, O>, A> : never)
-		>
+		? Op.Manager<Args, CombinedError<E, O>, A, ConcurrentStates<CombinedError<E, O>, A, O> | MaybeRetry<E, O>>
 	: O extends { strategy: "keyed"; }
-		? Op.KeyedManager<Args, KeyType<Args, O>, CombinedError<E, O>, Op.KeyedExclusivePerKey<CombinedError<E, O>, A>>
+		? Op.KeyedManager<Args, KeyType<Args, O>, CombinedError<E, O>, KeyedPerKeyStates<CombinedError<E, O>, A, O>>
 	: O extends { strategy: "once"; }
 		? Op.Manager<Args, CombinedError<E, O>, A, Op.OnceState<CombinedError<E, O>, A> | MaybeRetry<E, O>>
 	: O extends { strategy: "restartable"; }
@@ -425,7 +420,7 @@ type InterpretResult<Args extends readonly unknown[], E, A, O> = O extends unkno
 
 // Helpers for implementation
 const makeOk = <A>(value: A): Op.Ok<A> => ({ kind: "OpOk", value });
-const makeErr = <E>(error: E): Op.Err<E> => ({ kind: "OpErr", error });
+const makeErr = <const E>(error: E): Op.Err<E> => ({ kind: "OpErr", error });
 const makeNil = (reason: Op.NilReason): Op.Nil => ({ kind: "OpNil", reason });
 
 const isIdle = <E = unknown, A = unknown>(state: Op.State<E, A>): state is Op.Idle => state.kind === "Idle";
@@ -764,7 +759,7 @@ const OpOutcome = {
 		 * ```
 		 */
 		Result:
-			<E2>(onNil: (reason: Op.NilReason) => E2) =>
+			<const E2>(onNil: (reason: Op.NilReason) => E2) =>
 			<E1 = never, A = never>(outcome: Op.Outcome<E1, A>): CoreResult<E1 | E2, A> => {
 				if (outcome.kind === "OpOk") {
 					return CoreResult.make.ok(outcome.value);

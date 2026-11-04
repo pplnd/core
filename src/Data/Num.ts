@@ -157,7 +157,11 @@ export const Num = {
 		if (!Number.isFinite(from) || !Number.isFinite(to) || !Number.isFinite(step) || step <= 0 || from > to) {
 			return [];
 		}
-		const count = Math.floor((to - from) / step) + 1;
+		const ratio = (to - from) / step;
+		let count = Math.ceil(ratio) + 1;
+		while (count > 1 && from + (count - 1) * step > to) {
+			count--;
+		}
 		const result = new Array<number>(count);
 		for (let i = 0; i < count; i++) {
 			result[i] = from + i * step;
@@ -210,7 +214,7 @@ export const Num = {
 	 */
 	from: {
 		/**
-		 * Parses a string as a number. Returns `None` when parsing produces `NaN` or text is blank.
+		 * Parses a string as a number. Returns `None` when parsing produces a non-finite value or text is blank.
 		 *
 		 * @example
 		 * ```ts
@@ -223,7 +227,7 @@ export const Num = {
 		string: (text: string): Maybe<number> => {
 			if (text.trim() === "") { return Maybe.make.none(); }
 			const n = Number(text);
-			return isNaN(n) ? Maybe.make.none() : Maybe.make.some(n);
+			return Number.isFinite(n) ? Maybe.make.some(n) : Maybe.make.none();
 		},
 	},
 
@@ -279,8 +283,11 @@ export const Num = {
 	 * pipe([10, 20, 30], Arr.filterMap(Num.divide(10))); // [1, 2, 3]
 	 * ```
 	 */
-	divide: (divisor: number) => (dividend: number): Maybe<number> =>
-		divisor === 0 ? Maybe.make.none() : Maybe.make.some(dividend / divisor),
+	divide: (divisor: number) => (dividend: number): Maybe<number> => {
+		if (divisor === 0) { return Maybe.make.none(); }
+		const result = dividend / divisor;
+		return Number.isNaN(result) ? Maybe.make.none() : Maybe.make.some(result);
+	},
 
 	/**
 	 * Returns the absolute value of a number.
@@ -359,8 +366,11 @@ export const Num = {
 	 * pipe([10, 11, 12], Arr.filterMap(Num.remainder(3))); // [1, 2, 0]
 	 * ```
 	 */
-	remainder: (divisor: number) => (dividend: number): Maybe<number> =>
-		divisor === 0 ? Maybe.make.none() : Maybe.make.some(dividend % divisor),
+	remainder: (divisor: number) => (dividend: number): Maybe<number> => {
+		if (divisor === 0) { return Maybe.make.none(); }
+		const result = dividend % divisor;
+		return Number.isNaN(result) ? Maybe.make.none() : Maybe.make.some(result);
+	},
 
 	/**
 	 * Computes the sum of a list of numbers. Returns `0` if the list is empty.
@@ -386,7 +396,8 @@ export const Num = {
 		numbers.length === 0 ? Maybe.make.none() : Maybe.make.some(sumFn(numbers) / numbers.length),
 
 	/**
-	 * Computes the minimum of a list of numbers. Returns `None` if the list is empty.
+	 * Computes the minimum of a list of numbers. Returns `None` if the list is empty or contains `NaN`.
+	 * Treating `NaN` as absent keeps the result independent of element order.
 	 *
 	 * @see {@link Num.max} to compute the maximum value.
 	 *
@@ -400,13 +411,15 @@ export const Num = {
 		if (numbers.length === 0) { return Maybe.make.none(); }
 		let [result] = numbers;
 		for (let i = 1; i < numbers.length; i++) {
+			if (Number.isNaN(numbers[i])) { return Maybe.make.none(); }
 			if (numbers[i] < result) { result = numbers[i]; }
 		}
-		return Maybe.make.some(result);
+		return Number.isNaN(result) ? Maybe.make.none() : Maybe.make.some(result);
 	},
 
 	/**
-	 * Computes the maximum of a list of numbers. Returns `None` if the list is empty.
+	 * Computes the maximum of a list of numbers. Returns `None` if the list is empty or contains `NaN`.
+	 * Treating `NaN` as absent keeps the result independent of element order.
 	 *
 	 * @see {@link Num.min} to compute the minimum value.
 	 *
@@ -420,9 +433,10 @@ export const Num = {
 		if (numbers.length === 0) { return Maybe.make.none(); }
 		let [result] = numbers;
 		for (let i = 1; i < numbers.length; i++) {
+			if (Number.isNaN(numbers[i])) { return Maybe.make.none(); }
 			if (numbers[i] > result) { result = numbers[i]; }
 		}
-		return Maybe.make.some(result);
+		return Number.isNaN(result) ? Maybe.make.none() : Maybe.make.some(result);
 	},
 
 	/**

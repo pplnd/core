@@ -62,7 +62,8 @@ export const Predicate = {
 	 * isPositiveEven(-2);  // false — even but not positive
 	 * ```
 	 */
-	and: <A>(that: Predicate<A>) => (predicate: Predicate<A>): Predicate<A> => (value) => predicate(value) && that(value),
+	and: <A>(that: Predicate<A>) => <B extends A>(predicate: Predicate<B>): Predicate<B> => (value) =>
+		predicate(value) && that(value),
 
 	/**
 	 * Combines two predicates with logical OR: passes when either holds.
@@ -81,7 +82,8 @@ export const Predicate = {
 	 * getsDiscount(30);  // false
 	 * ```
 	 */
-	or: <A>(that: Predicate<A>) => (predicate: Predicate<A>): Predicate<A> => (value) => predicate(value) || that(value),
+	or: <A>(that: Predicate<A>) => <B extends A>(predicate: Predicate<B>): Predicate<B> => (value) =>
+		predicate(value) || that(value),
 
 	/**
 	 * Adapts a `Predicate<A>` to work on a different input type `B` by applying `transform`

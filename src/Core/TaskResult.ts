@@ -1,4 +1,5 @@
-import type { Thenable } from "../internal/InternalTypes";
+import type { KeysOfUnion, Thenable } from "../internal/InternalTypes";
+import { clampTimerDelay } from "../internal/timers.ts";
 import { waitForDelay } from "../internal/waitForDelay.ts";
 import { Duration } from "../Types/Duration.ts";
 import type { RetryPolicy } from "../Types/RetryPolicy.ts";
@@ -10,11 +11,13 @@ import { Task } from "./Task.ts";
 const makeOk = <A>(value: A): Task.Result<never, A> => Task.make(CoreResult.make.ok(value));
 const makeErr = <const E>(error: E): Task.Result<E, never> => Task.make(CoreResult.make.err(error));
 
+type TaskErrOf<T> = T extends Task.Result<infer E, unknown> ? E : never;
+
 const mapTaskResult = <A, B>(transform: (value: A) => B) => <E = never>(task: Task.Result<E, A>): Task.Result<E, B> =>
 	Task.map(CoreResult.map<A, B>(transform))(task);
 
 const chainTaskResult =
-	<E2, A, B>(transform: (value: A) => Task.Result<E2, B>) =>
+	<E2 = never, A = unknown, B = unknown>(transform: (value: A) => Task.Result<E2, B>) =>
 	<E1 = never>(task: Task.Result<E1, A>): Task.Result<E1 | E2, B> =>
 		Task.chain((result: Result<E1, A>) =>
 			CoreResult.is.ok(result)
@@ -59,8 +62,10 @@ export const TaskResult = {
 		 * Task.Result.from.nullable(() => "missing")(null); // resolves to Err("missing")
 		 * ```
 		 */
-		nullable: <const E>(onNull: () => E) => <A>(value: A | null | undefined): Task.Result<E, A> =>
-			Task.make(value === null || value === undefined ? CoreResult.make.err(onNull()) : CoreResult.make.ok(value)),
+		nullable: <const E>(onNull: () => E) => <A>(value: A | null | undefined): Task.Result<E, NonNullable<A>> =>
+			Task.make(
+				value === null || value === undefined ? CoreResult.make.err(onNull()) : CoreResult.make.ok(value as NonNullable<A>),
+			),
 
 		/**
 		 * Creates a Task.Result from a Maybe.
@@ -221,7 +226,7 @@ export const TaskResult = {
 	 * ```
 	 */
 	recover:
-		<E1, E2, B>(fallback: (error: E1) => Task.Result<E2, B>) =>
+		<E1, E2 = never, B = never>(fallback: (error: E1) => Task.Result<E2, B>) =>
 		<A = never>(task: Task.Result<E1, A>): Task.Result<E2, A | B> =>
 			Task.chain((result: Result<E1, A>) =>
 				CoreResult.is.err(result) ? fallback(result.error) : Task.make(result as Result<E2, A | B>)
@@ -245,7 +250,7 @@ export const TaskResult = {
 	 * ```
 	 */
 	recoverUnless:
-		<E1, E2, B>(isBlocked: (error: E1) => boolean, fallback: (error: E1) => Task.Result<E2, B>) =>
+		<E1, E2 = never, B = never>(isBlocked: (error: E1) => boolean, fallback: (error: E1) => Task.Result<E2, B>) =>
 		<A = never>(task: Task.Result<E1, A>): Task.Result<E1 | E2, A | B> =>
 			Task.chain((result: Result<E1, A>) =>
 				CoreResult.is.err(result) && !isBlocked(result.error)
@@ -265,7 +270,7 @@ export const TaskResult = {
 	 * ); // Task resolving to 0
 	 * ```
 	 */
-	getOrElse: <B>(fallback: () => B) => <A, E = never>(task: Task.Result<E, A>): Task<A | B> =>
+	getOrElse: <B>(fallback: () => B) => <A = never, E = never>(task: Task.Result<E, A>): Task<A | B> =>
 		Task.map(CoreResult.getOrElse<B>(fallback))(task),
 
 	/**
@@ -374,7 +379,7 @@ export const TaskResult = {
 	 */
 	assign:
 		<K extends string, E2, A extends object, B>(
-			key: K extends keyof A ? never : K,
+			key: K extends KeysOfUnion<A> ? never : K,
 			transform: (value: A) => Task.Result<E2, B>,
 		) =>
 		<E1 = never>(task: Task.Result<E1, A>): Task.Result<E1 | E2, A & { [P in K]: B; }> =>
@@ -401,13 +406,10 @@ export const TaskResult = {
 	struct:
 		<T extends Record<string, Task.Result<unknown, unknown>>>(
 			fields: T,
-		): Task.Result<
-			T[keyof T] extends Task.Result<infer E, unknown> ? E : never,
-			{ [K in keyof T]: T[K] extends Task.Result<unknown, infer A> ? A : never; }
-		> =>
+		): Task.Result<TaskErrOf<T[keyof T]>, { [K in keyof T]: T[K] extends Task.Result<unknown, infer A> ? A : never; }> =>
 		(signal) =>
 			Deferred.from.Promise((() => {
-				type E = T[keyof T] extends Task.Result<infer Err, unknown> ? Err : never;
+				type E = TaskErrOf<T[keyof T]>;
 				type R = { [K in keyof T]: T[K] extends Task.Result<unknown, infer A> ? A : never; };
 				type StructResult = Result<E, R>;
 				const keys = Reflect.ownKeys(fields);
@@ -455,7 +457,8 @@ export const TaskResult = {
 		<E1 extends E = E, A = unknown>(task: Task.Result<E1, A>): Task.Result<E1, A> =>
 		(signal) =>
 			Deferred.from.Promise((() => {
-				const { attempts, when: shouldRetry, onRetry: onRetryCallback } = policy;
+				const { attempts: rawAttempts, when: shouldRetry, onRetry: onRetryCallback } = policy;
+				const attempts = Number.isFinite(rawAttempts) ? Math.max(1, Math.floor(rawAttempts)) : 1;
 
 				const wait = (duration: Duration): Promise<void> => waitForDelay(Duration.to.milliseconds(duration), signal);
 
@@ -497,7 +500,7 @@ export const TaskResult = {
 	 * ```
 	 */
 	timeout:
-		<E2>(options: { duration: Duration; onTimeout: () => E2; }) =>
+		<const E2>(options: { duration: Duration; onTimeout: () => E2; }) =>
 		<E1 = never, A = unknown>(task: Task.Result<E1, A>): Task.Result<E1 | E2, A> =>
 		(outerSignal) =>
 			Deferred.from.Promise((() => {
@@ -531,7 +534,7 @@ export const TaskResult = {
 							cleanUp();
 							resolve(CoreResult.make.err(options.onTimeout()));
 							controller.abort();
-						}, Duration.to.milliseconds(options.duration));
+						}, clampTimerDelay(Duration.to.milliseconds(options.duration)));
 					}),
 				]);
 			})()),
@@ -562,20 +565,18 @@ export const TaskResult = {
 			tasks: readonly [...T],
 			options?: { concurrency?: number; },
 		): Task.Result<
-			(T[number] extends Task.Result<infer E, unknown> ? E : never) | Task.Aborted,
+			TaskErrOf<T[number]> | Task.Aborted,
 			{ [K in keyof T]: T[K] extends Task.Result<unknown, infer A> ? A : never; }
 		> =>
 		(callerSignal) =>
 			Deferred.from.Promise(
 				new Promise<
 					Result<
-						(T[number] extends Task.Result<infer E, unknown> ? E : never) | Task.Aborted,
-						{
-							[K in keyof T]: T[K] extends Task.Result<unknown, infer A> ? A : never;
-						}
+						TaskErrOf<T[number]> | Task.Aborted,
+						{ [K in keyof T]: T[K] extends Task.Result<unknown, infer A> ? A : never; }
 					>
 				>((resolve) => {
-					type AllE = (T[number] extends Task.Result<infer E, unknown> ? E : never) | Task.Aborted;
+					type AllE = TaskErrOf<T[number]> | Task.Aborted;
 					type Results = { [K in keyof T]: T[K] extends Task.Result<unknown, infer A> ? A : never; };
 
 					if (callerSignal?.aborted) {
@@ -673,7 +674,7 @@ export const TaskResult = {
 		<T extends readonly Task.Result<unknown, unknown>[]>(
 			tasks: readonly [...T],
 		): Task.Result<
-			(T[number] extends Task.Result<infer E, unknown> ? E : never) | Task.Aborted,
+			TaskErrOf<T[number]> | Task.Aborted,
 			{ [K in keyof T]: T[K] extends Task.Result<unknown, infer A> ? A : never; }
 		> =>
 		(signal) => TaskResult.all(tasks, { concurrency: 1 })(signal),

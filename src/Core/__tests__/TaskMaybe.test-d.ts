@@ -58,3 +58,12 @@ test("negative: flags invalid transforms and non-Task.Maybe struct fields", () =
 	// @ts-expect-error Struct field values must be Task.Maybe instances
 	expectTypeOf(Task.Maybe.struct({ a: 123 })).toBeFunction();
 });
+
+test("from.nullable: strips null and undefined from the success channel", () => {
+	expectTypeOf(Task.Maybe.from.nullable(null)).toEqualTypeOf<Task.Maybe<never>>();
+});
+
+test("to.Result: absent success channel stays never", () => {
+	const result = Task.Maybe.to.Result(() => "missing")(Task.Maybe.make.none());
+	expectTypeOf(result).toEqualTypeOf<Task.Result<"missing", never>>();
+});

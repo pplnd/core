@@ -138,6 +138,7 @@ export const Combinable = {
 
 	/**
 	 * Derives a `Combinable` for a record of fields from field-level `Combinable` instances.
+	 * Own string and symbol keys participate in `empty` and `combine`.
 	 *
 	 * @see {@link Combinable.combineAll} to fold arrays of structured records.
 	 *
@@ -149,8 +150,8 @@ export const Combinable = {
 	 * });
 	 * ```
 	 */
-	struct: <R extends Record<string, unknown>>(fields: { [K in keyof R]: Combinable<R[K]>; }): Combinable<R> => {
-		const keys = Object.keys(fields) as (keyof R)[];
+	struct: <R extends object>(fields: { [K in keyof R]: Combinable<R[K]>; }): Combinable<R> => {
+		const keys = Reflect.ownKeys(fields) as (keyof R)[];
 		const len = keys.length;
 		const empty = {} as R;
 		for (let i = 0; i < len; i++) {

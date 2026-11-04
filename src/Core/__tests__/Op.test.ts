@@ -1440,6 +1440,48 @@ test("interpret: concurrent overflow queue emits Queued state for waiting run", 
 	expect(states).toContainEqual({ kind: "Queued", position: 0 });
 });
 
+test("interpret: concurrent re-entrant run reports the queue position after the freed slot", async () => {
+	const manager = Op.interpret(delayedOp(10), { strategy: "concurrent", concurrency: 1, overflow: "queue" });
+	const positions: number[] = [];
+	let reentrant: Deferred<Op.Outcome<string, number>> | undefined;
+	let triggered = false;
+
+	manager.subscribe((state) => {
+		if (state.kind === "OpOk" && state.value === 1 && !triggered) {
+			triggered = true;
+			reentrant = manager.run(3);
+		}
+		if (triggered && state.kind === "Queued") {
+			positions.push(state.position);
+		}
+	});
+
+	const p1 = manager.run(1);
+	const p2 = manager.run(2);
+	await expect(p1).resolves.toStrictEqual({ kind: "OpOk", value: 1 });
+	if (reentrant === undefined) { throw new Error("expected a re-entrant run"); }
+	await expect(p2).resolves.toStrictEqual({ kind: "OpOk", value: 2 });
+	await expect(reentrant).resolves.toStrictEqual({ kind: "OpOk", value: 3 });
+	expect(positions).toStrictEqual([0]);
+});
+
+test("interpret: concurrent abort inside settled subscriber aborts reserved work", async () => {
+	const manager = Op.interpret(delayedOp(10), { strategy: "concurrent", concurrency: 1, overflow: "queue" });
+	let triggered = false;
+
+	manager.subscribe((state) => {
+		if (state.kind === "OpOk" && state.value === 1 && !triggered) {
+			triggered = true;
+			manager.abort();
+		}
+	});
+
+	const p1 = manager.run(1);
+	const p2 = manager.run(2);
+	await expect(p1).resolves.toStrictEqual({ kind: "OpOk", value: 1 });
+	await expect(p2).resolves.toStrictEqual({ kind: "OpNil", reason: "aborted" });
+});
+
 // --- Op.interpret — keyed (exclusive perKey) ---
 
 test("interpret: keyed exclusive runs different keys in parallel", async () => {
@@ -1685,6 +1727,38 @@ test("interpret: exclusive with cooldown abort clears cooldown", async () => {
 	await expect(p2).resolves.toStrictEqual({ kind: "OpOk", value: 2 });
 });
 
+test("interpret: exclusive re-entrant run inside success subscriber respects cooldown", async () => {
+	const manager = Op.interpret(delayedOp(), { strategy: "exclusive", cooldown: Duration.milliseconds(100) });
+	let reentrant: Deferred<Op.Outcome<string, number>> | undefined;
+	let triggered = false;
+
+	manager.subscribe((state) => {
+		if (state.kind === "OpOk" && !triggered) {
+			triggered = true;
+			reentrant = manager.run(2);
+		}
+	});
+
+	await expect(manager.run(1)).resolves.toStrictEqual({ kind: "OpOk", value: 1 });
+	if (reentrant === undefined) { throw new Error("expected a re-entrant run"); }
+	await expect(reentrant).resolves.toStrictEqual({ kind: "OpNil", reason: "dropped" });
+});
+
+test("interpret: exclusive abort inside success subscriber clears cooldown", async () => {
+	const manager = Op.interpret(delayedOp(), { strategy: "exclusive", cooldown: Duration.milliseconds(200) });
+	let triggered = false;
+
+	manager.subscribe((state) => {
+		if (state.kind === "OpOk" && !triggered) {
+			triggered = true;
+			manager.abort();
+		}
+	});
+
+	await expect(manager.run(1)).resolves.toStrictEqual({ kind: "OpOk", value: 1 });
+	await expect(manager.run(2)).resolves.toStrictEqual({ kind: "OpOk", value: 2 });
+});
+
 // --- Op.interpret — buffered size ---
 
 test("interpret: buffered with capacity holds waiting calls and evicts oldest when full", async () => {
@@ -1741,6 +1815,63 @@ test("interpret: queue with replace-last overflow evicts queue tail", async () =
 	await expect(p2).resolves.toStrictEqual({ kind: "OpNil", reason: "evicted" });
 	await expect(p1).resolves.toStrictEqual({ kind: "OpOk", value: 1 });
 	await expect(p3).resolves.toStrictEqual({ kind: "OpOk", value: 3 });
+});
+
+test("interpret: queue re-entrant run inside settled subscriber is queued, not dropped", async () => {
+	const manager = Op.interpret(delayedOp(10), { strategy: "queue", maxSize: 1 });
+	let reentrant: Deferred<Op.Outcome<string, number>> | undefined;
+	let triggered = false;
+
+	manager.subscribe((state) => {
+		if (state.kind === "OpOk" && state.value === 1 && !triggered) {
+			triggered = true;
+			reentrant = manager.run(3);
+		}
+	});
+
+	const p1 = manager.run(1);
+	const p2 = manager.run(2);
+	await expect(p1).resolves.toStrictEqual({ kind: "OpOk", value: 1 });
+	if (reentrant === undefined) { throw new Error("expected a re-entrant run"); }
+	await expect(p2).resolves.toStrictEqual({ kind: "OpOk", value: 2 });
+	await expect(reentrant).resolves.toStrictEqual({ kind: "OpOk", value: 3 });
+});
+
+test("interpret: queue replace-last re-entrant run does not evict the waiting call", async () => {
+	const manager = Op.interpret(delayedOp(10), { strategy: "queue", maxSize: 1, overflow: "replace-last" });
+	let reentrant: Deferred<Op.Outcome<string, number>> | undefined;
+	let triggered = false;
+
+	manager.subscribe((state) => {
+		if (state.kind === "OpOk" && state.value === 1 && !triggered) {
+			triggered = true;
+			reentrant = manager.run(3);
+		}
+	});
+
+	const p1 = manager.run(1);
+	const p2 = manager.run(2);
+	await expect(p1).resolves.toStrictEqual({ kind: "OpOk", value: 1 });
+	if (reentrant === undefined) { throw new Error("expected a re-entrant run"); }
+	await expect(p2).resolves.toStrictEqual({ kind: "OpOk", value: 2 });
+	await expect(reentrant).resolves.toStrictEqual({ kind: "OpOk", value: 3 });
+});
+
+test("interpret: queue abort inside settled subscriber aborts reserved work", async () => {
+	const manager = Op.interpret(delayedOp(10), { strategy: "queue", maxSize: 1 });
+	let triggered = false;
+
+	manager.subscribe((state) => {
+		if (state.kind === "OpOk" && state.value === 1 && !triggered) {
+			triggered = true;
+			manager.abort();
+		}
+	});
+
+	const p1 = manager.run(1);
+	const p2 = manager.run(2);
+	await expect(p1).resolves.toStrictEqual({ kind: "OpOk", value: 1 });
+	await expect(p2).resolves.toStrictEqual({ kind: "OpNil", reason: "aborted" });
 });
 
 // --- Op.interpret — queue dedupe ---

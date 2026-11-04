@@ -16,7 +16,17 @@
  *
  * @see {@link when} for executing when a predicate is met
  */
-export const unless =
-	<A, B = A>(predicate: (value: A) => boolean, onFalse: (value: A) => B) => (
-		value: A,
-	): A | B => (predicate(value) ? value : onFalse(value));
+export function unless<A, B extends A, C>(
+	predicate: (value: A) => value is B,
+	onFalse: (value: Exclude<A, B>) => C,
+): (value: A) => B | C;
+export function unless<A, B = A>(
+	predicate: (value: A) => boolean,
+	onFalse: (value: A) => B,
+): <V extends A>(value: V) => V | B;
+// The overloads narrow the true branch to B; the implementation only sees a boolean predicate.
+// oxlint-disable-next-line no-explicit-any
+export function unless(...args: readonly any[]): any {
+	const [predicate, onFalse] = args as [(value: unknown) => boolean, (value: unknown) => unknown];
+	return (value: unknown): unknown => (predicate(value) ? value : onFalse(value));
+}

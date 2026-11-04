@@ -193,6 +193,13 @@ test("struct: builds structured object from inputs", () => {
 	expect(run(5)).toStrictEqual({ double: 10, str: "value is 5", isEven: false });
 });
 
+test("struct: processes symbol-keyed fields", () => {
+	const flag = Symbol("flag");
+	const run = struct({ [flag]: (n: number) => n > 0 });
+
+	expect(run(1)).toStrictEqual({ [flag]: true });
+});
+
 // --- flowAsync ---
 
 test("flowAsync: awaits synchronous and asynchronous steps", async () => {

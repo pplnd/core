@@ -103,3 +103,25 @@ test("NonEmpty: preserves guaranteed non-empty tuple constraints", () => {
 	const reduced = pipe(ne, Arr.NonEmpty.reduce((a, b) => a + b));
 	expectTypeOf(reduced).toEqualTypeOf<number>();
 });
+
+test("union widening: array building accepts supertype arrays", () => {
+	const nums: readonly (number | null)[] = [1, null];
+	expectTypeOf(pipe(nums, Arr.append(0))).toEqualTypeOf<Arr.NonEmpty<number | null>>();
+	expectTypeOf(pipe(nums, Arr.prepend(0))).toEqualTypeOf<Arr.NonEmpty<number | null>>();
+	expectTypeOf(pipe(nums, Arr.concat([1]))).toEqualTypeOf<readonly (number | null)[]>();
+	expectTypeOf(pipe(nums, Arr.intersperse(0))).toEqualTypeOf<readonly (number | null)[]>();
+	expectTypeOf(pipe(nums, Arr.insertAt(0, 0))).toEqualTypeOf<readonly (number | null)[]>();
+});
+
+test("absent channels: empty traversals default to never", () => {
+	expectTypeOf(Arr.sequence.Maybe([])).toEqualTypeOf<Maybe<readonly never[]>>();
+	expectTypeOf(Arr.sequence.Result([])).toEqualTypeOf<Result<never, readonly never[]>>();
+	expectTypeOf(Arr.sequence.Validation([])).toEqualTypeOf<Validation<never, readonly never[]>>();
+	expectTypeOf(Arr.compact([])).toEqualTypeOf<readonly never[]>();
+	expectTypeOf(Arr.separate([])).toEqualTypeOf<readonly [readonly never[], readonly never[]]>();
+	expectTypeOf(pipe([1, 1, 2], Arr.dedupeAdjacent())).toEqualTypeOf<readonly number[]>();
+});
+
+test("sequence.Task: accepts a concurrency option", () => {
+	expectTypeOf(Arr.sequence.Task([Task.make(1)], { concurrency: 1 })).toEqualTypeOf<Task<readonly number[]>>();
+});

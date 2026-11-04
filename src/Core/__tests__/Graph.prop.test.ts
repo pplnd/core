@@ -7,15 +7,12 @@ import { Task } from "../Task.ts";
 test("property: linear chain evaluates to the cumulative fold of all nodes", async () => {
 	await fc.assert(
 		fc.asyncProperty(fc.array(fc.integer({ min: 1, max: 100 }), { minLength: 1, maxLength: 8 }), async (numbers) => {
-			let currentNode: Graph.AnyNode<void> = Graph.node("node_0", { run: () => Task.Result.make.ok(numbers[0]) });
+			let currentNode: Graph.AnyNode<void> = Graph.node("node_0", () => Task.Result.make.ok(numbers[0]));
 
 			for (let i = 1; i < numbers.length; i++) {
 				const prevNode = currentNode;
 				const val = numbers[i];
-				currentNode = Graph.node(`node_${i}`, {
-					deps: { prev: prevNode },
-					run: ({ deps: { prev } }) => Task.Result.make.ok(prev + val),
-				});
+				currentNode = Graph.node(`node_${i}`, { prev: prevNode }, ({ deps: { prev } }) => Task.Result.make.ok(prev + val));
 			}
 
 			const graph = Graph.make(currentNode);
@@ -31,27 +28,20 @@ test("property: diamond DAG guarantees single execution of root node across inpu
 	await fc.assert(fc.asyncProperty(fc.integer(), fc.integer(), async (a, b) => {
 		let rootCount = 0;
 
-		const rootNode = Graph.node("root", {
-			run: () => {
-				rootCount++;
-				return Task.Result.make.ok(a);
-			},
+		const rootNode = Graph.node("root", () => {
+			rootCount++;
+			return Task.Result.make.ok(a);
 		});
 
-		const branch1Node = Graph.node("b1", {
-			deps: { root: rootNode },
-			run: ({ deps: { root } }) => Task.Result.make.ok(root + b),
-		});
+		const branch1Node = Graph.node("b1", { root: rootNode }, ({ deps: { root } }) => Task.Result.make.ok(root + b));
 
-		const branch2Node = Graph.node("b2", {
-			deps: { root: rootNode },
-			run: ({ deps: { root } }) => Task.Result.make.ok(root * 2),
-		});
+		const branch2Node = Graph.node("b2", { root: rootNode }, ({ deps: { root } }) => Task.Result.make.ok(root * 2));
 
-		const sinkNode = Graph.node("sink", {
-			deps: { branch1: branch1Node, branch2: branch2Node },
-			run: ({ deps: { branch1, branch2 } }) => Task.Result.make.ok(branch1 + branch2),
-		});
+		const sinkNode = Graph.node(
+			"sink",
+			{ branch1: branch1Node, branch2: branch2Node },
+			({ deps: { branch1, branch2 } }) => Task.Result.make.ok(branch1 + branch2),
+		);
 
 		const graph = Graph.make(sinkNode);
 		const outcome = await Graph.run(graph);
@@ -71,9 +61,7 @@ test("property: any single failure short-circuits the entire graph to that Err",
 				const failIndex = failIndexRaw % values.length;
 
 				const nodes = values.map((val, idx) =>
-					Graph.node(`n_${idx}`, {
-						run: () => idx === failIndex ? Task.Result.make.err(errorMsg) : Task.Result.make.ok(val),
-					})
+					Graph.node(`n_${idx}`, () => idx === failIndex ? Task.Result.make.err(errorMsg) : Task.Result.make.ok(val))
 				);
 
 				const depsMap: Record<string, Graph.AnyNode<void>> = {};
@@ -81,7 +69,7 @@ test("property: any single failure short-circuits the entire graph to that Err",
 					depsMap[`n_${i}`] = nodes[i];
 				}
 
-				const sink = Graph.node("sink", { deps: depsMap, run: ({ deps }) => Task.Result.make.ok(deps) });
+				const sink = Graph.node("sink", depsMap, ({ deps }) => Task.Result.make.ok(deps));
 
 				const graph = Graph.make(sink);
 				const outcome = await Graph.run(graph);
@@ -102,16 +90,14 @@ test("property: concurrency option bounds active in-flight tasks across DAG exec
 				let maxInFlight = 0;
 
 				const nodes = delays.map((delayMs, idx) =>
-					Graph.node(`n_${idx}`, {
-						run: () =>
-							Task.Result.tryCatch(async () => {
-								inFlight++;
-								maxInFlight = Math.max(maxInFlight, inFlight);
-								await new Promise((resolve) => setTimeout(resolve, delayMs));
-								inFlight--;
-								return idx;
-							}, { onError: String }),
-					})
+					Graph.node(`n_${idx}`, () =>
+						Task.Result.tryCatch(async () => {
+							inFlight++;
+							maxInFlight = Math.max(maxInFlight, inFlight);
+							await new Promise((resolve) => setTimeout(resolve, delayMs));
+							inFlight--;
+							return idx;
+						}, { onError: String }))
 				);
 
 				const depsMap: Record<string, Graph.AnyNode<void>> = {};
@@ -119,7 +105,7 @@ test("property: concurrency option bounds active in-flight tasks across DAG exec
 					depsMap[`n_${i}`] = nodes[i];
 				}
 
-				const sink = Graph.node("sink", { deps: depsMap, run: ({ deps }) => Task.Result.make.ok(deps) });
+				const sink = Graph.node("sink", depsMap, ({ deps }) => Task.Result.make.ok(deps));
 				const graph = Graph.make(sink, { concurrency });
 
 				const outcome = await Graph.run(graph);

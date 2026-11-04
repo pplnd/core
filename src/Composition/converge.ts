@@ -1,6 +1,6 @@
 /**
  * Applies an input to several transformer functions independently, then passes all results to a
- * combining function.
+ * combining function. Callback parameters must be annotated; TypeScript cannot infer the shared input type from the curried transformers.
  *
  * @example
  * ```ts

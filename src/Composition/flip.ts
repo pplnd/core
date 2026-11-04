@@ -2,17 +2,17 @@
  * Flips the order of arguments for a curried binary function.
  * Converts a data-last function to data-first.
  *
+ * The function must have a concrete two-stage type. Generic container helpers such as
+ * `Maybe.map` are higher-kinded and cannot be flipped directly; wrap them in a concrete
+ * function first.
+ *
  * @example
  * ```ts
- * // Original data-last (for pipe)
- * pipe(
- *   Maybe.make.some(5),
- *   Maybe.map(n => n * 2)
- * ); // Some(10)
+ * const prepend = (prefix: string) => (text: string) => prefix + text;
+ * const append = flip(prepend);
  *
- * // Flipped to data-first
- * const mapFirst = flip(Maybe.map);
- * mapFirst(Maybe.make.some(5))(n => n * 2); // Some(10)
+ * prepend("Hello, ")("World"); // "Hello, World"
+ * append("World")("Hello, ");  // "Hello, World"
  * ```
  *
  * @see {@link uncurry} for converting curried functions to multi-argument functions

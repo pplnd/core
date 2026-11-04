@@ -98,6 +98,60 @@ test("memoize: evicts oldest entry when reaching maxSize limit", () => {
 	expect(callCount).toBe(4);
 });
 
+test("memoize: treats NaN and non-positive maxSize as uncached", () => {
+	let nanCalls = 0;
+	const nanCached = memoize((n: number) => {
+		nanCalls++;
+		return n;
+	}, { maxSize: NaN });
+	nanCached(1);
+	nanCached(1);
+	expect(nanCalls).toBe(2);
+
+	let zeroCalls = 0;
+	const zeroCached = memoize((n: number) => {
+		zeroCalls++;
+		return n;
+	}, { maxSize: 0 });
+	zeroCached(1);
+	zeroCached(1);
+	expect(zeroCalls).toBe(2);
+
+	let negativeCalls = 0;
+	const negativeCached = memoize((n: number) => {
+		negativeCalls++;
+		return n;
+	}, { maxSize: -1 });
+	negativeCached(1);
+	negativeCached(1);
+	expect(negativeCalls).toBe(2);
+});
+
+test("memoize: floors fractional maxSize and treats Infinity as unbounded", () => {
+	let fractionalCalls = 0;
+	const fractional = memoize((n: number) => {
+		fractionalCalls++;
+		return n;
+	}, { maxSize: 1.5 });
+
+	fractional(1);
+	fractional(2);
+	expect(fractionalCalls).toBe(2);
+	fractional(2);
+	expect(fractionalCalls).toBe(2);
+
+	let infiniteCalls = 0;
+	const unbounded = memoize((n: number) => {
+		infiniteCalls++;
+		return n;
+	}, { maxSize: Infinity });
+
+	unbounded(1);
+	unbounded(2);
+	unbounded(1);
+	expect(infiniteCalls).toBe(2);
+});
+
 test("memoize: defaults to using argument directly as cache key", () => {
 	let callCount = 0;
 	const fn = memoize((n: number) => {

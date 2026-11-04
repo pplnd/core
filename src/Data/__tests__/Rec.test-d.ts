@@ -141,3 +141,28 @@ test("NonEmpty: singleton, from.record, and combinators preserve branded non-emp
 	const mappedKey = pipe(singleton, Rec.NonEmpty.mapWithKey((k, v) => `${k}:${v}`));
 	expectTypeOf(mappedKey).toEqualTypeOf<Rec.NonEmpty<string, "a">>();
 });
+
+test("interface support and key soundness", () => {
+	interface User {
+		readonly name: string;
+		readonly age: number;
+	}
+	const user: User = { name: "a", age: 1 };
+	expectTypeOf(Rec.keys(user)).toEqualTypeOf<readonly ("name" | "age")[]>();
+	expectTypeOf(Rec.entries(user)).toEqualTypeOf<readonly (readonly ["name" | "age", string | number])[]>();
+	expectTypeOf(Rec.pick("name")(user)).toEqualTypeOf<Pick<User, "name">>();
+	expectTypeOf(Rec.omit("age")(user)).toEqualTypeOf<Omit<User, "age">>();
+});
+
+test("absent channels: empty traversal defaults to never", () => {
+	expectTypeOf(Rec.sequence.Maybe({})).toEqualTypeOf<Maybe<Readonly<Record<string, never>>>>();
+	expectTypeOf(Rec.sequence.Result({})).toEqualTypeOf<Result<never, Readonly<Record<string, never>>>>();
+	expectTypeOf(Rec.compact({})).toEqualTypeOf<Readonly<Record<string, never>>>();
+});
+
+test("merge: accepts a wider base record without erasing its fields", () => {
+	const base = { retries: 1, timeout: 100 };
+	const merged = pipe(base, Rec.merge({ retries: 3 }));
+	expectTypeOf(merged.retries).toEqualTypeOf<3>();
+	expectTypeOf(merged.timeout).toEqualTypeOf<number>();
+});

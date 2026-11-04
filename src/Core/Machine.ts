@@ -230,6 +230,31 @@ export namespace Machine {
 	> = MachineInterpretOptions<States, Events>;
 }
 
+type MachineMatchCases<States extends AnyMachineState> = {
+	readonly [K in States["kind"]]: (state: Extract<States, { readonly kind: K; }>) => unknown;
+};
+type HandlerReturn<Handler> = Handler extends (state: any) => infer R ? R : never;
+type MachineMatchResult<Cases> = HandlerReturn<Cases[keyof Cases]>;
+
+function matchMachine<States extends AnyMachineState, R>(
+	cases: { readonly [K in States["kind"]]: (state: Extract<States, { readonly kind: K; }>) => R; },
+): (state: States) => R;
+function matchMachine<States extends AnyMachineState, const Cases extends MachineMatchCases<States>>(
+	state: States,
+	cases: Cases,
+): MachineMatchResult<Cases>;
+function matchMachine(
+	arg1: AnyMachineState | Record<string, (state: any) => unknown>,
+	arg2?: Record<string, (state: any) => unknown>,
+) {
+	if (arg2 === undefined) {
+		const cases = arg1 as Record<string, (state: any) => unknown>;
+		return (state: AnyMachineState) => cases[state.kind](state);
+	}
+	const state = arg1 as AnyMachineState;
+	return arg2[state.kind](state);
+}
+
 export const Machine = {
 	/**
 	 * Creates a state machine definition from state configurations and event handlers.
@@ -304,29 +329,22 @@ export const Machine = {
 		state.kind === kind,
 
 	/**
-	 * Curried exhaustive pattern matcher across all state variants of a machine.
+	 * Exhaustive pattern matcher across all state variants of a machine.
+	 *
+	 * The data-first form infers state payloads and the union of branch return values. The curried
+	 * form remains available for `pipe`, but requires explicit state and return type arguments.
 	 *
 	 * @example
 	 * ```ts
-	 * const title = pipe(
-	 *   actor.getState(),
-	 *   Machine.match<AuthState, string>({
-	 *     loggedOut: () => "Please Sign In",
-	 *     authenticating: ({ value }) => `Verifying ${value.email}...`,
-	 *     authenticated: ({ value }) => `Logged in with token ${value.token}`,
-	 *     failed: ({ value }) => `Error: ${value.error}`,
-	 *   }),
-	 * );
+	 * const title = Machine.match(actor.getState(), {
+	 *   loggedOut: () => "Please Sign In",
+	 *   authenticating: ({ value }) => `Verifying ${value.email}...`,
+	 *   authenticated: ({ value }) => `Logged in with token ${value.token}`,
+	 *   failed: ({ value }) => `Error: ${value.error}`,
+	 * });
 	 * ```
 	 */
-	match:
-		<States extends AnyMachineState, R>(
-			cases: { readonly [K in States["kind"]]: (state: Extract<States, { readonly kind: K; }>) => R; },
-		) =>
-		(state: States): R => {
-			const handler = cases[state.kind as States["kind"]];
-			return handler(state as any);
-		},
+	match: matchMachine,
 
 	/**
 	 * Pure, data-last transition function. Evaluates a transition on the provided state
@@ -603,15 +621,27 @@ export const Machine = {
 			});
 		}
 
-		// Run initial state entry effect
+		// Run initial state entry effect. A throwing initial entry or transition must not leave
+		// a half-initialized actor or bus subscription behind.
 		isProcessing = true;
 		try {
-			enterState(currentState, generation, send);
-		} finally {
-			isProcessing = false;
+			try {
+				enterState(currentState, generation, send);
+			} finally {
+				isProcessing = false;
+			}
+			flushPendingError();
+			drain(send);
+		} catch (error) {
+			isRunning = false;
+			queue.length = 0;
+			exitState(currentState);
+			if (busDisposer) {
+				busDisposer();
+				busDisposer = null;
+			}
+			throw error;
 		}
-		flushPendingError();
-		drain(send);
 
 		return {
 			...(actorId !== undefined ? { id: actorId } : {}),

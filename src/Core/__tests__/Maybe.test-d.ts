@@ -209,6 +209,17 @@ test("assign: appends new keys only — existing keys and primitive accumulators
 	expectTypeOf(Maybe.assign("label", (n: number) => Maybe.make.some(n))).toBeFunction();
 });
 
+test("assign: rejects keys present on any union branch", () => {
+	type Account = { kind: "guest"; guestId: string; } | { kind: "member"; userId: string; };
+	const guest = (): Account => ({ kind: "guest", guestId: "g1" });
+	const member = (): Account => ({ kind: "member", userId: "u1" });
+	const account: Maybe<Account> = constTruthyBool() ? Maybe.make.some(member()) : Maybe.make.some(guest());
+
+	// @ts-expect-error — `userId` already exists on the member branch
+	const overwritten = pipe(account, Maybe.assign("userId", () => Maybe.make.some(123)));
+	expectTypeOf(overwritten).toBeObject();
+});
+
 test("negative: flags missing match handlers, invalid transforms, and variant incompatibilities", () => {
 	const naturalUnion: Maybe<number> = constTruthyBool() ? Maybe.make.some(42) : Maybe.make.none();
 
@@ -238,4 +249,21 @@ test("negative: flags missing match handlers, invalid transforms, and variant in
 
 	// @ts-expect-error None cannot be assigned to Some
 	const _noneAsSome: Maybe.Some<number> = Maybe.make.none();
+});
+
+test("getOrElse: none infers the fallback channel without unknown", () => {
+	const value = pipe(Maybe.make.none(), Maybe.getOrElse(() => 0));
+	expectTypeOf(value).toEqualTypeOf<number>();
+});
+
+test("converters: absent single-variant channels stay never", () => {
+	const none = Maybe.make.none();
+	expectTypeOf(Maybe.from.nullable(null)).toEqualTypeOf<Maybe<never>>();
+	expectTypeOf(Maybe.to.nullable(none)).toEqualTypeOf<null>();
+	expectTypeOf(pipe(none, Maybe.to.Result(() => "missing"))).toEqualTypeOf<Result<"missing", never>>();
+});
+
+test("recover: infallible fallback preserves the value channel", () => {
+	const recovered = pipe(Maybe.make.none(), Maybe.recover(() => Maybe.make.none()));
+	expectTypeOf(recovered).toEqualTypeOf<Maybe<never>>();
 });

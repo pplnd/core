@@ -15,17 +15,23 @@ describe("curry, uncurry, and flip type-level tests", () => {
 	});
 
 	it("inspects uncurry arities", () => {
-		const c0 = () => () => "hello";
-		const c1 = (a: number) => () => a * 2;
 		const c2 = (a: number) => (b: string) => a === b.length;
 		const c3 = (a: number) => (b: string) => (c: boolean) => `${a}-${b}-${c}`;
 		const c4 = (a: number) => (_b: string) => (_c: boolean) => (d: number[]) => a + d.length;
+		const c2Thunk = (a: number) => (b: string) => () => a === b.length;
 
-		expectTypeOf(uncurry(c0)).toEqualTypeOf<() => string>();
-		expectTypeOf(uncurry(c1)).toEqualTypeOf<(a: number) => number>();
 		expectTypeOf(uncurry(c2)).toEqualTypeOf<(a: number, b: string) => boolean>();
-		expectTypeOf(uncurry(c3)).toEqualTypeOf<(a: number, b: string, c: boolean) => string>();
-		expectTypeOf(uncurry(c4)).toEqualTypeOf<(a: number, b: string, c: boolean, d: number[]) => number>();
+		expectTypeOf(uncurry(c3, 3)).toEqualTypeOf<(a: number, b: string, c: boolean) => string>();
+		expectTypeOf(uncurry(c4, 4)).toEqualTypeOf<(a: number, b: string, c: boolean, d: number[]) => number>();
+		expectTypeOf(uncurry(c2Thunk)).toEqualTypeOf<(a: number, b: string) => () => boolean>();
+	});
+
+	it("inspects explicit curry arity for rest and default parameters", () => {
+		const fRest = (...values: [number, string, boolean]): string => `${values[0]}-${values[1]}-${values[2]}`;
+		const fDefault = (a: number, b: string, c = 1): string => `${a}-${b}-${c}`;
+
+		expectTypeOf(curry(fRest, 3)).toEqualTypeOf<(a: number) => (b: string) => (c: boolean) => string>();
+		expectTypeOf(curry(fDefault, 3)).toEqualTypeOf<(a: number) => (b: string) => (c: number | undefined) => string>();
 	});
 
 	it("inspects flip", () => {

@@ -31,6 +31,16 @@ test("struct and tuple: infers composite structured equality types", () => {
 	expectTypeOf(pairEq).toEqualTypeOf<Equality<[string, number]>>();
 });
 
+test("struct: accepts interface-typed records", () => {
+	interface Product {
+		readonly id: string;
+		readonly price: number;
+	}
+
+	const productEq = Equality.struct<Product>({ id: Equality.string, price: Equality.number });
+	expectTypeOf(productEq).toEqualTypeOf<Equality<Product>>();
+});
+
 test("type errors: rejects invalid types in comparison, adaptors, and struct fields", () => {
 	// @ts-expect-error cannot compare string and number
 	expectTypeOf(Equality.string("a", 1)).toBeBoolean();
@@ -40,4 +50,12 @@ test("type errors: rejects invalid types in comparison, adaptors, and struct fie
 
 	// @ts-expect-error struct fields mismatch with target record type
 	expectTypeOf(Equality.struct<{ id: string; }>({ id: Equality.number })).toBeFunction();
+});
+
+test("and: accepts a subtype equality followed by a supertype equality", () => {
+	type Person = { readonly name: string; };
+	type Employee = Person & { readonly salary: number; };
+	const bySalary: Equality<Employee> = (a, b) => a.salary === b.salary;
+	const byName: Equality<Person> = (a, b) => a.name === b.name;
+	expectTypeOf(pipe(bySalary, Equality.and(byName))).toEqualTypeOf<Equality<Employee>>();
 });

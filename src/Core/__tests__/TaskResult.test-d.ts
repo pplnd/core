@@ -145,6 +145,12 @@ test("retry: preserves error and value channels with optional onRetry and when",
 	expectTypeOf(retried).toEqualTypeOf<Task.Result<"MY_ERR", number>>();
 });
 
+test("empty collections: preserve the aborted-only error channel", () => {
+	expectTypeOf(Task.Result.all([])).toEqualTypeOf<Task.Result<Task.Aborted, []>>();
+	expectTypeOf(Task.Result.sequential([])).toEqualTypeOf<Task.Result<Task.Aborted, []>>();
+	expectTypeOf(Task.Result.struct({})).toEqualTypeOf<Task.Result<never, {}>>();
+});
+
 test("negative: flags invalid transforms and non-Task.Result struct fields", () => {
 	const task = Task.Result.make.ok(42);
 
@@ -159,4 +165,22 @@ test("negative: flags invalid transforms and non-Task.Result struct fields", () 
 
 	// @ts-expect-error retry expects exactly 1 argument (policy) without legacy 2nd options argument
 	Task.Result.retry(RetryPolicy.constant({ attempts: 3, delay: Duration.seconds(1) }), { when: () => true });
+});
+
+test("from.nullable: strips null and undefined from the success channel", () => {
+	expectTypeOf(Task.Result.from.nullable(() => "missing")(null)).toEqualTypeOf<Task.Result<"missing", never>>();
+});
+
+test("timeout: preserves literal timeout errors", () => {
+	const task = pipe(
+		Task.Result.make.ok(1),
+		Task.Result.timeout({ duration: Duration.seconds(1), onTimeout: () => "timeout" }),
+	);
+	expectTypeOf(task).toEqualTypeOf<Task.Result<"timeout", number>>();
+});
+
+test("recover: infallible fallback clears the error channel", () => {
+	const task: Task.Result<"err", number> = constTruthyBool() ? Task.Result.make.ok(1) : Task.Result.make.err("err");
+	const recovered = pipe(task, Task.Result.recover(() => Task.Result.make.ok("fallback")));
+	expectTypeOf(recovered).toEqualTypeOf<Task.Result<never, number | string>>();
 });

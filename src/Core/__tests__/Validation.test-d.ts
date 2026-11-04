@@ -72,18 +72,6 @@ test("apply: accumulates error unions across applicative evaluations", () => {
 
 	const applied = pipe(valF, Validation.apply(valA));
 	expectTypeOf(applied).toEqualTypeOf<Validation<"ERR_A" | "ERR_B", string>>();
-
-	// Custom combineErrors
-	const customCombine = pipe(
-		valF,
-		Validation.apply(valA, {
-			combineErrors: (
-				e1: NonEmptyArr<"ERR_A">,
-				e2: NonEmptyArr<"ERR_B">,
-			): NonEmptyArr<string> => [`${e1.join(",")}-${e2.join(",")}`],
-		}),
-	);
-	expectTypeOf(customCombine).toEqualTypeOf<Validation<string, string>>();
 });
 
 test("match: produces unified return type from exhaustive handlers", () => {
@@ -235,7 +223,9 @@ test("keyed: narrows validated object properties when check passes", () => {
 	expectTypeOf(hasFailed).toEqualTypeOf<boolean>();
 
 	const errors = Validation.keyed.getErrors(res);
-	expectTypeOf(errors).toEqualTypeOf<Maybe<Validation.KeyedErrors<{ name: string; age: number; }, unknown>>>();
+	expectTypeOf(errors).toEqualTypeOf<
+		Maybe<Validation.KeyedErrors<{ name: string; age: number; }, "Name required" | "Must be 18+">>
+	>();
 
 	const passedFields = Validation.keyed.getPassed(res);
 	expectTypeOf(passedFields).toEqualTypeOf<Maybe<{ name: string; age: number; }>>();
@@ -247,6 +237,21 @@ test("keyed: narrows validated object properties when check passes", () => {
 	const resTyped = validateUserTyped({ name: "Bob", age: 25 });
 	const typedErrors = Validation.keyed.getErrors(resTyped);
 	expectTypeOf(typedErrors).toEqualTypeOf<Maybe<Validation.KeyedErrors<{ name: string; age: number; }, string>>>();
+});
+
+test("keyed: accepts interface-typed input without an index signature", () => {
+	interface Profile {
+		readonly name: string;
+		readonly age: number;
+	}
+
+	const validate = Validation.keyed.make<Profile>({
+		name: (value) => Validation.make.passed(value),
+		age: (value) => Validation.make.passed(value),
+	});
+	const result = validate({ name: "Alice", age: 30 });
+
+	expectTypeOf(result).toEqualTypeOf<Validation.KeyedResult<Profile, unknown>>();
 });
 
 test("negative: flags missing match handlers, invalid transforms, and variant incompatibilities", () => {
@@ -286,4 +291,15 @@ test("negative: flags missing match handlers, invalid transforms, and variant in
 
 	// @ts-expect-error Failed cannot be assigned to Passed
 	const _failedAsPassed: Validation.Passed<number> = Validation.make.failed("err");
+});
+
+test("to.Result: curried converter preserves the value channel", () => {
+	const convert = Validation.to.Result((errors: NonEmptyArr<string>) => errors.join(","));
+	const result = convert(Validation.make.passed(1));
+	expectTypeOf(result).toEqualTypeOf<Result<string, number>>();
+});
+
+test("from: absent single-variant channels default to never", () => {
+	expectTypeOf(Validation.from.Maybe(() => "missing")(Maybe.make.none())).toEqualTypeOf<Validation<"missing", never>>();
+	expectTypeOf(Validation.from.Result(Result.make.err("failed"))).toEqualTypeOf<Validation<"failed", never>>();
 });

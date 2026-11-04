@@ -3,7 +3,7 @@ import { expectTypeOf, test } from "vitest";
 import { pipe } from "../../Composition/pipe.ts";
 import type { Maybe } from "../Maybe.ts";
 import { RemoteData } from "../RemoteData.ts";
-import type { Result } from "../Result.ts";
+import { Result } from "../Result.ts";
 
 test("make: infers precise variant types for all lifecycle states", () => {
 	const notAsked = RemoteData.make.notAsked();
@@ -156,7 +156,7 @@ test("converters: to.Maybe, to.Result, from.Result, from.Maybe", () => {
 	expectTypeOf(asMaybe).toEqualTypeOf<Maybe<number>>();
 
 	const asResult = pipe(naturalUnion, RemoteData.to.Result(() => 503));
-	expectTypeOf(asResult).toEqualTypeOf<Result<string | number, number>>();
+	expectTypeOf(asResult).toEqualTypeOf<Result<string | 503, number>>();
 });
 
 test("negative: disallows missing match cases, invalid transforms, and cross-variant assignments", () => {
@@ -192,4 +192,9 @@ test("negative: disallows missing match cases, invalid transforms, and cross-var
 
 	// @ts-expect-error Success does not have .error property
 	expectTypeOf(RemoteData.make.success(42).error).toBeUndefined();
+});
+
+test("converters: absent single-variant channels stay never", () => {
+	expectTypeOf(RemoteData.to.Maybe(RemoteData.make.loading())).toEqualTypeOf<Maybe<never>>();
+	expectTypeOf(RemoteData.from.Result(Result.make.err("failed"))).toEqualTypeOf<RemoteData<"failed", never>>();
 });

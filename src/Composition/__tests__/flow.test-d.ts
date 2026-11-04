@@ -3,6 +3,8 @@ import { Deferred } from "../../Core/Deferred.ts";
 import type { Awaitable } from "../../internal/InternalTypes";
 import { flow } from "../flow.ts";
 import { flowAsync } from "../flowAsync.ts";
+import { unless } from "../unless.ts";
+import { when } from "../when.ts";
 
 describe("flow and flowAsync type-level tests", () => {
 	it("inspects synchronous flow overloads from 1 to 10 functions", () => {
@@ -59,5 +61,15 @@ describe("flow and flowAsync type-level tests", () => {
 	it("rejects invalid input and mismatched function types in pipeline", () => {
 		// @ts-expect-error mismatched intermediate pipeline step
 		expectTypeOf(flow((n: number) => n.toString(), (n: number) => n + 1)).toBeFunction();
+	});
+
+	it("narrows when and unless through refinement predicates", () => {
+		const isString = (value: string | number | boolean): value is string => typeof value === "string";
+		expectTypeOf(when(isString, (value) => value.length)).toEqualTypeOf<
+			(value: string | number | boolean) => number | boolean
+		>();
+		expectTypeOf(unless(isString, (value) => (typeof value === "number" ? value.toFixed() : "bool"))).toEqualTypeOf<
+			(value: string | number | boolean) => string
+		>();
 	});
 });

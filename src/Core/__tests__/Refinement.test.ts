@@ -28,7 +28,7 @@ test("to.Maybe: and to.Result propagate narrowed types", () => {
 	expectTypeOf(mb).toEqualTypeOf<Maybe<NonEmptyString>>();
 
 	const res = Refinement.to.Result(isNonEmpty, () => "EMPTY")("hello");
-	expectTypeOf(res).toEqualTypeOf<Result<string, NonEmptyString>>();
+	expectTypeOf(res).toEqualTypeOf<Result<"EMPTY", NonEmptyString>>();
 });
 
 // ---------------------------------------------------------------------------

@@ -205,7 +205,7 @@ export const RemoteData = {
 	 * ```
 	 */
 	chain:
-		<E2, A, B>(transform: (value: A) => RemoteData<E2, B>) =>
+		<E2 = never, A = unknown, B = unknown>(transform: (value: A) => RemoteData<E2, B>) =>
 		<E1 = never>(remoteData: RemoteData<E1, A>): RemoteData<E1 | E2, B> =>
 			isSuccess(remoteData) ? transform(remoteData.value) : (remoteData as RemoteData<E1 | E2, B>),
 
@@ -282,7 +282,7 @@ export const RemoteData = {
 	 * pipe(RemoteData.make.loading(), RemoteData.getOrElse(() => null)); // null — typed as number | null
 	 * ```
 	 */
-	getOrElse: <B>(fallback: () => B) => <A, E = never>(remoteData: RemoteData<E, A>): A | B =>
+	getOrElse: <B>(fallback: () => B) => <A = never, E = never>(remoteData: RemoteData<E, A>): A | B =>
 		isSuccess(remoteData) ? remoteData.value : fallback(),
 
 	/**
@@ -362,7 +362,7 @@ export const RemoteData = {
 		 * RemoteData.to.Maybe(RemoteData.make.failure("e")); // None
 		 * ```
 		 */
-		Maybe: <E, A>(remoteData: RemoteData<E, A>): Maybe<A> =>
+		Maybe: <A = never, E = never>(remoteData: RemoteData<E, A>): Maybe<A> =>
 			isSuccess(remoteData) ? CoreMaybe.make.some(remoteData.value) : CoreMaybe.make.none(),
 
 		/**
@@ -378,10 +378,11 @@ export const RemoteData = {
 		 * ); // Ok(42)
 		 * ```
 		 */
-		Result: <E2>(onNotReady: () => E2) => <E1 = never, A = never>(remoteData: RemoteData<E1, A>): Result<E1 | E2, A> =>
-			isSuccess(remoteData)
-				? CoreResult.make.ok(remoteData.value)
-				: CoreResult.make.err(isFailure(remoteData) ? remoteData.error : onNotReady()),
+		Result:
+			<const E2>(onNotReady: () => E2) => <E1 = never, A = never>(remoteData: RemoteData<E1, A>): Result<E1 | E2, A> =>
+				isSuccess(remoteData)
+					? CoreResult.make.ok(remoteData.value)
+					: CoreResult.make.err(isFailure(remoteData) ? remoteData.error : onNotReady()),
 	},
 
 	// --- from ---
@@ -396,7 +397,7 @@ export const RemoteData = {
 		 * setState(RemoteData.from.Result(result)); // Success(user) or Failure(msg)
 		 * ```
 		 */
-		Result: <E, A>(result: Result<E, A>): RemoteData<E, A> =>
+		Result: <A = never, E = never>(result: Result<E, A>): RemoteData<E, A> =>
 			CoreResult.is.ok(result) ? makeSuccess(result.value) : makeFailure(result.error),
 
 		/**
@@ -409,7 +410,7 @@ export const RemoteData = {
 		 * pipe(Maybe.make.none(), RemoteData.from.Maybe(() => "not found"));     // Failure("not found")
 		 * ```
 		 */
-		Maybe: <const E>(onNone: () => E) => <A>(maybe: Maybe<A>): RemoteData<E, A> =>
+		Maybe: <const E>(onNone: () => E) => <A = never>(maybe: Maybe<A>): RemoteData<E, A> =>
 			CoreMaybe.is.some(maybe) ? makeSuccess(maybe.value) : makeFailure(onNone()),
 	},
 

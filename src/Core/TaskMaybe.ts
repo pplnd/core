@@ -1,4 +1,4 @@
-import { type Thenable } from "../internal/InternalTypes";
+import { type KeysOfUnion, type Thenable } from "../internal/InternalTypes";
 import { Deferred } from "./Deferred.ts";
 import { type Maybe, Maybe as CoreMaybe } from "./Maybe.ts";
 import { type Result, Result as CoreResult } from "./Result.ts";
@@ -71,7 +71,7 @@ export const TaskMaybe = {
 		 * Task.Maybe.from.nullable(null); // resolves to None
 		 * ```
 		 */
-		nullable: <A>(value: A | null | undefined): Task.Maybe<A> => Task.make(CoreMaybe.from.nullable(value)),
+		nullable: <A>(value: A | null | undefined): Task.Maybe<NonNullable<A>> => Task.make(CoreMaybe.from.nullable(value)),
 
 		/**
 		 * Creates a Task.Maybe from a Result.
@@ -195,7 +195,7 @@ export const TaskMaybe = {
 	 * ); // Task resolving to 0
 	 * ```
 	 */
-	getOrElse: <B>(fallback: () => B) => <A>(task: Task.Maybe<A>): Task<A | B> =>
+	getOrElse: <B>(fallback: () => B) => <A = never>(task: Task.Maybe<A>): Task<A | B> =>
 		Task.map(CoreMaybe.getOrElse<B>(fallback))(task),
 
 	/**
@@ -258,7 +258,7 @@ export const TaskMaybe = {
 		 * );
 		 * ```
 		 */
-		Result: <E>(onNone: () => E) => <A>(task: Task.Maybe<A>): Task.Result<E, A> =>
+		Result: <const E>(onNone: () => E) => <A = never>(task: Task.Maybe<A>): Task.Result<E, A> =>
 			Task.map(CoreMaybe.to.Result(onNone))(task),
 	},
 
@@ -285,7 +285,10 @@ export const TaskMaybe = {
 	 * ```
 	 */
 	assign:
-		<K extends string, A extends object, B>(key: K extends keyof A ? never : K, transform: (value: A) => Task.Maybe<B>) =>
+		<K extends string, A extends object, B>(
+			key: K extends KeysOfUnion<A> ? never : K,
+			transform: (value: A) => Task.Maybe<B>,
+		) =>
 		(task: Task.Maybe<A>): Task.Maybe<A & { [P in K]: B; }> =>
 			chainTaskMaybe<A, A & { [P in K]: B; }>((acc) =>
 				mapTaskMaybe<B, A & { [P in K]: B; }>((val) => {
@@ -305,7 +308,7 @@ export const TaskMaybe = {
 	 * ); // Task.Maybe(42)
 	 * ```
 	 */
-	recover: <B>(fallback: () => Task.Maybe<B>) => <A>(task: Task.Maybe<A>): Task.Maybe<A | B> =>
+	recover: <B = never>(fallback: () => Task.Maybe<B>) => <A = never>(task: Task.Maybe<A>): Task.Maybe<A | B> =>
 		Task.chain<Maybe<A>, Maybe<A | B>>((maybe) => (CoreMaybe.is.none(maybe) ? fallback() : Task.make(maybe)))(task),
 
 	/**

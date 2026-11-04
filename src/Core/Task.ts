@@ -1,7 +1,8 @@
 // =============================================================================
 // Imports
 // =============================================================================
-import type { Thenable } from "../internal/InternalTypes";
+import type { KeysOfUnion, Thenable } from "../internal/InternalTypes";
+import { clampTimerDelay } from "../internal/timers.ts";
 import { waitForDelay } from "../internal/waitForDelay.ts";
 import { Duration } from "../Types/Duration.ts";
 import { Deferred } from "./Deferred.ts";
@@ -88,6 +89,8 @@ const getMs = (duration: Duration): number => Duration.to.milliseconds(duration)
 const makeTask = <A>(value: A): Task<A> => () => Deferred.from.Promise(globalThis.Promise.resolve(value));
 const syncTask = <A>(fn: () => A): Task<A> => () => Deferred.from.Promise(globalThis.Promise.resolve(fn()));
 
+type TaskValue<T> = T extends Task<infer A> ? A : never;
+
 const raceTask = (<T extends readonly Task<unknown>[]>(tasks: readonly [...T]): Task<unknown> => {
 	const len = tasks.length;
 	if (len === 0) {
@@ -126,8 +129,8 @@ const raceTask = (<T extends readonly Task<unknown>[]>(tasks: readonly [...T]): 
 		return Promise.race(promises);
 	});
 }) as
-	& (<T extends readonly Task<unknown>[]>(tasks: readonly [...T]) => Task<T[number] extends Task<infer A> ? A : never>)
-	& (<A>(tasks: readonly Task<A>[]) => Task<A>);
+	& (<T extends readonly Task<unknown>[]>(tasks: readonly [...T]) => Task<TaskValue<T[number]>>)
+	& (<A = never>(tasks: readonly Task<A>[]) => Task<A>);
 
 export const Task = {
 	/**
@@ -342,7 +345,7 @@ export const Task = {
 				timerId = setTimeout(() => {
 					signal?.removeEventListener("abort", onAbort);
 					res(toPromise(task, signal));
-				}, getMs(duration));
+				}, clampTimerDelay(getMs(duration)));
 			})
 		),
 
@@ -474,43 +477,44 @@ export const Task = {
 	 * );
 	 * ```
 	 */
-	timeout: <E>(options: { duration: Duration; onTimeout: () => E; }) => <A>(task: Task<A>): Task<CoreResult<E, A>> =>
-		fromPromise((outerSignal) => {
-			const { duration, onTimeout } = options;
-			const controller = new AbortController();
-			let timerId: ReturnType<typeof setTimeout> | undefined;
+	timeout:
+		<const E>(options: { duration: Duration; onTimeout: () => E; }) => <A>(task: Task<A>): Task<CoreResult<E, A>> =>
+			fromPromise((outerSignal) => {
+				const { duration, onTimeout } = options;
+				const controller = new AbortController();
+				let timerId: ReturnType<typeof setTimeout> | undefined;
 
-			const onOuterAbort = () => {
-				controller.abort();
-			};
-
-			const cleanUp = () => {
-				clearTimeout(timerId);
-				outerSignal?.removeEventListener("abort", onOuterAbort);
-			};
-
-			if (outerSignal) {
-				if (outerSignal.aborted) {
+				const onOuterAbort = () => {
 					controller.abort();
-				} else {
-					outerSignal.addEventListener("abort", onOuterAbort, { once: true });
-				}
-			}
+				};
 
-			return Promise.race([
-				toPromise(task, controller.signal).then((a): CoreResult<E, A> => {
-					cleanUp();
-					return CoreResult.make.ok(a);
-				}),
-				new Promise<CoreResult<E, A>>((res) => {
-					timerId = setTimeout(() => {
-						cleanUp();
-						res(CoreResult.make.err(onTimeout()));
+				const cleanUp = () => {
+					clearTimeout(timerId);
+					outerSignal?.removeEventListener("abort", onOuterAbort);
+				};
+
+				if (outerSignal) {
+					if (outerSignal.aborted) {
 						controller.abort();
-					}, getMs(duration));
-				}),
-			]);
-		}),
+					} else {
+						outerSignal.addEventListener("abort", onOuterAbort, { once: true });
+					}
+				}
+
+				return Promise.race([
+					toPromise(task, controller.signal).then((a): CoreResult<E, A> => {
+						cleanUp();
+						return CoreResult.make.ok(a);
+					}),
+					new Promise<CoreResult<E, A>>((res) => {
+						timerId = setTimeout(() => {
+							cleanUp();
+							res(CoreResult.make.err(onTimeout()));
+							controller.abort();
+						}, clampTimerDelay(getMs(duration)));
+					}),
+				]);
+			}),
 
 	/**
 	 * Creates a Task paired with an `abort` handle. Calling `abort()` cancels the
@@ -536,28 +540,46 @@ export const Task = {
 	abortable: <A>(factory: (signal: AbortSignal) => Thenable<A>): { task: Task<A>; abort: () => void; } => {
 		let currentController: AbortController | null = null;
 		let clearOuterListener: (() => void) | null = null;
+		let callEpoch = 0;
 
 		const abort = () => currentController?.abort();
 
 		const task: Task<A> = (outerSignal?: AbortSignal) => {
-			// Cancel any previous in-flight call before starting a new one.
-			clearOuterListener?.();
-			currentController?.abort();
-			currentController = new AbortController();
-			const controller = currentController;
+			const epoch = ++callEpoch;
 
-			if (outerSignal) {
-				if (outerSignal.aborted) {
-					controller.abort(outerSignal.reason);
-				} else {
-					const onOuterAbort = () => controller.abort(outerSignal.reason);
-					outerSignal.addEventListener("abort", onOuterAbort, { once: true });
-					clearOuterListener = () => outerSignal.removeEventListener("abort", onOuterAbort);
+			// Cancel any previous in-flight call before starting a new one. Clear the fields first so
+			// a synchronous re-entrant call owns them and the outer frame cannot overwrite that state.
+			const previousClear = clearOuterListener;
+			const previousController = currentController;
+			clearOuterListener = null;
+			currentController = null;
+			previousClear?.();
+			previousController?.abort();
+
+			const controller = new AbortController();
+			const isCurrent = epoch === callEpoch;
+
+			if (isCurrent) {
+				currentController = controller;
+
+				if (outerSignal) {
+					if (outerSignal.aborted) {
+						controller.abort(outerSignal.reason);
+					} else {
+						const onOuterAbort = () => controller.abort(outerSignal.reason);
+						outerSignal.addEventListener("abort", onOuterAbort, { once: true });
+						clearOuterListener = () => outerSignal.removeEventListener("abort", onOuterAbort);
+					}
 				}
+			} else {
+				// A re-entrant call superseded this invocation while the previous controller was
+				// aborting. Run the factory with an already-aborted signal and leave the newer
+				// controller installed.
+				controller.abort();
 			}
 
 			const cleanup = () => {
-				if (currentController === controller) {
+				if (isCurrent && currentController === controller) {
 					clearOuterListener?.();
 					clearOuterListener = null;
 					currentController = null;
@@ -614,7 +636,10 @@ export const Task = {
 	 * ```
 	 */
 	assign:
-		<K extends string, A extends object, B>(key: K extends keyof A ? never : K, transform: (value: A) => Task<B>) =>
+		<K extends string, A extends object, B>(
+			key: K extends KeysOfUnion<A> ? never : K,
+			transform: (value: A) => Task<B>,
+		) =>
 		(task: Task<A>): Task<A & { [P in K]: B; }> =>
 			fromPromise((signal) =>
 				toPromise(task, signal).then((a) =>

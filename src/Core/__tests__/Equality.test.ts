@@ -2,6 +2,14 @@ import { expect, test } from "vitest";
 import { pipe } from "../../Composition/pipe.ts";
 import { Equality } from "../Equality.ts";
 
+test("struct: compares symbol-keyed fields", () => {
+	const value = Symbol("value");
+	const eq = Equality.struct({ [value]: Equality.number });
+
+	expect(eq({ [value]: 1 }, { [value]: 1 })).toBe(true);
+	expect(eq({ [value]: 1 }, { [value]: 2 })).toBe(false);
+});
+
 // ---------------------------------------------------------------------------
 // string
 // ---------------------------------------------------------------------------
@@ -167,4 +175,14 @@ test("and: short-circuits side effect if first comparison fails", () => {
 	const eq = pipe(first, Equality.and(second));
 	eq(1, 2);
 	expect(called).toBe(false);
+});
+
+test("number: uses SameValueZero for NaN and negative zero", () => {
+	expect(Equality.number(Number.NaN, Number.NaN)).toBe(true);
+	expect(Equality.number(0, -0)).toBe(true);
+	expect(Equality.number(1, Number.NaN)).toBe(false);
+});
+
+test("date: treats Invalid Date values as equal", () => {
+	expect(Equality.date(new Date(Number.NaN), new Date(Number.NaN))).toBe(true);
 });

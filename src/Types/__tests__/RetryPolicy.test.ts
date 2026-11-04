@@ -104,3 +104,41 @@ test("constant: preserves when and onRetry callbacks", () => {
 	policy.onRetry?.({ attempt: 1, error: "ok", delay: Duration.seconds(1) });
 	expect(retryCalled).toBe(true);
 });
+
+test("exponential: respects zero maxDelay and clamps invalid delays", () => {
+	const zero = RetryPolicy.exponential({
+		attempts: 2,
+		initial: Duration.milliseconds(100),
+		maxDelay: Duration.milliseconds(0),
+	});
+	expect(Duration.to.milliseconds(zero.getDelay(1))).toBe(0);
+
+	const huge = RetryPolicy.exponential({ attempts: 2, initial: Duration.milliseconds(100), factor: 2 });
+	expect(Duration.to.milliseconds(huge.getDelay(40))).toBe(2_147_483_647);
+
+	const invalid = RetryPolicy.exponential({
+		attempts: 2,
+		initial: Duration.milliseconds(-5),
+		factor: -2,
+		maxDelay: Duration.milliseconds(-1),
+	});
+	expect(Duration.to.milliseconds(invalid.getDelay(1))).toBe(0);
+});
+
+test("exponential: normalizes non-finite factors and attempts", () => {
+	const factorNaN = RetryPolicy.exponential({ attempts: 2, initial: Duration.milliseconds(100), factor: Number.NaN });
+	expect(Duration.to.milliseconds(factorNaN.getDelay(2))).toBe(200);
+
+	const attemptNaN = RetryPolicy.exponential({ attempts: 2, initial: Duration.milliseconds(100) });
+	expect(Duration.to.milliseconds(attemptNaN.getDelay(Number.NaN))).toBe(100);
+
+	const factorInfinity = RetryPolicy.exponential({
+		attempts: 2,
+		initial: Duration.milliseconds(100),
+		factor: Number.POSITIVE_INFINITY,
+	});
+	expect(Duration.to.milliseconds(factorInfinity.getDelay(2))).toBe(200);
+
+	const overflow = RetryPolicy.exponential({ attempts: 2, initial: Duration.milliseconds(100), factor: 2 });
+	expect(Duration.to.milliseconds(overflow.getDelay(2_000))).toBe(2_147_483_647);
+});

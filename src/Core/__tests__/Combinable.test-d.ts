@@ -28,6 +28,16 @@ test("combineAll and struct: preserves and infers accumulated output types", () 
 	expectTypeOf(statsComb).toEqualTypeOf<Combinable<Stats>>();
 });
 
+test("struct: accepts interface-typed records", () => {
+	interface Stats {
+		readonly count: number;
+		readonly total: number;
+	}
+
+	const statsComb = Combinable.struct<Stats>({ count: Combinable.sum, total: Combinable.sum });
+	expectTypeOf(statsComb).toEqualTypeOf<Combinable<Stats>>();
+});
+
 test("type errors: rejects invalid types in combineAll and struct", () => {
 	// @ts-expect-error cannot combine string array with sum combinable
 	expectTypeOf(pipe(["a", "b"], Combinable.combineAll(Combinable.sum))).toBeNumber();

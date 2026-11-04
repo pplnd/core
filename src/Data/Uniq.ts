@@ -13,6 +13,8 @@ import type { Brand } from "../Types/Brand.ts";
  */
 type NonEmptySet<A> = Brand<InternalNonEmpty<"Uniq">, ReadonlySet<A>>;
 
+type SetValue<S> = S extends ReadonlySet<infer A> ? A : never;
+
 // =============================================================================
 // Private Helpers & Combinator Implementations
 // =============================================================================
@@ -83,7 +85,7 @@ const fromArray = <A>(items: readonly A[]): ReadonlySet<A> => new globalThis.Set
  * @see {@link insert} for inserting an element into a set.
  * @see {@link remove} for deleting an element from a set.
  */
-const has = <A>(item: A) => (set: ReadonlySet<A>): boolean => set.has(item);
+const has = <A>(item: A) => (set: ReadonlySet<unknown>): boolean => set.has(item);
 
 /**
  * Returns the number of elements in the set.
@@ -101,11 +103,11 @@ const size = <A>(set: ReadonlySet<A>): number => set.size;
  * @see {@link remove} for deleting an element from a set.
  * @see {@link toggle} for toggling presence of an element.
  */
-const insert = <A>(item: A) => (set: ReadonlySet<A>): ReadonlySet<A> => {
-	if (set.has(item)) {
-		return set;
+const insert = <const A>(item: A) => <S extends ReadonlySet<unknown>>(set: S): ReadonlySet<SetValue<S> | A> => {
+	if ((set as ReadonlySet<unknown>).has(item)) {
+		return set as ReadonlySet<SetValue<S> | A>;
 	}
-	const result = new globalThis.Set(set);
+	const result = new globalThis.Set<SetValue<S> | A>(set as ReadonlySet<SetValue<S>>);
 	result.add(item);
 	return result;
 };
@@ -115,12 +117,12 @@ const insert = <A>(item: A) => (set: ReadonlySet<A>): ReadonlySet<A> => {
  *
  * @see {@link insert} for adding an element to a set.
  */
-const remove = <A>(item: A) => (set: ReadonlySet<A>): ReadonlySet<A> => {
-	if (!set.has(item)) {
-		return set;
+const remove = <A>(item: A) => <S extends ReadonlySet<unknown>>(set: S): ReadonlySet<SetValue<S>> => {
+	if (!(set as ReadonlySet<unknown>).has(item)) {
+		return set as ReadonlySet<SetValue<S>>;
 	}
-	const result = new globalThis.Set(set);
-	result.delete(item);
+	const result = new globalThis.Set<SetValue<S>>(set as ReadonlySet<SetValue<S>>);
+	result.delete(item as unknown as SetValue<S>);
 	return result;
 };
 
@@ -130,8 +132,8 @@ const remove = <A>(item: A) => (set: ReadonlySet<A>): ReadonlySet<A> => {
  * @see {@link insert} for unconditionally adding an element.
  * @see {@link remove} for unconditionally removing an element.
  */
-const toggle = <A>(item: A) => (set: ReadonlySet<A>): ReadonlySet<A> => {
-	const result = new globalThis.Set(set);
+const toggle = <const A>(item: A) => <S extends ReadonlySet<unknown>>(set: S): ReadonlySet<SetValue<S> | A> => {
+	const result = new globalThis.Set<SetValue<S> | A>(set as ReadonlySet<SetValue<S>>);
 	if (result.has(item)) {
 		result.delete(item);
 	} else {
@@ -191,17 +193,18 @@ const filterMap = <A, B>(transform: (item: A) => Maybe<B>) => (set: ReadonlySet<
  * @see {@link intersection} for keeping only elements present in both sets.
  * @see {@link difference} for subtracting elements.
  */
-const union = <A>(other: ReadonlySet<A>) => (set: ReadonlySet<A>): ReadonlySet<A> => {
-	const s = set as Set<A>;
-	if (typeof s.union === "function") {
-		return s.union(other as Set<A>);
-	}
-	const result = new globalThis.Set(set);
-	for (const item of other) {
-		result.add(item);
-	}
-	return result;
-};
+const union =
+	<const B>(other: ReadonlySet<B>) => <S extends ReadonlySet<unknown>>(set: S): ReadonlySet<SetValue<S> | B> => {
+		const native = set as unknown as Set<SetValue<S>>;
+		if (typeof native.union === "function") {
+			return native.union(other as unknown as ReadonlySet<SetValue<S>>) as unknown as ReadonlySet<SetValue<S> | B>;
+		}
+		const result = new globalThis.Set<SetValue<S> | B>(set as ReadonlySet<SetValue<S>>);
+		for (const item of other) {
+			result.add(item);
+		}
+		return result;
+	};
 
 /**
  * Computes the intersection of two sets.
@@ -209,19 +212,21 @@ const union = <A>(other: ReadonlySet<A>) => (set: ReadonlySet<A>): ReadonlySet<A
  * @see {@link union} for combining elements from both sets.
  * @see {@link difference} for subtracting elements.
  */
-const intersection = <A>(other: ReadonlySet<A>) => (set: ReadonlySet<A>): ReadonlySet<A> => {
-	const s = set as Set<A>;
-	if (typeof s.intersection === "function") {
-		return s.intersection(other as Set<A>);
-	}
-	const result = new globalThis.Set<A>();
-	for (const item of set) {
-		if (other.has(item)) {
-			result.add(item);
+const intersection =
+	<B>(other: ReadonlySet<B>) => <S extends ReadonlySet<unknown>>(set: S): ReadonlySet<SetValue<S>> => {
+		const native = set as unknown as Set<SetValue<S>>;
+		if (typeof native.intersection === "function") {
+			return native.intersection(other as unknown as ReadonlySet<SetValue<S>>);
 		}
-	}
-	return result;
-};
+		const lookup = other as ReadonlySet<unknown>;
+		const result = new globalThis.Set<SetValue<S>>();
+		for (const item of set) {
+			if (lookup.has(item)) {
+				result.add(item as SetValue<S>);
+			}
+		}
+		return result;
+	};
 
 /**
  * Computes the set difference (`set \ other`).
@@ -229,15 +234,16 @@ const intersection = <A>(other: ReadonlySet<A>) => (set: ReadonlySet<A>): Readon
  * @see {@link union} for combining all elements.
  * @see {@link intersection} for keeping only common elements.
  */
-const difference = <A>(other: ReadonlySet<A>) => (set: ReadonlySet<A>): ReadonlySet<A> => {
-	const s = set as Set<A>;
-	if (typeof s.difference === "function") {
-		return s.difference(other as Set<A>);
+const difference = <B>(other: ReadonlySet<B>) => <S extends ReadonlySet<unknown>>(set: S): ReadonlySet<SetValue<S>> => {
+	const native = set as unknown as Set<SetValue<S>>;
+	if (typeof native.difference === "function") {
+		return native.difference(other as unknown as ReadonlySet<SetValue<S>>);
 	}
-	const result = new globalThis.Set<A>();
+	const lookup = other as ReadonlySet<unknown>;
+	const result = new globalThis.Set<SetValue<S>>();
 	for (const item of set) {
-		if (!other.has(item)) {
-			result.add(item);
+		if (!lookup.has(item)) {
+			result.add(item as SetValue<S>);
 		}
 	}
 	return result;
@@ -251,13 +257,14 @@ const difference = <A>(other: ReadonlySet<A>) => (set: ReadonlySet<A>): Readonly
  * pipe(Uniq.from.array([1, 2]), Uniq.is.subsetOf(Uniq.from.array([1, 2, 3]))); // true
  * ```
  */
-const isSubsetOf = <A>(other: ReadonlySet<A>) => (set: ReadonlySet<A>): boolean => {
-	const s = set as Set<A>;
-	if (typeof s.isSubsetOf === "function") {
-		return s.isSubsetOf(other as Set<A>);
+const isSubsetOf = <B>(other: ReadonlySet<B>) => <S extends ReadonlySet<unknown>>(set: S): boolean => {
+	const native = set as unknown as Set<SetValue<S>>;
+	if (typeof native.isSubsetOf === "function") {
+		return native.isSubsetOf(other as unknown as ReadonlySet<SetValue<S>>);
 	}
+	const lookup = other as ReadonlySet<unknown>;
 	for (const item of set) {
-		if (!other.has(item)) {
+		if (!lookup.has(item)) {
 			return false;
 		}
 	}

@@ -1,4 +1,5 @@
 import type { WithError, WithKind, WithValue } from "../internal/InternalTypes";
+import { clampTimerDelay } from "../internal/timers.ts";
 import { Duration } from "../Types/Duration.ts";
 import { Deferred } from "./Deferred.ts";
 import { Maybe } from "./Maybe.ts";
@@ -128,7 +129,7 @@ export namespace Batcher {
 
 const makeOk = <V, E = never, K = never>(value: V): Batcher.Outcome<E, V, K> => ({ kind: "BatcherOk", value });
 
-const makeErr = <E, V = never, K = never>(error: E): Batcher.Outcome<E, V, K> => ({ kind: "BatcherErr", error });
+const makeErr = <const E, V = never, K = never>(error: E): Batcher.Outcome<E, V, K> => ({ kind: "BatcherErr", error });
 
 const makeMissing = <K, E = never, V = never>(key: K): Batcher.Outcome<E, V, K> => ({ kind: "BatcherMissing", key });
 
@@ -338,7 +339,7 @@ const makeBatcher = <K, E, V>(
 			const ms = Duration.to.milliseconds(options.window);
 			timerHandle = setTimeout(() => {
 				void flushQueue();
-			}, ms);
+			}, clampTimerDelay(ms));
 		} else {
 			queueMicrotask(() => {
 				void flushQueue();

@@ -16,6 +16,14 @@ export type NonEmptyArr<A> = readonly [A, ...A[]];
 
 export const isNonEmptyArr = <A>(list: readonly A[]): list is NonEmptyArr<A> => list.length > 0;
 
+/**
+ * Returns the keys present on any branch of a union.
+ *
+ * `keyof (A | B)` only yields the keys shared by every branch, so append-only guards built on it
+ * can silently accept a key that already exists on one branch.
+ */
+export type KeysOfUnion<T> = T extends unknown ? keyof T : never;
+
 export type WithKind<K extends string> = { readonly kind: K; };
 
 export type WithValue<T> = { readonly value: T; };

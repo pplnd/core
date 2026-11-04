@@ -447,9 +447,6 @@ test("negative: flags missing cases, illegal property access, and variant incomp
 	// @ts-expect-error Missing 'nil' handler in match cases
 	expectTypeOf(Op.Outcome.match({ ok: (n: number) => n, err: (_e: string) => 0 })).toBeFunction();
 
-	// @ts-expect-error Missing 'ok' handler in fold arguments
-	expectTypeOf(Op.Outcome.fold((_e: string) => 0, (_r) => 0)).toBeFunction();
-
 	// @ts-expect-error Map transform must be a function
 	expectTypeOf(Op.Outcome.map(123)(outcome)).toBeObject();
 
@@ -500,4 +497,28 @@ test("interpret options: dynamic union properties on concurrent, keyed, and queu
 	const dynamicSize: number | undefined = constTruthyBool() ? 5 : undefined;
 	const dynamicallyBounded = Op.interpret(delayedOp, { strategy: "queue", maxSize: dynamicSize });
 	expectTypeOf(dynamicallyBounded.state).toEqualTypeOf<Op.QueueDropState<string, number>>();
+});
+
+test("Outcome.make.err: preserves the literal error channel", () => {
+	expectTypeOf(Op.Outcome.make.err("failed")).toEqualTypeOf<Op.Err<"failed">>();
+});
+
+test("interpret: optional overflow and perKey map to runtime state unions", () => {
+	const concurrent = Op.interpret(delayedOp, { strategy: "concurrent", concurrency: 2, overflow: undefined });
+	expectTypeOf(concurrent.state).toEqualTypeOf<Op.ConcurrentDropState<string, number>>();
+
+	const union = Op.interpret(delayedOp, { strategy: "concurrent", overflow: constTruthyBool() ? "queue" : undefined });
+	expectTypeOf(union.state).toEqualTypeOf<
+		Op.ConcurrentQueueState<string, number> | Op.ConcurrentDropState<string, number>
+	>();
+
+	const typed: Extract<Op.InterpretOptions<[number], string>, { strategy: "concurrent"; }> = {
+		strategy: "concurrent",
+		concurrency: 2,
+		overflow: "queue",
+	};
+	expectTypeOf(Op.interpret(delayedOp, typed).state).not.toBeNever();
+
+	const keyed = Op.interpret(delayedOp, { strategy: "keyed", key: (n: number) => n, perKey: undefined });
+	expectTypeOf(keyed.state).toEqualTypeOf<ReadonlyMap<number, Op.KeyedExclusivePerKey<string, number>>>();
 });
