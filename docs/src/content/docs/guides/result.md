@@ -194,7 +194,7 @@ in [`Op`](/guides/op/).
 | Operation                                                  | What it does                                                    | Guarantee                                               |
 | :--------------------------------------------------------- | :-------------------------------------------------------------- | :------------------------------------------------------ |
 | `map(transform)` / `mapError(transform)`                   | Transform the success / error value.                            | The other case passes through.                          |
-| `bimap(onErr, onOk)`                                       | Transform either case.                                          | Only the matching callback runs.                        |
+| `mapBoth(onErr, onOk)`                                     | Transform either case.                                          | Only the matching callback runs.                        |
 | `ensure(predicate, onFail)`                                | Check an `Ok` value, optionally narrowing it with a type guard. | Existing errors pass through.                           |
 | `tap(effect)` / `tapError(effect)`                         | Inspect success / error without replacing the result.           | Returns the original result when the callback returns.  |
 | `recover(fallback)` / `recoverUnless(isBlocked, fallback)` | Replace an error with a fallback result.                        | `recoverUnless` keeps errors selected by the predicate. |

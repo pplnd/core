@@ -154,3 +154,8 @@ with a reason, and they are not request failures. If the caller aborts, the sign
 If the API can stay down for a while, wrap the same task in a
 [`CircuitBreaker`](/guides/circuit-breaker/) before the manager so repeated failures fail fast
 instead of retrying into a dead service.
+
+If the API enforces a quota, wrap the task in a [`RateLimiter`](/guides/rate-limiter/) instead. Put
+the limiter inside the retry loop, so every attempt takes its own permit, and keep the retry
+predicate aware of the refusal: a call that settles with `RateLimitExceeded` carries `retryAfterMs`,
+which is the hint the screen needs to say when the submit can be tried again.

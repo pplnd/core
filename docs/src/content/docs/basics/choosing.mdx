@@ -42,8 +42,11 @@ four `RemoteData` variants.
 | Sequential writes with rollback | [`Transaction`](/guides/transaction/) | Runs compensating actions in reverse order. |
 | Acquire, use, release | [`Resource`](/guides/resource/) | Guaranteed cleanup on every exit path. |
 | Many single-key lookups | [`Batcher`](/guides/batcher/) | Coalesces concurrent keys into one batch query. |
+| Reusing a recent successful lookup | [`Cache`](/guides/cache/) | Answers from storage with expiry and eviction; a memoized task covers one unkeyed thunk. |
 | Protecting a failing dependency | [`CircuitBreaker`](/guides/circuit-breaker/) | Fast-fails while the upstream recovers. |
+| Staying inside an API quota | [`RateLimiter`](/guides/rate-limiter/) | Queues or refuses calls so a sliding window is never exceeded. |
 | In-process messaging | [`EventBus`](/guides/event-bus/) | Typed delivery with a queue for re-entrant emits. |
+| Keeping a worker running | [`Supervisor`](/guides/supervisor/) | Restarts a long-running task under a retry policy and reports its state. |
 | Explicit states and transitions | [`Machine`](/guides/machine/) | Rejects events the current state does not handle. |
 | Awaiting a result that is already in flight | [`Deferred`](/guides/deferred/) | A latch, not a place to define work. |
 | Pure context or state threading | [`Reader`](/guides/reader/), [`State`](/guides/state/) | No async lifecycle involved. |

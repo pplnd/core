@@ -5,7 +5,7 @@ description: Represent an idle, loading, failed, or successful request with one 
 
 <!-- BUNDLE_SIZE:START -->
 
-> 1.86 kB minified + gzipped
+> 1.94 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -155,6 +155,7 @@ rendering pipeline above stays unchanged.
 | Signature                               | What it does                                      | Guarantee                                                                             |
 | :-------------------------------------- | :------------------------------------------------ | :------------------------------------------------------------------------------------ |
 | `RemoteData.apply(argument)`            | Applies a wrapped function to a wrapped argument. | Failure takes precedence, then Loading, then NotAsked; both must be Success to apply. |
+| `RemoteData.struct(fields)`             | Combines a record of states into one state.       | Same precedence as `apply`: Failure, then Loading, then NotAsked.                     |
 | `RemoteData.map(fn)` / `mapError(fn)`   | Transforms a success value or failure error.      | Other states pass through.                                                            |
 | `RemoteData.chain(fn)`                  | Calls a state-producing function for `Success`.   | Other states pass through.                                                            |
 | `RemoteData.filter(predicate, onFalse)` | Checks a success value.                           | A failed check becomes `Failure(onFalse(value))`.                                     |

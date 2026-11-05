@@ -5,7 +5,7 @@ description: Run asynchronous work through a manager that reports state and sett
 
 <!-- BUNDLE_SIZE:START -->
 
-> 6.27 kB minified + gzipped
+> 6.28 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -188,7 +188,7 @@ it does not inspect thrown values, and a task that rejects breaks the settlement
 leave the caller's run unsettled.
 
 Retry runs the whole task again and reports `Retrying` to subscribers between attempts. A policy
-whose `attempts` is non-integer or below one means a single attempt, a zero delay skips the wait,
+whose `attempts` is not a positive integer means a single attempt, a zero delay skips the wait,
 `when` filters which errors are retried, and `onRetry` runs before each delay. Timeout produces
 `OpErr` from `onTimeout` and covers the entire retry sequence; when the deadline fires, the manager
 aborts the work's signal.

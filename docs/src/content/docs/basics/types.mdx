@@ -31,13 +31,14 @@ an error type at a boundary does not require a cast.
 Engines carry more than an error and a value, and their first parameter names the subject they are
 parameterised by:
 
-| Type                        | First parameter     | Why                                                |
-| :-------------------------- | :------------------ | :------------------------------------------------- |
-| `Op<Args, E, A>`            | `Args` tuple        | The arguments passed to `manager.run(...)`.        |
-| `Graph<E, Out, Input>`       | `E` error           | A graph is a computation; the input comes last.    |
-| `Transaction<In, Acc, E, EUndo>` | `In` input      | A transaction is defined around its input.         |
-| `Batcher<K, E, V>`          | `K` key             | Lookups are keyed; the key identifies the work.    |
-| `CircuitBreaker<E>`         | `E` error           | It only wraps failure channels.                    |
+| Type                             | First parameter | Why                                             |
+| :--------------------------------- | :---------------- | :------------------------------------------------ |
+| `Op<Args, E, A>`                 | `Args` tuple    | The arguments passed to `manager.run(...)`.     |
+| `Graph<E, Out, Input>`           | `E` error       | A graph is a computation; the input comes last. |
+| `Transaction<In, Acc, E, EUndo>` | `In` input      | A transaction is defined around its input.      |
+| `Batcher<K, E, V>`               | `K` key         | Lookups are keyed; the key identifies the work. |
+| `Cache<K, E, V>`                 | `K` key         | The key identifies the stored value.            |
+| `CircuitBreaker<E>`              | `E` error       | It only wraps failure channels.                 |
 
 The rule is consistent even though the first parameter differs: the value a caller supplies last is
 the value produced, and everything before it describes the context that produced it.
@@ -100,8 +101,8 @@ A definition with no input is run with an empty call: `Graph.run()(graph)` and
 `Transaction.run()(transaction)`. When such a definition also needs run options, pass `undefined`
 in the input position: `Graph.run(undefined, { signal })(graph)`.
 
-Engines that stay live after creation — `Batcher`, `CircuitBreaker`, `EventBus` — are instances
-immediately, so they expose methods instead of a separate `run` function.
+Engines that stay live after creation — `Batcher`, `Cache`, `CircuitBreaker`, `EventBus`, `RateLimiter`,
+`Supervisor` — are instances immediately, so they expose methods instead of a separate `run` function.
 
 ## The shared vocabulary
 

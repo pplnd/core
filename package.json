@@ -98,7 +98,7 @@
 			"name": "Index (Monolithic import *)",
 			"import": "*",
 			"path": "dist/index.mjs",
-			"limit": "26 KB",
+			"limit": "27 KB",
 			"gzip": true,
 			"ignore": [
 				"util",
@@ -232,10 +232,31 @@
 			"gzip": true
 		},
 		{
+			"name": "RateLimiter",
+			"import": "{ RateLimiter }",
+			"path": "dist/index.mjs",
+			"limit": "3 KB",
+			"gzip": true
+		},
+		{
+			"name": "Supervisor",
+			"import": "{ Supervisor }",
+			"path": "dist/index.mjs",
+			"limit": "3 KB",
+			"gzip": true
+		},
+		{
 			"name": "Batcher",
 			"import": "{ Batcher }",
 			"path": "dist/index.mjs",
 			"limit": "4 KB",
+			"gzip": true
+		},
+		{
+			"name": "Cache",
+			"import": "{ Cache }",
+			"path": "dist/index.mjs",
+			"limit": "2.5 KB",
 			"gzip": true
 		},
 		{
@@ -333,7 +354,7 @@
 			"name": "Rec",
 			"import": "{ Rec }",
 			"path": "dist/index.mjs",
-			"limit": "3 KB",
+			"limit": "4 KB",
 			"gzip": true
 		},
 		{

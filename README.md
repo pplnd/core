@@ -24,8 +24,8 @@ work reads top to bottom in a `pipe`.
 
 <!-- BUNDLE_OVERVIEW:START -->
 
-It has zero dependencies, ships ESM and CommonJS builds, and tree-shakes down to ~27 B–6.45 kB
-gzipped for individual modules and 24.64 kB for the entire package.
+It has zero dependencies, ships ESM and CommonJS builds, and tree-shakes down to ~27 B–6.51 kB
+gzipped for individual modules and 26.22 kB for the entire package.
 
 <!-- BUNDLE_OVERVIEW:END -->
 
@@ -272,6 +272,7 @@ from several modules, read the [recipes](https://pplnd.dev/recipes/request-lifec
 | Circuit breaker pattern for protecting failing upstream services   | [`CircuitBreaker`](https://pplnd.dev/guides/circuit-breaker/)                             |
 | Multi-step workflows with optional reverse-order compensation      | [`Transaction`](https://pplnd.dev/guides/transaction/)                                    |
 | Request batching and deduplication within a batch                  | [`Batcher`](https://pplnd.dev/guides/batcher/)                                            |
+| Keyed reuse of recent successful lookups with expiry and eviction  | [`Cache`](https://pplnd.dev/guides/cache/)                                                |
 | Recognising a cancelled run across async engines                   | [`Aborted`](https://pplnd.dev/guides/aborted/)                                            |
 | Pure state transitions, tokenizers, and parsers                    | [`State`](https://pplnd.dev/guides/state/)                                                |
 | Dependency injection and contextual configuration without drilling | [`Reader`](https://pplnd.dev/guides/reader/)                                              |
@@ -334,20 +335,21 @@ These measurements include each listed import and its dependencies, minified and
 | `Maybe`        | **1.51 kB**        |
 | `Result`       | **1.51 kB**        |
 | `Validation`   | **1.51 kB**        |
-| `RemoteData`   | **1.86 kB**        |
+| `RemoteData`   | **1.94 kB**        |
 | `Machine`      | **2.04 kB**        |
 | `EventBus`     | **1.23 kB**        |
-| `Batcher`      | **3.04 kB**        |
+| `Batcher`      | **3.07 kB**        |
+| `Cache`        | **2.40 kB**        |
 | `Resource`     | **2.05 kB**        |
 | `Graph`        | **2.88 kB**        |
-| `Task`         | **4.47 kB**        |
+| `Task`         | **4.55 kB**        |
 | `Transaction`  | **2.55 kB**        |
-| `Op`           | **6.27 kB**        |
+| `Op`           | **6.28 kB**        |
 | `Lens`         | **233 B**          |
-| `Arr`          | **6.45 kB**        |
-| `Rec`          | **2.47 kB**        |
+| `Arr`          | **6.51 kB**        |
+| `Rec`          | **3.22 kB**        |
 | `Dict`         | **2.41 kB**        |
-| `Str`          | **2.35 kB**        |
+| `Str`          | **2.30 kB**        |
 
 <!-- BUNDLE_TABLE:END -->
 

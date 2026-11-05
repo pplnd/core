@@ -5,7 +5,7 @@ description: Normalize, split, and parse text while keeping whole-value checks s
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.35 kB minified + gzipped
+> 2.30 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -15,13 +15,11 @@ column where a trace code and an account code are both plain strings.
 
 ## Core Behavior
 
-`Str` provides data-last string functions for checks, transformations, splitting, padding, and
-numeric parsing.
+`Str` provides data-last string functions for checks, transformations, splitting, and padding.
 
 - `is.empty` checks length, `is.blank` also treats whitespace-only text as blank, and `is.nonEmpty`
   narrows to `Str.NonEmpty`.
 - `lines` normalizes `\r\n` and `\r` endings; `words` trims and drops empty segments.
-- `parse.int` and `parse.float` return `Maybe` instead of `NaN` and accept a numeric prefix.
 - `match` and `test` clone a global or sticky pattern, so the caller's `lastIndex` is never changed.
 
 Use `Str` while the value is text and the operation stays local. When the text represents a number
@@ -108,7 +106,6 @@ The [Brand guide](/guides/brand/) covers the type-level distinction and where va
 | `Str.is.empty` / `is.nonEmpty` / `is.blank`                           | Checks length, non-emptiness, or whitespace-only text.        | Boolean; `is.nonEmpty` narrows to `Str.NonEmpty`. |
 | `Str.includes(substring)` / `startsWith(prefix)` / `endsWith(suffix)` | Checks for a substring anywhere, at the start, or at the end. | Boolean.                                          |
 | `Str.match(pattern)` / `test(pattern)`                                | Extracts match groups or tests a regular expression.          | `Maybe<RegExpMatchArray>` / Boolean.              |
-| `Str.parse.int(text)` / `parse.float(text)`                           | Parses a numeric prefix.                                      | `Maybe<number>`.                                  |
 | `Str.size(text)` / `graphemeSize(text)`                               | Counts UTF-16 code units or grapheme clusters.                | Number.                                           |
 | `Str.NonEmpty.from.string(text)`                                      | Creates a string with at least one code unit.                 | `Maybe<Str.NonEmpty>`.                            |
 
@@ -124,10 +121,6 @@ The [Brand guide](/guides/brand/) covers the type-level distinction and where va
 | `Str.split(separator)` / `lines` / `words`                                     | Splits on a separator, line endings, or whitespace. | Readonly string array. |
 
 ## Failure Behavior and Edge Cases
-
-`Str.parse.int` and `Str.parse.float` accept a numeric prefix, so `Str.parse.int("42ms")` and
-`Str.parse.float("1.5kg")` both produce a value. [`Num.from.string`](/guides/num/) requires the
-whole trimmed string to be numeric and returns `None` for both inputs.
 
 `Str.lines("")` returns `[""]`, not an empty array; filtering with `Str.is.blank` removes the empty
 entry. `Str.words("   ")` returns `[]`. `Str.match` and `Str.test` clone a pattern that carries the

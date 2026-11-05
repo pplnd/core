@@ -340,7 +340,7 @@ For complex object keys, you can supply a custom key-generator function to evalu
 ```ts
 const loadProfile = memoize(
   (opts: { userId: string }) => fetchProfile(opts.userId),
-  { key: (opts) => opts.userId, maxSize: 500 },
+  { keyBy: (opts) => opts.userId, maxSize: 500 },
 );
 ```
 

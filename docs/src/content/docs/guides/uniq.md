@@ -5,7 +5,7 @@ description: Build and combine readonly sets of unique values.
 
 <!-- BUNDLE_SIZE:START -->
 
-> 1.99 kB minified + gzipped
+> 2.00 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

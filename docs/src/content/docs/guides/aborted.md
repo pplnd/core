@@ -117,8 +117,7 @@ if (Result.is.err(sections)) {
 }
 ```
 
-The [`Task.Result` guide](/guides/task/) covers `all`, `sequential`, and how the caller's signal
-reaches each task.
+The [`Task.Result` guide](/guides/task/) covers `all` and how the caller's signal reaches each task.
 
 ## Core Operations
 

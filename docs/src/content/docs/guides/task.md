@@ -5,7 +5,7 @@ description: Describe asynchronous work now, run it on demand, and keep failures
 
 <!-- BUNDLE_SIZE:START -->
 
-> 4.47 kB minified + gzipped
+> 4.55 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -150,11 +150,9 @@ options.
 | Signature                                 | What it does                                             | Behavior                                                                      |
 | :---------------------------------------- | :------------------------------------------------------- | :---------------------------------------------------------------------------- |
 | `Task.all(tasks, { concurrency })`        | Runs tasks in parallel and collects a tuple.             | Nonpositive or non-integer `concurrency` clamps to 1; omitted runs unbounded. |
-| `Task.sequential(tasks)`                  | Runs tasks one at a time in order.                       | Preserves input order.                                                        |
 | `Task.race(tasks)`                        | Settles with the first task to resolve.                  | Aborts the other tasks' signals.                                              |
 | `Task.apply(argument)`                    | Applies a task-wrapped function to a task-wrapped value. | Both tasks run in parallel.                                                   |
 | `Task.Result.all(tasks, { concurrency })` | Runs fallible tasks in parallel.                         | The first `Err` cancels active work; a caller abort settles as `Aborted`.     |
-| `Task.Result.sequential(tasks)`           | Runs fallible tasks one at a time.                       | Same rules as `all` with concurrency 1.                                       |
 | `Task.Result.struct(fields)`              | Combines a record of fallible tasks.                     | Waits for every field; the first error in key order wins.                     |
 | `Task.Maybe.struct(fields)`               | Combines a record of optional tasks.                     | `None` when any field is missing.                                             |
 | `Task.Validation.struct(fields)`          | Combines a record of validations.                        | Collects every error in key order.                                            |
@@ -171,6 +169,8 @@ options.
 | `Task.Result.timeout({ duration, onTimeout })`               | Adds a deadline to a fallible task.                   | Appends the timeout error to the error union.              |
 | `Task.repeat({ times, delay })`                              | Runs the task a fixed number of times.                | Returns `Task` of a result array.                          |
 | `Task.poll({ until, delay, attempts })`                      | Runs the task until a predicate passes.               | Returns the last value at the attempt limit.               |
+| `Task.Result.poll({ until, delay, attempts })`               | Repeats fallible work until a predicate passes.       | The first `Err` ends the loop.                             |
+| `Task.Result.paginate(load)`                                 | Follows a loader's cursor until a page has no `next`. | The first `Err` ends the run; collected pages are dropped. |
 | `Task.memoize(task)`                                         | Shares the first execution and its result.            | Later calls reuse the same deferred value.                 |
 | `Task.abortable(factory)`                                    | Creates a task with an abort handle.                  | A new call aborts the previous one.                        |
 | `Task.withProgress(onProgress)`                              | Reports `0` before the work and `1` after it settles. | Returns a task that reports progress.                      |
@@ -197,15 +197,25 @@ instead of returning one. `Task.Result.all` is stricter: it cancels the tasks th
 and settles with the first `Err`, and aborting its caller settles as `Aborted` (see
 [Aborted](/guides/aborted/)).
 
-`Task.race([])` never resolves. `Task.memoize` shares the first invocation, including the signal
-that invocation received; later callers do not start new work and cannot change the signal.
-`Task.all` forwards the call-site signal to every task, including tasks that start later.
+`Task.Result.poll` repeats work that succeeded but is not ready yet, so a failed attempt ends the
+loop; `Task.Result.retry` repeats work that failed. Compose them when both apply: the retry sits
+inside the polled task and covers one attempt, while the poll decides when the value is final.
+
+`Task.race([])` never resolves. `Task.memoize` shares the first invocation and ignores every
+caller's signal; later callers do not start new work. For fallible, keyed lookups with expiry and
+eviction, use [`Cache`](/guides/cache/) instead. `Task.all` forwards the call-site signal to every
+task, including tasks that start later.
 
 `Task.all` clamps a nonpositive or non-integer `concurrency` to 1. `Task.repeat` floors a finite
 `times` and returns an empty array for a non-finite or nonpositive count; aborting it returns the
-results collected so far. `Task.poll` uses one attempt for a non-finite or sub-one `attempts`, and
-omitting `attempts` polls without a limit. Aborting either loop stops it before the next run, while
-the in-flight run still finishes.
+results collected so far. `attempts` is a positive integer; `Task.poll` and `Task.Result.poll` treat
+anything that is not a positive integer as one attempt, and omitting it polls without a limit.
+Aborting either loop stops it before the next run, while the in-flight run still finishes.
+
+`Task.Result.paginate` requests pages sequentially and stops at the first `Err`, so the pages
+already collected are dropped rather than returned beside the error. A run that must resume persists
+the cursor itself, and the caller's signal is the only stop control: a loader whose `next` never
+clears loops until that signal aborts.
 
 `Task.delay` starts the wrapped task as soon as the wait is aborted, passing the aborted signal, so
 the task sees a cancelled signal immediately.
