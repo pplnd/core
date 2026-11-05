@@ -396,8 +396,8 @@ const difference =
 const reduce =
 	<B, V>(initial: B, reducer: (accumulator: B, value: V) => B) => <K = unknown>(dict: ReadonlyMap<K, V>): B => {
 		let acc = initial;
-		for (const [, v] of dict) {
-			acc = reducer(acc, v);
+		for (const value of dict.values()) {
+			acc = reducer(acc, value);
 		}
 		return acc;
 	};

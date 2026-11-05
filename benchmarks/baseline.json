@@ -1,0 +1,49 @@
+{
+	"note": "Ratios are current/reference medians measured by scripts/bench-gate.ts. maxRatio is the CI budget; raise it only with a reviewed decision.",
+	"cases": {
+		"arr.reduce/10k": {
+			"ratio": 0.931,
+			"maxRatio": 1.6
+		},
+		"arr.nonEmptyReduce/10k": {
+			"ratio": 0.964,
+			"maxRatio": 1.6
+		},
+		"arr.reverse/10k": {
+			"ratio": 1.042,
+			"maxRatio": 1.3
+		},
+		"rec.map/10k": {
+			"ratio": 0.994,
+			"maxRatio": 1.55
+		},
+		"rec.filter/10k": {
+			"ratio": 0.98,
+			"maxRatio": 1.6
+		},
+		"rec.mapWithKey/10k": {
+			"ratio": 0.994,
+			"maxRatio": 1.55
+		},
+		"rec.filterMap/10k": {
+			"ratio": 0.973,
+			"maxRatio": 1.55
+		},
+		"rec.groupBy/10k": {
+			"ratio": 1.012,
+			"maxRatio": 1.4
+		},
+		"rec.mergeWith/10k": {
+			"ratio": 1.001,
+			"maxRatio": 1.25
+		},
+		"dict.reduce/10k": {
+			"ratio": 1.039,
+			"maxRatio": 1.5
+		},
+		"num.format": {
+			"ratio": 0.989,
+			"maxRatio": 2.5
+		}
+	}
+}

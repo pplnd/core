@@ -460,6 +460,8 @@ test("pipe: composes range map and filter transformations", () => {
 test("format: formats finite number into string", () => {
 	const fmt = Num.format({ style: "decimal" }, "en-US");
 	expect(fmt(1234.5)).toStrictEqual(Maybe.make.some("1,234.5"));
+	// The formatter is created once per curried application and reused.
+	expect(fmt(42)).toStrictEqual(Maybe.make.some("42"));
 });
 
 test("format: returns None for NaN or non-finite numbers", () => {

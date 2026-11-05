@@ -714,8 +714,14 @@ const flatMap = <A, B>(transform: (item: A) => readonly B[]) => (items: readonly
  * pipe([1, 2, 3], Arr.reduce(0, (acc, n) => acc + n)); // 6
  * ```
  */
-const reduce = <A, B>(initial: B, reducer: (accumulator: B, item: A) => B) => (items: readonly A[]): B =>
-	items.reduce((accumulator, item) => reducer(accumulator, item), initial);
+const reduce = <A, B>(initial: B, reducer: (accumulator: B, item: A) => B) => (items: readonly A[]): B => {
+	let accumulator = initial;
+	const n = items.length;
+	for (let i = 0; i < n; i++) {
+		accumulator = reducer(accumulator, items[i]);
+	}
+	return accumulator;
+};
 
 /**
  * Prepends a value to the beginning of an array, returning a NonEmptyArr.
@@ -793,7 +799,7 @@ const every = <A>(predicate: (item: A) => boolean) => (items: readonly A[]): boo
  * Arr.reverse([1, 2, 3]); // [3, 2, 1]
  * ```
  */
-const reverse = <A>(items: readonly A[]): readonly A[] => [...items].toReversed();
+const reverse = <A>(items: readonly A[]): readonly A[] => items.slice().reverse();
 
 /**
  * Returns a new array with `item` inserted before the element at `index`.
@@ -1252,8 +1258,13 @@ const ArrNonEmpty = {
 	 * pipe([1, 2, 3] as Arr.NonEmpty<number>, Arr.NonEmpty.reduce((a, b) => a + b)); // 6
 	 * ```
 	 */
-	reduce: <A>(reducer: (accumulator: A, item: A) => A) => (items: NonEmptyArr<A>): A =>
-		items.reduce((accumulator, item) => reducer(accumulator, item)),
+	reduce: <A>(reducer: (accumulator: A, item: A) => A) => (items: NonEmptyArr<A>): A => {
+		let accumulator = items[0];
+		for (let i = 1; i < items.length; i++) {
+			accumulator = reducer(accumulator, items[i]);
+		}
+		return accumulator;
+	},
 
 	/**
 	 * Transforms each element of a non-empty array, preserving non-emptiness.

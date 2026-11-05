@@ -5,7 +5,7 @@ description: Guard division, clamp values, and aggregate numbers inside a pipeli
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.03 kB minified + gzipped
+> 2.04 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

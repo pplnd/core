@@ -450,6 +450,12 @@ export const Num = {
 	 * pipe(NaN, formatCurrency);    // None
 	 * ```
 	 */
-	format: (options?: Intl.NumberFormatOptions, locales?: string | string[]) => (value: number): Maybe<string> =>
-		!Number.isFinite(value) ? Maybe.make.none() : Maybe.make.some(new Intl.NumberFormat(locales, options).format(value)),
+	format: (options?: Intl.NumberFormatOptions, locales?: string | string[]) => {
+		let formatter: Intl.NumberFormat | undefined;
+		return (value: number): Maybe<string> => {
+			if (!Number.isFinite(value)) { return Maybe.make.none(); }
+			formatter ??= new Intl.NumberFormat(locales, options);
+			return Maybe.make.some(formatter.format(value));
+		};
+	},
 };

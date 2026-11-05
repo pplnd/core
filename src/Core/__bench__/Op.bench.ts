@@ -1,6 +1,7 @@
 import { pipe } from "#composition";
 import { Op } from "#core";
 import { test } from "vitest";
+import { assertEquivalent } from "../../Data/__bench__/equivalence.ts";
 
 const pipeFn = pipe;
 const outcomeMake = Op.Outcome.make;
@@ -10,37 +11,39 @@ const outcomeMatch = Op.Outcome.match;
 const opMake = Op.make;
 const opInterpret = Op.interpret;
 
+const currentOutcomePipeline = () => {
+	const outcome = outcomeMake.ok(42);
+	return pipeFn(
+		outcome,
+		outcomeMap((x: number) => x * 2),
+		outcomeChain((x: number) => outcomeMake.ok(x + 1)),
+		outcomeMatch({ err: (err: unknown) => `err:${String(err)}`, nil: () => "nil", ok: (val: number) => `ok:${val}` }),
+	);
+};
+const manualOutcomePipeline = () => {
+	const outcome = outcomeMake.ok(42) as Op.Outcome<string, number>;
+	const s1 = outcome.kind === "OpOk" ? outcomeMake.ok(outcome.value * 2) : outcome;
+	const s2 = s1.kind === "OpOk" ? outcomeMake.ok(s1.value + 1) : s1;
+	return s2.kind === "OpOk" ? `ok:${s2.value}` : s2.kind === "OpErr" ? `err:${s2.error}` : "nil";
+};
+
 // =============================================================================
 // Scenario 1: Sync Outcome Transformations
 // =============================================================================
 
 test("op-sync-transformations", async ({ bench }) => {
+	assertEquivalent("op-sync-transformations", currentOutcomePipeline(), manualOutcomePipeline());
 	await bench.compare(
-		bench("1. (current) Op.Outcome.map + Op.Outcome.chain + Op.Outcome.match", () => {
-			const outcome = outcomeMake.ok(42);
-			void pipeFn(
-				outcome,
-				outcomeMap((x: number) => x * 2),
-				outcomeChain((x: number) => outcomeMake.ok(x + 1)),
-				outcomeMatch({
-					err: (err: unknown) => `err:${String(err)}`,
-					nil: () => "nil",
-					ok: (val: number) => `ok:${val}`,
-				}),
-			);
-		}),
-		bench("2. manual inline outcome checks", () => {
-			const outcome = outcomeMake.ok(42) as Op.Outcome<string, number>;
-			const s1 = outcome.kind === "OpOk" ? outcomeMake.ok(outcome.value * 2) : outcome;
-			const s2 = s1.kind === "OpOk" ? outcomeMake.ok(s1.value + 1) : s1;
-			const res = s2.kind === "OpOk" ? `ok:${s2.value}` : s2.kind === "OpErr" ? `err:${s2.error}` : "nil";
-			void res;
-		}),
+		bench("1. (current) Op.Outcome.map + Op.Outcome.chain + Op.Outcome.match", currentOutcomePipeline),
+		bench("2. manual inline outcome checks", manualOutcomePipeline),
 	);
 });
 
 // =============================================================================
 // Scenario 2: Op.interpret Execution
+//
+// Overhead-only comparison: `manager.run` executes the op state machine and
+// `Promise.resolve` does not, so the two sides do not compute the same result.
 // =============================================================================
 
 test("op-interpret-execution", async ({ bench }) => {

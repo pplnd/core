@@ -63,6 +63,10 @@ const setupStateCollect = () => {
 
 // =============================================================================
 // Scenario 1: Emission throughput across subscribers
+//
+// Overhead-only comparison: EventEmitter.emit returns a boolean and dispatches
+// synchronously, while EventBus.emit returns void and runs a trampoline queue.
+// The timings compare broker overhead, not interchangeable results.
 // =============================================================================
 
 test("event-bus-emission-1-listener", async ({ bench }) => {

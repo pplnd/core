@@ -43,6 +43,9 @@ jobs:
       - name: Runtime tests and coverage
         run: pnpm test:coverage
 
+      - name: Benchmark gate and coverage contract
+        run: pnpm bench:ci
+
       - name: Upload coverage (Codecov)
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
