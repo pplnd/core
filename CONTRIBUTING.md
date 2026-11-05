@@ -18,6 +18,49 @@ Participation follows the [Code of Conduct](CODE_OF_CONDUCT.md). Report security
 - **Add a module or public API.** Open an issue first, then follow the
   [module checklist](docs/src/content/docs/contributing/modules.md).
 
+## Conversion symmetry
+
+Reversible conversions are exposed from both sides: `Maybe.to.Result` and `Result.from.Maybe`, and
+likewise for `Maybe`/`Validation`, `Result`/`Validation`, `TaskMaybe`/`TaskResult`, and
+`Rec`/`Dict`. A lossy projection exists only on the side that defines it; do not add a counterpart
+just for symmetry when the reverse conversion would lose information.
+
+## Execution vocabulary
+
+Public methods use one verb per role. Do not introduce a second name for a role that already has a
+verb.
+
+| Verb                             | Meaning                                                                  | Current users                                                                                      |
+| :------------------------------- | :----------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------- |
+| `make`                           | Build a definition or engine from configuration; starts nothing.         | `Task.make`, `Graph.make`, `Transaction.make`, `Batcher.make`, `Cache.make`, `CircuitBreaker.make` |
+| `interpret`                      | Turn a definition into a live handle.                                    | `Op.interpret`, `Machine.interpret`                                                                |
+| `run`                            | Execute work: a definition, a node or step body, or an engine operation. | `Task.run`, `Graph.run`, `Transaction.run`, `CircuitBreaker.run`, `manager.run`                    |
+| `use`                            | Bracketed execution only: acquire, run the body, release.                | `Resource.use`                                                                                     |
+| `load`                           | Keyed retrieval that may start work.                                     | `Batcher.load`, `Cache.load`                                                                       |
+| `peek`                           | Read stored state without starting work.                                 | `Cache.peek`                                                                                       |
+| `flush`                          | Wait until no work is running.                                           | `Batcher.flush`, `Cache.flush`                                                                     |
+| `emit` / `send`                  | Deliver a message: an event, or an actor message.                        | `EventBus.emit`, machine actor `send`                                                              |
+| `clear` / `invalidate` / `reset` | Drop state: everything, one key, or policy state.                        | `Cache.clear`, `Cache.invalidate`, `CircuitBreaker.reset`                                          |
+
+Configuration callbacks follow the same rule:
+
+- `run` is the unit of work that receives a context: `Graph.node(id, run)`,
+  `Transaction.step(id, run)`, `Resource.use({ run })`.
+- `load` and `loadBatch` produce the keyed value the module retrieves: `Cache.make({ load })`,
+  `Batcher.make(loadBatch)`.
+- Policies and observations are verb phrases: `shouldTrip`, `onError`, `onTimeout`, `onProgress`,
+  `keyBy`, `serializeKey`, `until`.
+- `fetch` is the platform API and never names an API or callback. `fn`, `callback`, and `handler`
+  are never configuration keys.
+
+A constructor takes the primary operation positionally when everything else is an options bag:
+`Batcher.make(loadBatch, options)` and `Resource.make(acquire, release)`. When the operation shares
+required settings with the module, use one config object: `Cache.make({ load, ttl })` and
+`CircuitBreaker.make({ failureThreshold, resetTimeout })`.
+
+Name an auxiliary type `Config` when at least one field is required, `Options` when every field is
+optional, and `RunOptions` for per-execution settings.
+
 ## Set up
 
 Development uses Node 26.13.0 and pnpm 12.16.1. The published package supports Node 18+;
