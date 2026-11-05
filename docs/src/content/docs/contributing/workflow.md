@@ -43,8 +43,9 @@ pnpm format
 pnpm check:docs           # formatting, size metadata, links, snippets, build
 ```
 
-`pnpm check` is the fast inner loop. `pnpm check:pr` is the command the code CI job mirrors.
-`pnpm check:docs` is the command the docs CI job mirrors.
+`pnpm check` is the fast inner loop. The code CI job runs `pnpm check`, `pnpm build`, and
+`pnpm test:coverage`; the docs CI job runs `pnpm check:docs`. Between them, CI covers exactly what
+`pnpm check:pr` covers.
 
 ## Your first change
 
@@ -67,14 +68,15 @@ claim a performance win without a benchmark.
 - Do not edit the package version. Maintainers handle releases.
 
 The pull request template lists the checks. CI runs the code verification suite for source changes
-and the documentation suite for docs changes.
+and the documentation suite for documentation changes. Source changes also run the documentation
+suite, because guide snippets compile against `src` and the API reference is generated from it.
 
 ## CI
 
-| Job                        | What it runs                                                                                            |
-| :------------------------- | :------------------------------------------------------------------------------------------------------ |
-| Code Verification          | typecheck, TypeScript 5.5 compatibility, type tests, lint, format, build, coverage, and the docs build. |
-| Documentation Verification | `pnpm check:docs`: formatting, bundle metadata, links, snippets, and the Astro build.                   |
+| Job                        | What it runs                                                                          |
+| :------------------------- | :------------------------------------------------------------------------------------ |
+| Code Verification          | `pnpm check`, `pnpm build`, and `pnpm test:coverage`.                                 |
+| Documentation Verification | `pnpm check:docs`: formatting, bundle metadata, links, snippets, and the Astro build. |
 
 If a check fails, reproduce it with the matching local command before pushing again.
 

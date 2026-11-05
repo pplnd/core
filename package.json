@@ -64,17 +64,16 @@
 		"typecheck": "tsc --noEmit",
 		"typecheck:dev": "tsc --noEmit --watch",
 		"typecheck:min": "node node_modules/typescript-5.5/bin/tsc -p tsconfig.lib.json --noEmit --skipLibCheck",
-		"stage:publish": "pnpm build && npm stage publish --access public",
 		"lint": "oxlint src/",
-		"format": "dprint fmt && dprint fmt --config dprint.md.json \"docs/**/*.md\" \"docs/**/*.mdx\" \"README.md\" \"CODE_OF_CONDUCT.md\" \"CONTRIBUTING.md\" \"SECURITY.md\" \".github/**/*.md\"",
-		"format:check": "dprint check && dprint check --config dprint.md.json \"docs/**/*.md\" \"docs/**/*.mdx\" \"README.md\" \"CODE_OF_CONDUCT.md\" \"CONTRIBUTING.md\" \"SECURITY.md\" \".github/**/*.md\"",
+		"format": "dprint fmt && dprint fmt --config dprint.md.json",
+		"format:check": "dprint check && dprint check --config dprint.md.json",
 		"docs:dev": "pnpm --filter pipelined-docs dev",
 		"docs:build": "pnpm --filter pipelined-docs build",
-		"check": "pnpm typecheck && pnpm typecheck:min && pnpm test:types && pnpm lint && pnpm format:check",
+		"check": "pnpm lint && pnpm format:check && pnpm test:types && pnpm typecheck && pnpm typecheck:min",
 		"check:doc-links": "node scripts/check-doc-links.ts",
 		"check:doc-snippets": "node scripts/check-doc-snippets.ts",
 		"check:docs": "pnpm format:check && pnpm size:check && pnpm check:doc-links && pnpm check:doc-snippets && pnpm docs:build",
-		"check:pr": "pnpm check && pnpm test:coverage && pnpm build && pnpm check:docs"
+		"check:pr": "pnpm check && pnpm build && pnpm test:coverage && pnpm check:docs"
 	},
 	"devDependencies": {
 		"@arethetypeswrong/core": "0.18.5",

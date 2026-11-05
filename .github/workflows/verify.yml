@@ -10,6 +10,7 @@ jobs:
   all:
     name: Verification Suite
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -31,29 +32,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint (oxlint)
-        run: pnpm lint
-
-      - name: Format (dprint)
-        run: pnpm format:check
-
-      - name: Typecheck (tsc)
-        run: pnpm typecheck
-
-      - name: Typecheck (TS 5.5)
-        run: pnpm typecheck:min
-
-      - name: Test types (.test-d.ts)
-        run: pnpm test:types
+      # Runs the same composite contributors run locally; the docs gate is owned
+      # by the Documentation Verification job in ci.yml.
+      - name: Static checks (lint, format, type tests, typecheck)
+        run: pnpm check
 
       - name: Build (tsdown)
         run: pnpm build
 
-      - name: Test runtime & coverage
+      - name: Runtime tests and coverage
         run: pnpm test:coverage
-
-      - name: Build documentation and API reference
-        run: pnpm docs:build
 
       - name: Upload coverage (Codecov)
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1

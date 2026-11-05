@@ -3,6 +3,15 @@
 	"lineWidth": 100,
 	"useTabs": false,
 	"indentWidth": 2,
+	"includes": [
+		"docs/**/*.md",
+		"docs/**/*.mdx",
+		"README.md",
+		"CODE_OF_CONDUCT.md",
+		"CONTRIBUTING.md",
+		"SECURITY.md",
+		".github/**/*.md"
+	],
 	"excludes": ["dist/", "node_modules/"],
 	"markdown": {
 		"textWrap": "always",

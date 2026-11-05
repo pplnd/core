@@ -18,6 +18,7 @@ jobs:
     name: Stage Publish to npm
     needs: [verify]
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: read
       id-token: write
