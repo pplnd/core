@@ -2,7 +2,7 @@
 
 @layer custom-styles {
   .site-title>img {
-    margin-top: 4px;
+    margin-top: 3px;
     height: 22px;
     transition: filter ease 200ms;
 
