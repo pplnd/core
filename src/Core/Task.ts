@@ -2,6 +2,7 @@
 // Imports
 // =============================================================================
 import type { KeysOfUnion, Thenable } from "../internal/InternalTypes";
+import { toPositiveInteger } from "../internal/Numbers.ts";
 import { clampTimerDelay } from "../internal/timers.ts";
 import { waitForDelay } from "../internal/waitForDelay.ts";
 import { Duration } from "../Types/Duration.ts";
@@ -384,8 +385,8 @@ export const Task = {
 	/**
 	 * Polls a Task repeatedly until the result satisfies a predicate, returning that result.
 	 * An optional delay duration can be inserted between polling runs.
-	 * An optional `attempts` cap stops the loop after N calls — the last value is returned
-	 * regardless of whether the predicate was satisfied.
+	 * An optional `attempts` cap of N calls stops the loop after N calls — the last value is
+	 * returned regardless of whether the predicate was satisfied. `attempts` is a positive integer.
 	 *
 	 * @see {@link Task.repeat} to run a Task a fixed number of times.
 	 *
@@ -401,11 +402,7 @@ export const Task = {
 		<A>(options: { until: (value: A) => boolean; delay?: Duration; attempts?: number; }) => (task: Task<A>): Task<A> =>
 			fromPromise((signal) => {
 				const { until: predicate, delay: delayDuration } = options;
-				const attempts = options.attempts === undefined
-					? undefined
-					: Number.isFinite(options.attempts)
-					? Math.max(1, Math.floor(options.attempts))
-					: 1;
+				const attempts = options.attempts === undefined ? undefined : (toPositiveInteger(options.attempts) ?? 1);
 				const wait = (): Promise<void> => waitForDelay(delayDuration ? getMs(delayDuration) : 0, signal);
 				const run = (attempt: number): Promise<A> =>
 					toPromise(task, signal).then((a) => {
@@ -431,34 +428,6 @@ export const Task = {
 	 * ```
 	 */
 	race: raceTask,
-
-	/**
-	 * Runs an array or tuple of Tasks one at a time in order, collecting all results.
-	 * Each Task starts only after the previous one resolves.
-	 * An optional `signal` passed at the call site is forwarded to every task, including queued tasks.
-	 *
-	 * @see {@link Task.all} to run an array or tuple of tasks in parallel.
-	 *
-	 * @example
-	 * ```ts
-	 * const makeTask = (n: number) => Task.make(n);
-	 *
-	 * await Task.sequential([makeTask(1), makeTask(2), makeTask(3)])();
-	 * // [1, 2, 3]
-	 * ```
-	 */
-	sequential: <T extends readonly Task<unknown>[]>(
-		tasks: readonly [...T],
-	): Task<{ [K in keyof T]: T[K] extends Task<infer A> ? A : never; }> =>
-		fromPromise(async (signal) => {
-			type Results = { [K in keyof T]: T[K] extends Task<infer A> ? A : never; };
-			const len = tasks.length;
-			const results: unknown[] = new Array(len);
-			for (let i = 0; i < len; i++) {
-				results[i] = await toPromise(tasks[i], signal);
-			}
-			return results as unknown as Results;
-		}),
 
 	/**
 	 * Converts a `Task<A>` into a `Task<Result<E, A>>`, resolving to `Err` if the
@@ -649,8 +618,9 @@ export const Task = {
 			),
 
 	/**
-	 * Creates a memoized version of a Task. The task is executed at most once on first call,
-	 * and its resolved value is cached for all subsequent calls.
+	 * Creates a memoized version of a Task. The task runs at most once, and the shared result is
+	 * reused by every later call. Because the run is shared, it is not tied to any caller's signal:
+	 * cancellation of a memoized task is a no-op.
 	 *
 	 * @example
 	 * ```ts
@@ -661,9 +631,9 @@ export const Task = {
 	 */
 	memoize: <A>(task: Task<A>): Task<A> => {
 		let cached: Deferred<A> | null = null;
-		return (signal?: AbortSignal) => {
+		return () => {
 			if (cached === null) {
-				cached = task(signal);
+				cached = task(undefined);
 			}
 			return cached;
 		};

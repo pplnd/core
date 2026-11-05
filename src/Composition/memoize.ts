@@ -1,9 +1,11 @@
+import { storeLru, touchLru } from "../internal/lru.ts";
+
 /**
  * Creates a memoized version of a function that caches results.
  * Subsequent calls with the same argument return the cached result.
  *
  * By default, uses the argument directly as the cache key.
- * For complex arguments, provide a custom `keyFn` to generate cache keys.
+ * For complex arguments, provide a custom `keyBy` to generate cache keys.
  *
  * @example
  * ```ts
@@ -20,7 +22,7 @@
  * // With custom key function for objects
  * const format = memoize(
  *   (item: { price: number; currency: string }) => `${item.currency}${item.price.toFixed(2)}`,
- *   { key: (item) => `${item.currency}:${item.price}` }
+ *   { keyBy: (item) => `${item.currency}:${item.price}` }
  * );
  * // With bounded cache size (LRU eviction)
  * const bounded = memoize(
@@ -30,7 +32,10 @@
  * ```
  */
 export const memoize = <A, B>(f: (a: A) => B, options?: {
-	readonly key?: (a: A) => unknown;
+	/**
+	 * Maps an argument to the value used as its cache key. Defaults to the argument itself.
+	 */
+	readonly keyBy?: (a: A) => unknown;
 	/**
 	 * Maximum number of entries to store before evicting the least recently used entry.
 	 * Fractional values are floored; `0` disables caching; `Infinity` means unbounded.
@@ -39,7 +44,7 @@ export const memoize = <A, B>(f: (a: A) => B, options?: {
 	readonly maxSize?: number;
 }): (a: A) => B => {
 	const cache = new Map<unknown, B>();
-	const keyFn = options?.key ?? ((a) => a);
+	const keyBy = options?.keyBy ?? ((a: A) => a);
 	const rawMaxSize = options?.maxSize;
 	const maxSize = rawMaxSize === undefined || rawMaxSize === Infinity
 		? undefined
@@ -50,27 +55,22 @@ export const memoize = <A, B>(f: (a: A) => B, options?: {
 	return (a: A): B => {
 		if (maxSize === 0) { return f(a); }
 
-		const key = keyFn(a);
+		const key = keyBy(a);
 
 		if (cache.has(key)) {
 			const cached = cache.get(key)!;
 			if (maxSize !== undefined) {
-				cache.delete(key);
-				cache.set(key, cached);
+				touchLru(cache, key);
 			}
 			return cached;
 		}
 
 		const result = f(a);
-		cache.set(key, result);
-
-		if (maxSize !== undefined && cache.size > maxSize) {
-			for (const k of cache.keys()) {
-				cache.delete(k);
-				break;
-			}
+		if (maxSize === undefined) {
+			cache.set(key, result);
+		} else {
+			storeLru(cache, key, result, maxSize);
 		}
-
 		return result;
 	};
 };

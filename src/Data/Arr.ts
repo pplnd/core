@@ -1259,7 +1259,7 @@ const ArrNonEmpty = {
 	 * ```
 	 */
 	reduce: <A>(reducer: (accumulator: A, item: A) => A) => (items: NonEmptyArr<A>): A => {
-		let accumulator = items[0];
+		let [accumulator] = items;
 		for (let i = 1; i < items.length; i++) {
 			accumulator = reducer(accumulator, items[i]);
 		}

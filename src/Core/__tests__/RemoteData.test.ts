@@ -586,3 +586,54 @@ test("filter: preserves falsy values when predicate passes", () => {
 	expect(RemoteData.filter((b: boolean) => b === false, () => "not false")(RemoteData.make.success(false)))
 		.toStrictEqual({ kind: "Success", value: false });
 });
+
+test("struct: combines success fields into a success record", () => {
+	expect(RemoteData.struct({ user: RemoteData.make.success({ id: "u_1" }), alerts: RemoteData.make.success(2) }))
+		.toStrictEqual({ kind: "Success", value: { user: { id: "u_1" }, alerts: 2 } });
+});
+
+test("struct: the first failure wins", () => {
+	expect(
+		RemoteData.struct({
+			user: RemoteData.make.success({ id: "u_1" }),
+			alerts: RemoteData.make.failure("alerts down"),
+			audit: RemoteData.make.failure("audit down"),
+		}),
+	).toStrictEqual({ kind: "Failure", error: "alerts down" });
+});
+
+test("struct: failure wins over loading and notAsked regardless of key order", () => {
+	expect(
+		RemoteData.struct({
+			first: RemoteData.make.notAsked(),
+			second: RemoteData.make.loading(),
+			third: RemoteData.make.failure("boom"),
+		}),
+	).toStrictEqual({ kind: "Failure", error: "boom" });
+});
+
+test("struct: loading wins over notAsked", () => {
+	expect(RemoteData.struct({ first: RemoteData.make.notAsked(), second: RemoteData.make.loading() })).toStrictEqual({
+		kind: "Loading",
+	});
+});
+
+test("struct: an unasked field without loading or failure yields notAsked", () => {
+	expect(RemoteData.struct({ ready: RemoteData.make.success(1), waiting: RemoteData.make.notAsked() })).toStrictEqual({
+		kind: "NotAsked",
+	});
+});
+
+test("struct: an empty record is a success", () => {
+	expect(RemoteData.struct({})).toStrictEqual({ kind: "Success", value: {} });
+});
+
+test("struct: preserves falsy success values", () => {
+	expect(
+		RemoteData.struct({
+			zero: RemoteData.make.success(0),
+			empty: RemoteData.make.success(""),
+			off: RemoteData.make.success(false),
+		}),
+	).toStrictEqual({ kind: "Success", value: { zero: 0, empty: "", off: false } });
+});

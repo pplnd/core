@@ -33,7 +33,10 @@ export type Batcher<K, E, V> = {
 	 * @param signal - Optional AbortSignal to cancel this individual caller's lookup.
 	 * @see {@link Batcher.loadMany} to coalesce multiple keys in a single call.
 	 */
-	readonly load: (key: K, signal?: AbortSignal) => Deferred<Batcher.Outcome<E | Aborted, V, K>>;
+	readonly load: {
+		(key: K): Deferred<Batcher.Outcome<E, V, K>>;
+		(key: K, signal: AbortSignal): Deferred<Batcher.Outcome<E | Aborted, V, K>>;
+	};
 
 	/**
 	 * Queues multiple keys and returns their outcomes in input order.
@@ -45,10 +48,10 @@ export type Batcher<K, E, V> = {
 	 * @param signal - Optional AbortSignal to cancel this caller's lookup batch.
 	 * @see {@link Batcher.load} to look up an individual key.
 	 */
-	readonly loadMany: (
-		keys: readonly K[],
-		signal?: AbortSignal,
-	) => Deferred<readonly Batcher.Outcome<E | Aborted, V, K>[]>;
+	readonly loadMany: {
+		(keys: readonly K[]): Deferred<readonly Batcher.Outcome<E, V, K>[]>;
+		(keys: readonly K[], signal: AbortSignal): Deferred<readonly Batcher.Outcome<E | Aborted, V, K>[]>;
+	};
 
 	/**
 	 * Dispatches queued keys without waiting for the scheduled microtask or timer, then waits for
@@ -345,7 +348,7 @@ const makeBatcher = <K, E, V>(
 		}
 	};
 
-	const load = (key: K, signal?: AbortSignal): Deferred<Batcher.Outcome<Failure, V, K>> =>
+	const loadInternal = (key: K, signal?: AbortSignal): Deferred<Batcher.Outcome<Failure, V, K>> =>
 		Deferred.from.Promise(
 			new Promise<Batcher.Outcome<Failure, V, K>>((resolve) => {
 				if (signal?.aborted) {
@@ -405,16 +408,31 @@ const makeBatcher = <K, E, V>(
 			}),
 		);
 
-	const loadMany = (keys: readonly K[], signal?: AbortSignal): Deferred<readonly Batcher.Outcome<Failure, V, K>[]> => {
+	const loadManyInternal = (
+		keys: readonly K[],
+		signal?: AbortSignal,
+	): Deferred<readonly Batcher.Outcome<Failure, V, K>[]> => {
 		const len = keys.length;
 		if (len === 0) {
 			return Deferred.from.Promise(Promise.resolve([]));
 		}
 
-		return Deferred.from.Promise(Promise.all(keys.map((k) => Deferred.to.Promise(load(k, signal)))));
+		return Deferred.from.Promise(Promise.all(keys.map((k) => Deferred.to.Promise(loadInternal(k, signal)))));
 	};
 
 	const flush = (): Deferred<void> => Deferred.from.Promise(flushQueue());
+
+	function load(key: K): Deferred<Batcher.Outcome<E, V, K>>;
+	function load(key: K, signal: AbortSignal): Deferred<Batcher.Outcome<E | Aborted, V, K>>;
+	function load(key: K, signal?: AbortSignal): Deferred<Batcher.Outcome<E | Aborted, V, K>> {
+		return loadInternal(key, signal);
+	}
+
+	function loadMany(keys: readonly K[]): Deferred<readonly Batcher.Outcome<E, V, K>[]>;
+	function loadMany(keys: readonly K[], signal: AbortSignal): Deferred<readonly Batcher.Outcome<E | Aborted, V, K>[]>;
+	function loadMany(keys: readonly K[], signal?: AbortSignal): Deferred<readonly Batcher.Outcome<E | Aborted, V, K>[]> {
+		return loadManyInternal(keys, signal);
+	}
 
 	return { load, loadMany, flush };
 };

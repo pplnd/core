@@ -57,15 +57,12 @@ test("repeat & poll: loops task execution according to policy or predicate", () 
 	expectTypeOf(polled).toEqualTypeOf<Task<number>>();
 });
 
-test("all, sequential & race: preserve element types and execute multiple tasks", () => {
+test("all & race: preserve element types and execute multiple tasks", () => {
 	const taskA = Task.make(1);
 	const taskB = Task.make("hello");
 
 	const allTask = Task.all([taskA, taskB]);
 	expectTypeOf(allTask).toEqualTypeOf<Task<[number, string]>>();
-
-	const seqTask = Task.sequential([taskA, taskB]);
-	expectTypeOf(seqTask).toEqualTypeOf<Task<[number, string]>>();
 
 	const raceTask = Task.race([taskA, Task.make(2)]);
 	expectTypeOf(raceTask).toEqualTypeOf<Task<number>>();

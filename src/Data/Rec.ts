@@ -5,6 +5,7 @@ import { Maybe as CoreMaybe } from "../Core/Maybe.ts";
 import { Result as CoreResult } from "../Core/Result.ts";
 import { type NonEmpty as InternalNonEmpty, type NonEmptyArr } from "../internal/InternalTypes";
 import type { Brand } from "../Types/Brand.ts";
+import { Dict } from "./Dict.ts";
 
 // =============================================================================
 // Types
@@ -584,8 +585,7 @@ const RecTo = {
 	 * Rec.to.Dict({ a: 1, b: 2 }); // ReadonlyMap { "a" => 1, "b" => 2 }
 	 * ```
 	 */
-	Dict: <A, K extends string = string>(record: Readonly<Record<K, A>>): ReadonlyMap<K, A> =>
-		new globalThis.Map<K, A>(Object.entries(record) as unknown as (readonly [K, A])[]),
+	Dict: <A, K extends string = string>(record: Readonly<Record<K, A>>): ReadonlyMap<K, A> => Dict.from.record(record),
 };
 
 const RecNonEmpty = {

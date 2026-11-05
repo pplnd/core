@@ -9,12 +9,23 @@ import { Maybe } from "../Maybe.ts";
 import { Result } from "../Result.ts";
 import { Task } from "../Task.ts";
 
-test("load: preserves fetch errors alongside cancellation", () => {
+test("load: adds cancellation only when a signal is passed", () => {
 	type FetchError = { readonly kind: "FetchError"; };
 	const batcher = Batcher.make((_keys: readonly string[]): Task.Result<FetchError, ReadonlyMap<string, number>> =>
 		Task.Result.make.err({ kind: "FetchError" })
 	);
-	expectTypeOf(batcher.load("key")).toEqualTypeOf<Deferred<Batcher.Outcome<FetchError | Aborted, number, string>>>();
+	const { signal } = new AbortController();
+
+	expectTypeOf(batcher.load("key")).toEqualTypeOf<Deferred<Batcher.Outcome<FetchError, number, string>>>();
+	expectTypeOf(batcher.loadMany(["key"])).toEqualTypeOf<
+		Deferred<readonly Batcher.Outcome<FetchError, number, string>[]>
+	>();
+	expectTypeOf(batcher.load("key", signal)).toEqualTypeOf<
+		Deferred<Batcher.Outcome<FetchError | Aborted, number, string>>
+	>();
+	expectTypeOf(batcher.loadMany(["key"], signal)).toEqualTypeOf<
+		Deferred<readonly Batcher.Outcome<FetchError | Aborted, number, string>[]>
+	>();
 });
 
 test("make: infers Batcher instance types correctly", () => {
@@ -29,10 +40,13 @@ test("make: infers Batcher instance types correctly", () => {
 	expectTypeOf(batcher).toEqualTypeOf<Batcher<Key, never, User>>();
 
 	const loadDeferred = batcher.load("u_1");
-	expectTypeOf(loadDeferred).toEqualTypeOf<Deferred<Batcher.Outcome<Aborted, User, Key>>>();
+	expectTypeOf(loadDeferred).toEqualTypeOf<Deferred<Batcher.Outcome<never, User, Key>>>();
 
 	const loadManyDeferred = batcher.loadMany(["u_1", "u_2"]);
-	expectTypeOf(loadManyDeferred).toEqualTypeOf<Deferred<readonly Batcher.Outcome<Aborted, User, Key>[]>>();
+	expectTypeOf(loadManyDeferred).toEqualTypeOf<Deferred<readonly Batcher.Outcome<never, User, Key>[]>>();
+
+	const loadWithSignal = batcher.load("u_1", new AbortController().signal);
+	expectTypeOf(loadWithSignal).toEqualTypeOf<Deferred<Batcher.Outcome<Aborted, User, Key>>>();
 
 	const flushDeferred = batcher.flush();
 	expectTypeOf(flushDeferred).toEqualTypeOf<Deferred<void>>();
@@ -54,6 +68,9 @@ test("make: infers serializer keys and error and value types from the fetch func
 
 	expectTypeOf(products).toEqualTypeOf<Batcher<ProductKey, FetchError, Product>>();
 	expectTypeOf(products.load({ shopId: "north", productId: "book" })).toEqualTypeOf<
+		Deferred<Batcher.Outcome<FetchError, Product, ProductKey>>
+	>();
+	expectTypeOf(products.load({ shopId: "north", productId: "book" }, new AbortController().signal)).toEqualTypeOf<
 		Deferred<Batcher.Outcome<FetchError | Aborted, Product, ProductKey>>
 	>();
 });

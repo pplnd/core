@@ -55,7 +55,7 @@ test("memoize: computes cache key using custom key function", () => {
 	const getLabel = memoize((opts: { id: number; label: string; }) => {
 		callCount++;
 		return opts.label.toUpperCase();
-	}, { key: (opts) => opts.id });
+	}, { keyBy: (opts) => opts.id });
 
 	expect(getLabel({ id: 1, label: "hello" })).toBe("HELLO");
 	expect(getLabel({ id: 1, label: "changed" })).toBe("HELLO"); // Cached by id

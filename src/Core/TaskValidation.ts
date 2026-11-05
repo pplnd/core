@@ -401,15 +401,4 @@ export const TaskValidation = {
 	 * ```
 	 */
 	run: (signal?: AbortSignal) => <E, A>(task: Task.Validation<E, A>): Deferred<Validation<E, A>> => task(signal),
-
-	/**
-	 * Creates a memoized version of a Task.Validation. The task is executed at most once on first call,
-	 * and its resolved Validation is cached for all subsequent calls.
-	 *
-	 * @example
-	 * ```ts
-	 * const validate = Task.Validation.memoize(validateFormTask);
-	 * ```
-	 */
-	memoize: <E, A>(task: Task.Validation<E, A>): Task.Validation<E, A> => Task.memoize(task),
 };

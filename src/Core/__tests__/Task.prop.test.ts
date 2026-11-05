@@ -113,10 +113,10 @@ test("Result.chain: satisfies monad right identity", async () => {
 	}));
 });
 
-test("Result.bimap: satisfies identity law", async () => {
+test("Result.mapBoth: satisfies identity law", async () => {
 	await fc.assert(fc.asyncProperty(fc.boolean(), arbValue, arbError, async (isOk, val, err) => {
 		const task: Task.Result<string, number> = isOk ? Task.Result.make.ok(val) : Task.Result.make.err(err);
-		const mapped = Task.Result.bimap((e: string) => e, (v: number) => v)(task);
+		const mapped = Task.Result.mapBoth((e: string) => e, (v: number) => v)(task);
 
 		await expect(mapped()).resolves.toStrictEqual(await task());
 	}));

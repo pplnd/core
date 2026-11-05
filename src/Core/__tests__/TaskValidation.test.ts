@@ -457,22 +457,6 @@ test("make: creates passed, failed, and failedAll tasks", async () => {
 	await expect(failedAllTask()).resolves.toStrictEqual(Validation.make.failedAll(["err1", "err2"]));
 });
 
-test("memoize: executes task only once across multiple calls", async () => {
-	let calls = 0;
-	const task = Task.Validation.tryCatch(() => {
-		calls++;
-		return Promise.resolve(99);
-	}, { onError: String });
-	const memoized = Task.Validation.memoize(task);
-
-	const r1 = await memoized();
-	const r2 = await memoized();
-
-	expect(r1).toStrictEqual(Validation.make.passed(99));
-	expect(r2).toStrictEqual(Validation.make.passed(99));
-	expect(calls).toBe(1);
-});
-
 // --- to namespace ---
 
 test("to.Result: converts Passed to Ok and Failed to Err", async () => {

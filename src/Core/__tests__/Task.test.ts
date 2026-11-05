@@ -407,56 +407,6 @@ test("race: aborts remaining subtasks when outer signal aborts mid-flight", asyn
 });
 
 // ---------------------------------------------------------------------------
-// sequential
-// ---------------------------------------------------------------------------
-
-test("sequential: runs Tasks in order and collects results", async () => {
-	const result = await Task.sequential([Task.make(1), Task.make(2), Task.make(3)])();
-	expect(result).toStrictEqual([1, 2, 3]);
-});
-
-test("sequential: returns empty array for empty array", async () => {
-	const result = await Task.sequential([])();
-	expect(result).toStrictEqual([]);
-});
-
-test("sequential: executes each Task only after previous resolves", async () => {
-	const order: number[] = [];
-	const makeTask = (n: number, ms: number) =>
-		fromPromise<number>(() =>
-			new Promise((r) =>
-				setTimeout(() => {
-					order.push(n);
-					r(n);
-				}, ms)
-			)
-		);
-
-	await Task.sequential([makeTask(1, 30), makeTask(2, 10), makeTask(3, 20)])();
-	expect(order).toStrictEqual([1, 2, 3]);
-});
-
-test("sequential: returns single-element array for single Task", async () => {
-	const result = await Task.sequential([Task.make(99)])();
-	expect(result).toStrictEqual([99]);
-});
-
-test("sequential: forwards abort signal to tasks in sequence", async () => {
-	const controller = new AbortController();
-	controller.abort("cancelled");
-	const signals: (AbortSignal | undefined)[] = [];
-	const task = (signal?: AbortSignal) => {
-		signals.push(signal);
-		return Deferred.from.Promise(Promise.resolve(99));
-	};
-	const result = await Task.sequential([task, task])(controller.signal);
-	expect(result).toStrictEqual([99, 99]);
-	expect(signals).toHaveLength(2);
-	expect(signals[0]?.aborted).toBe(true);
-	expect(signals[1]?.aborted).toBe(true);
-});
-
-// ---------------------------------------------------------------------------
 // timeout
 // ---------------------------------------------------------------------------
 
@@ -1015,15 +965,6 @@ test("all: preserves tuple element types for heterogeneous task literals", async
 	expect(result).toStrictEqual([42, "hello"]);
 });
 
-test("sequential: preserves tuple element types for heterogeneous task literals", async () => {
-	const tNum = Task.make(42);
-	const tStr = Task.make("hello");
-
-	const combined = Task.sequential([tNum, tStr]);
-	const result = await combined();
-	expect(result).toStrictEqual([42, "hello"]);
-});
-
 // --- assignTo ---
 
 test("assignTo: wraps value in accumulator object", async () => {
@@ -1183,7 +1124,7 @@ test("repeat: clamps non-finite times (NaN) to empty array and truncates positiv
 	expect(floatResult).toStrictEqual([1, 2]);
 });
 
-test("poll: clamps non-finite attempts (NaN) to 1 and truncates positive floats", async () => {
+test("poll: treats any value that is not a positive integer as one attempt", async () => {
 	let nanCalls = 0;
 	const nanTask = fromPromise(() => Promise.resolve(++nanCalls));
 	const nanResult = await pipe(nanTask, Task.poll({ until: (n) => n >= 5, attempts: Number.NaN }))();
@@ -1193,8 +1134,8 @@ test("poll: clamps non-finite attempts (NaN) to 1 and truncates positive floats"
 	let floatCalls = 0;
 	const floatTask = fromPromise(() => Promise.resolve(++floatCalls));
 	const floatResult = await pipe(floatTask, Task.poll({ until: () => false, attempts: 2.7 }))();
-	expect(floatCalls).toBe(2);
-	expect(floatResult).toBe(2);
+	expect(floatCalls).toBe(1);
+	expect(floatResult).toBe(1);
 });
 
 test("abortable: removes outerSignal listener on completion and clears finished controller", async () => {

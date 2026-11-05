@@ -355,7 +355,7 @@ test("dict-groupBy-approaches-10k", async ({ bench }) => {
 // =============================================================================
 
 test("dict-lookup-varied-100-hit", async ({ bench }) => {
-	const key = variedEntries100[50][0];
+	const { 50: [key] } = variedEntries100;
 	assertEquivalent("dict-lookup-varied-100-hit", currentLookup(variedDict100, key), nativeLookup(variedDict100, key));
 	await bench.compare(
 		bench("1. (current) Dict.lookup varied 100 (hit)", () => currentLookup(variedDict100, key)),

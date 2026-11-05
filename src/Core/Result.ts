@@ -541,13 +541,13 @@ export const Result = {
 	 * ```ts
 	 * pipe(
 	 *   Result.make.ok(5),
-	 *   Result.bimap(
+	 *   Result.mapBoth(
 	 *     (e) => `Error: ${e}`,
 	 *     (n) => n * 2
 	 *   )
 	 * ); // Ok(10)
 	 * ```
 	 */
-	bimap: <E1, E2, A, B>(onErr: (error: E1) => E2, onOk: (value: A) => B) => (result: Result<E1, A>): Result<E2, B> =>
+	mapBoth: <E1, E2, A, B>(onErr: (error: E1) => E2, onOk: (value: A) => B) => (result: Result<E1, A>): Result<E2, B> =>
 		isOk(result) ? makeOk(onOk(result.value)) : makeErr(onErr(result.error)),
 };

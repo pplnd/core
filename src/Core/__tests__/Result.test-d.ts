@@ -102,11 +102,11 @@ test("recover & recoverUnless: preserves or widens recovery error and value type
 	expectTypeOf(recoveredUnless).toEqualTypeOf<Result<"INIT_ERR", number | string>>();
 });
 
-test("bimap: simultaneously transforms error and value channels", () => {
+test("mapBoth: simultaneously transforms error and value channels", () => {
 	const initial: Result<string, number> = constTruthyBool() ? Result.make.ok(42) : Result.make.err("fail");
 
-	const bimapped = pipe(initial, Result.bimap((err) => err.length, (val) => val > 0));
-	expectTypeOf(bimapped).toEqualTypeOf<Result<number, boolean>>();
+	const mapped = pipe(initial, Result.mapBoth((err) => err.length, (val) => val > 0));
+	expectTypeOf(mapped).toEqualTypeOf<Result<number, boolean>>();
 });
 
 test("tap & tapError: preserve exact channel types through side effects", () => {

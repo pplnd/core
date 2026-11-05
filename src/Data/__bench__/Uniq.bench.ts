@@ -319,7 +319,7 @@ test("uniq-from.array-varied-100", async ({ bench }) => {
 });
 
 test("uniq-has-varied-100", async ({ bench }) => {
-	const item = variedData100[50];
+	const { 50: item } = variedData100;
 	assertEquivalent("uniq-has-varied-100", currentHas(variedSet100, item), nativeHas(variedSet100, item));
 	await bench.compare(
 		bench("1. (current) Uniq.has varied 100 (present)", () => currentHas(variedSet100, item)),

@@ -331,47 +331,6 @@ export const Str = {
 		text.padEnd(toFiniteCount(maxLength, text.length), fillString),
 
 	/**
-	 * Safe number parsers that return `Maybe` instead of `NaN`.
-	 */
-	parse: {
-		/**
-		 * Parses a string as an integer (base 10). Returns `None` if the result is `NaN`.
-		 *
-		 * @see {@link float} for parsing floating-point numbers.
-		 *
-		 * @example
-		 * ```ts
-		 * Str.parse.int("42");   // Some(42)
-		 * Str.parse.int("3.7");  // Some(3)
-		 * Str.parse.int("abc");  // None
-		 * ```
-		 */
-		int: (text: string): Maybe<number> => {
-			if (text.length === 0) { return Maybe.make.none(); }
-			const n = Number.parseInt(text, 10);
-			return Number.isNaN(n) ? Maybe.make.none() : Maybe.make.some(n);
-		},
-
-		/**
-		 * Parses a string as a floating-point number. Returns `None` if the result is `NaN`.
-		 *
-		 * @see {@link int} for parsing base-10 integers.
-		 *
-		 * @example
-		 * ```ts
-		 * Str.parse.float("3.14"); // Some(3.14)
-		 * Str.parse.float("42");   // Some(42)
-		 * Str.parse.float("abc");  // None
-		 * ```
-		 */
-		float: (text: string): Maybe<number> => {
-			if (text.length === 0) { return Maybe.make.none(); }
-			const n = Number.parseFloat(text);
-			return Number.isNaN(n) ? Maybe.make.none() : Maybe.make.some(n);
-		},
-	},
-
-	/**
 	 * Matches a string against a regular expression.
 	 * Clones stateful `/g` and `/y` patterns so the caller's `lastIndex` is never mutated.
 	 *

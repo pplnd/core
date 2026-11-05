@@ -1,4 +1,5 @@
 import type { KeysOfUnion, Thenable } from "../internal/InternalTypes";
+import { toPositiveInteger } from "../internal/Numbers.ts";
 import { clampTimerDelay } from "../internal/timers.ts";
 import { waitForDelay } from "../internal/waitForDelay.ts";
 import { Duration } from "../Types/Duration.ts";
@@ -459,7 +460,7 @@ export const TaskResult = {
 		(signal) =>
 			Deferred.from.Promise((() => {
 				const { attempts: rawAttempts, when: shouldRetry, onRetry: onRetryCallback } = policy;
-				const attempts = Number.isFinite(rawAttempts) ? Math.max(1, Math.floor(rawAttempts)) : 1;
+				const attempts = toPositiveInteger(rawAttempts) ?? 1;
 
 				const wait = (duration: Duration): Promise<void> => waitForDelay(Duration.to.milliseconds(duration), signal);
 
@@ -478,15 +479,104 @@ export const TaskResult = {
 			})()),
 
 	/**
-	 * Creates a memoized version of a Task.Result. The task is executed at most once on first call,
-	 * and its resolved Result is cached for all subsequent calls.
+	 * Runs a cursor-driven loader until a page reports no `next` cursor, collecting every item.
+	 *
+	 * Pages are requested sequentially, because each cursor comes from the page before it. The
+	 * first `Err` ends the run and returns that error; pages already collected are not returned.
+	 * The loader receives the caller's signal, and the run settles with `Aborted` when the signal
+	 * aborts before the next page starts.
+	 *
+	 * @see {@link Task.Result.all} to run independent tasks instead of a cursor chain.
+	 * @see {@link Task.Result.poll} to repeat one task until its value is ready.
 	 *
 	 * @example
 	 * ```ts
-	 * const loadConfig = Task.Result.memoize(fetchConfigTask);
+	 * const loadAllIssues = Task.Result.paginate(fetchIssuePage);
+	 *
+	 * const issues = await loadAllIssues();
+	 * if (Result.is.ok(issues)) {
+	 *   console.log(issues.value.length);
+	 * }
 	 * ```
 	 */
-	memoize: <E, A>(task: Task.Result<E, A>): Task.Result<E, A> => Task.memoize(task),
+	paginate:
+		<E, A, C>(
+			load: (cursor: C | undefined) => Task.Result<E, { readonly items: readonly A[]; readonly next?: C; }>,
+		): Task.Result<E | Aborted, readonly A[]> =>
+		(signal) =>
+			Deferred.from.Promise((() => {
+				const items: A[] = [];
+
+				const run = (cursor: C | undefined): Promise<Result<E | Aborted, readonly A[]>> => {
+					if (signal?.aborted) {
+						return globalThis.Promise.resolve(CoreResult.make.err(Aborted.make(signal.reason)));
+					}
+					return Deferred.to.Promise(load(cursor)(signal)).then((page) => {
+						if (!CoreResult.is.ok(page)) {
+							return CoreResult.make.err(page.error);
+						}
+						const pageItems = page.value.items;
+						for (let i = 0; i < pageItems.length; i++) {
+							items.push(pageItems[i]);
+						}
+						if (page.value.next === undefined) {
+							return CoreResult.make.ok(items);
+						}
+						return run(page.value.next);
+					});
+				};
+
+				return run(undefined);
+			})()),
+
+	/**
+	 * Repeats a fallible task until its value satisfies `until`, keeping the value that satisfied it.
+	 *
+	 * `until`, `delay`, and `attempts` behave exactly as they do in `Task.poll`: `attempts` is a
+	 * positive integer, and the last value is returned when it runs out. The difference is the error
+	 * channel: the first `Err` ends the loop, because retrying a failed attempt belongs to
+	 * `Task.Result.retry`.
+	 *
+	 * @see {@link Task.poll} for the infallible form.
+	 * @see {@link Task.Result.retry} to repeat a failed attempt rather than a successful one.
+	 *
+	 * @example
+	 * ```ts
+	 * const waitForExport = pipe(
+	 *   fetchExportJob,
+	 *   Task.Result.poll({ until: (job) => job.status !== "pending", delay: Duration.seconds(2) }),
+	 * );
+	 * ```
+	 */
+	poll:
+		<A>(options: { readonly until: (value: A) => boolean; readonly delay?: Duration; readonly attempts?: number; }) =>
+		<E = never>(task: Task.Result<E, A>): Task.Result<E, A> =>
+		(signal) =>
+			Deferred.from.Promise((() => {
+				const { until: predicate, delay: delayDuration } = options;
+				const attempts = options.attempts === undefined ? undefined : (toPositiveInteger(options.attempts) ?? 1);
+
+				const wait = (): Promise<void> => waitForDelay(delayDuration ? Duration.to.milliseconds(delayDuration) : 0, signal);
+
+				const executeAttempt = (attempt: number): Promise<Result<E, A>> =>
+					Deferred.to.Promise(task(signal)).then((res) => {
+						if (!CoreResult.is.ok(res)) {
+							return res;
+						}
+						if (predicate(res.value)) {
+							return res;
+						}
+						if (attempts !== undefined && attempt >= attempts) {
+							return res;
+						}
+						if (signal?.aborted) {
+							return res;
+						}
+						return wait().then(() => signal?.aborted ? res : executeAttempt(attempt + 1));
+					});
+
+				return executeAttempt(1);
+			})()),
 
 	/**
 	 * Times out a fallible task, resolving to `Err(onTimeout())` if the duration elapses
@@ -661,26 +751,6 @@ export const TaskResult = {
 			),
 
 	/**
-	 * Runs an array or tuple of fallible tasks one at a time in order, collecting all successful values.
-	 * Short-circuits on the first `Err` or cancellation.
-	 *
-	 * @see {@link Task.Result.all} to run an array or tuple of fallible tasks in parallel.
-	 *
-	 * @example
-	 * ```ts
-	 * const results = await Task.Result.sequential([step1, step2, step3])();
-	 * ```
-	 */
-	sequential:
-		<T extends readonly Task.Result<unknown, unknown>[]>(
-			tasks: readonly [...T],
-		): Task.Result<
-			TaskErrOf<T[number]> | Aborted,
-			{ [K in keyof T]: T[K] extends Task.Result<unknown, infer A> ? A : never; }
-		> =>
-		(signal) => TaskResult.all(tasks, { concurrency: 1 })(signal),
-
-	/**
 	 * Runs a list of fallible tasks in parallel and collects all outcomes (`Ok` and `Err`)
 	 * without short-circuiting on failure.
 	 *
@@ -739,15 +809,15 @@ export const TaskResult = {
 	 * ```ts
 	 * pipe(
 	 *   Task.Result.make.ok(42),
-	 *   Task.Result.bimap(
+	 *   Task.Result.mapBoth(
 	 *     (err: string) => new Error(err),
 	 *     (n: number) => n * 2
 	 *   )
 	 * ); // Task.Result resolving to Ok(84)
 	 * ```
 	 */
-	bimap:
+	mapBoth:
 		<E1, E2, A, B>(onErr: (error: E1) => E2, onOk: (value: A) => B) =>
 		(task: Task.Result<E1, A>): Task.Result<E2, B> =>
-		(signal) => Deferred.from.Promise(Deferred.to.Promise(task(signal)).then(CoreResult.bimap(onErr, onOk))),
+		(signal) => Deferred.from.Promise(Deferred.to.Promise(task(signal)).then(CoreResult.mapBoth(onErr, onOk))),
 };

@@ -214,3 +214,24 @@ test("from.OpState: rejects a value that is not an Op state", () => {
 	// @ts-expect-error — RemoteData.from.OpState only accepts Op.Idle, Pending, Queued, Retrying, or an Op.Outcome
 	expectTypeOf(RemoteData.from.OpState({ kind: "Loading" })).toBeNever();
 });
+
+test("struct: infers field values and error union from constructors", () => {
+	const combined = RemoteData.struct({ name: RemoteData.make.success("Alice"), age: RemoteData.make.success(30) });
+	expectTypeOf(combined).toEqualTypeOf<RemoteData<never, { name: string; age: number; }>>();
+});
+
+test("struct: unions field errors across a heterogeneous record", () => {
+	type Dashboard = {
+		readonly user: RemoteData<"unauthorized", { readonly id: string; }>;
+		readonly alerts: RemoteData<"alerts down", readonly string[]>;
+	};
+	const dashboard: Dashboard = constTruthyBool()
+		? { user: RemoteData.make.success({ id: "u_1" }), alerts: RemoteData.make.success(["cpu"]) }
+		: { user: RemoteData.make.failure("unauthorized"), alerts: RemoteData.make.failure("alerts down") };
+	expectTypeOf(RemoteData.struct(dashboard)).toEqualTypeOf<
+		RemoteData<
+			"unauthorized" | "alerts down",
+			{ readonly user: { readonly id: string; }; readonly alerts: readonly string[]; }
+		>
+	>();
+});

@@ -722,24 +722,6 @@ test("retry: stops early when call site AbortSignal is aborted", async () => {
 	expect(calls).toBe(1);
 });
 
-// --- memoize ---
-
-test("memoize: executes task only once across multiple invocations", async () => {
-	let calls = 0;
-	const task: Task.Result<string, number> = () => {
-		calls++;
-		return Deferred.from.Promise(Promise.resolve(Result.make.ok(calls)));
-	};
-	const memoized = Task.Result.memoize(task);
-
-	const res1 = await memoized();
-	const res2 = await memoized();
-
-	expect(res1).toStrictEqual(Result.make.ok(1));
-	expect(res2).toStrictEqual(Result.make.ok(1));
-	expect(calls).toBe(1);
-});
-
 // --- timeout ---
 
 test("timeout: resolves to task Ok when task finishes before duration", async () => {
@@ -1027,13 +1009,13 @@ test("ensure: propagates existing Err without invoking predicate", async () => {
 	expect(predicateCalled).toBe(false);
 });
 
-// --- bimap ---
+// --- mapBoth ---
 
-test("bimap: transforms Ok value and leaves Err branch untouched", async () => {
+test("mapBoth: transforms Ok value and leaves Err branch untouched", async () => {
 	let errCalled = false;
 	const task = pipe(
 		Task.Result.make.ok(10),
-		Task.Result.bimap((err) => {
+		Task.Result.mapBoth((err) => {
 			errCalled = true;
 			return `wrapped ${err}`;
 		}, (n) => n * 2),
@@ -1043,11 +1025,11 @@ test("bimap: transforms Ok value and leaves Err branch untouched", async () => {
 	expect(errCalled).toBe(false);
 });
 
-test("bimap: transforms Err value and leaves Ok branch untouched", async () => {
+test("mapBoth: transforms Err value and leaves Ok branch untouched", async () => {
 	let okCalled = false;
 	const task = pipe(
 		Task.Result.make.err("network failure"),
-		Task.Result.bimap((err) => new Error(err), (n: number) => {
+		Task.Result.mapBoth((err) => new Error(err), (n: number) => {
 			okCalled = true;
 			return n * 2;
 		}),
@@ -1285,46 +1267,6 @@ test("all: settles with Aborted when caller signal aborts during execution", asy
 	expect(cancelled).toBe(true);
 });
 
-// ---------------------------------------------------------------------------
-// sequential
-// ---------------------------------------------------------------------------
-
-test("sequential: runs tasks in order and returns Ok tuple", async () => {
-	const order: number[] = [];
-	const makeTask = (n: number) =>
-		Task.Result.from.Task(Task.from.sync(() => {
-			order.push(n);
-			return n;
-		}));
-
-	const result = await Task.Result.sequential([makeTask(1), makeTask(2), makeTask(3)])();
-	expect(order).toStrictEqual([1, 2, 3]);
-	expect(result).toStrictEqual(Result.make.ok([1, 2, 3]));
-});
-
-test("sequential: stops on first error and skips remaining tasks", async () => {
-	let ranNext = false;
-	const fail = Task.Result.make.err("fail");
-	const next = Task.Result.from.Task(Task.from.sync(() => {
-		ranNext = true;
-		return 42;
-	}));
-
-	const result = await Task.Result.sequential([fail, next])();
-	expect(result).toStrictEqual(Result.make.err("fail"));
-	expect(ranNext).toBe(false);
-});
-
-test("sequential: pre-aborted signal returns Aborted without starting work", async () => {
-	const controller = new AbortController();
-	controller.abort("aborted");
-	let starts = 0;
-	const task = Task.Result.from.Task(Task.from.sync(() => ++starts));
-	const result = await Task.Result.sequential([task, task])(controller.signal);
-	expect(result).toStrictEqual(Result.make.err({ kind: "Aborted", reason: "aborted" }));
-	expect(starts).toBe(0);
-});
-
 test("all: does not trigger abort listeners when all tasks succeed", async () => {
 	let abortFired = false;
 	const taskA = (signal?: AbortSignal) => {
@@ -1372,4 +1314,192 @@ test("retry: clamps non-finite attempts to a single run", async () => {
 	const result = await Task.Result.retry(policy)(task)();
 	expect(result).toStrictEqual(Result.make.err("failed"));
 	expect(calls).toBe(1);
+});
+
+// --- poll ---
+
+test("poll: returns the first value when the condition holds immediately", async () => {
+	let calls = 0;
+	const task = Task.from.sync(() => {
+		calls++;
+		return Result.make.ok(42);
+	});
+	const result = await pipe(task, Task.Result.poll({ until: (n) => n === 42 }))();
+	expect(result).toStrictEqual(Result.make.ok(42));
+	expect(calls).toBe(1);
+});
+
+test("poll: keeps polling until the condition holds", async () => {
+	let calls = 0;
+	const task = Task.from.sync(() => Result.make.ok(++calls));
+	const result = await pipe(task, Task.Result.poll({ until: (n) => n === 3 }))();
+	expect(result).toStrictEqual(Result.make.ok(3));
+	expect(calls).toBe(3);
+});
+
+test("poll: returns the last value when attempts run out", async () => {
+	let calls = 0;
+	const task = Task.from.sync(() => Result.make.ok(++calls));
+	const result = await pipe(task, Task.Result.poll({ until: (n) => n > 100, attempts: 3 }))();
+	expect(result).toStrictEqual(Result.make.ok(3));
+	expect(calls).toBe(3);
+});
+
+test("poll: stops at the first error without running again", async () => {
+	let calls = 0;
+	const task = Task.from.sync(() => {
+		calls++;
+		return calls < 2 ? Result.make.ok(calls) : Result.make.err("boom");
+	});
+	const result = await pipe(task, Task.Result.poll({ until: () => false }))();
+	expect(result).toStrictEqual(Result.make.err("boom"));
+	expect(calls).toBe(2);
+});
+
+test("poll: waits the delay between attempts", async () => {
+	let calls = 0;
+	const task = Task.from.sync(() => Result.make.ok(++calls));
+	const started = Date.now();
+	await pipe(task, Task.Result.poll({ until: (n) => n >= 2, delay: Duration.milliseconds(25) }))();
+	expect(Date.now() - started).toBeGreaterThanOrEqual(20);
+	expect(calls).toBe(2);
+});
+
+test("poll: stops when the signal aborts during a run", async () => {
+	const controller = new AbortController();
+	let calls = 0;
+	const task = Task.from.sync(() => {
+		calls++;
+		if (calls === 2) {
+			controller.abort();
+		}
+		return Result.make.ok(calls);
+	});
+	const result = await pipe(task, Task.Result.poll({ until: (n) => n > 100 }))(controller.signal);
+	expect(result).toStrictEqual(Result.make.ok(2));
+	expect(calls).toBe(2);
+});
+
+test("poll: resolves with the last value when aborted during the delay", async () => {
+	const controller = new AbortController();
+	let calls = 0;
+	const task = Task.from.sync(() => Result.make.ok(++calls));
+	const polled = pipe(task, Task.Result.poll({ until: (n) => n === 5, delay: Duration.milliseconds(50) }));
+
+	setTimeout(() => controller.abort(), 75);
+
+	const result = await polled(controller.signal);
+	expect(result).toStrictEqual(Result.make.ok(2));
+	expect(calls).toBe(2);
+});
+
+test("poll: clamps attempts to at least one", async () => {
+	let calls = 0;
+	const task = Task.from.sync(() => Result.make.ok(++calls));
+	await pipe(task, Task.Result.poll({ until: (n) => n > 100, attempts: 0 }))();
+	expect(calls).toBe(1);
+});
+
+test("poll: treats a fractional attempt limit as one attempt", async () => {
+	let calls = 0;
+	const task = Task.from.sync(() => Result.make.ok(++calls));
+	await pipe(task, Task.Result.poll({ until: (n) => n > 100, attempts: 2.5 }))();
+	expect(calls).toBe(1);
+});
+
+test("poll: treats a non-finite attempt limit as one attempt", async () => {
+	let calls = 0;
+	const task = Task.from.sync(() => Result.make.ok(++calls));
+	await pipe(task, Task.Result.poll({ until: (n) => n > 100, attempts: Number.NaN }))();
+	expect(calls).toBe(1);
+});
+
+// --- paginate ---
+
+type TestPage<A> = { readonly items: readonly A[]; readonly next?: number; };
+
+const makePagedLoad = <A>(pages: readonly (readonly A[])[]) => {
+	const cursors: (number | undefined)[] = [];
+	const load = (cursor: number | undefined): Task.Result<"failed", TestPage<A>> => {
+		cursors.push(cursor);
+		const index = cursors.length - 1;
+		const items = pages[index] ?? [];
+		const next = index + 1 < pages.length ? index + 1 : undefined;
+		return Task.from.sync(() => Result.make.ok({ items, next }));
+	};
+	return { load, cursors };
+};
+
+test("paginate: collects items across pages in order", async () => {
+	const { load, cursors } = makePagedLoad([[1, 2], [3], [4, 5]]);
+	const result = await Task.Result.paginate(load)();
+	expect(result).toStrictEqual(Result.make.ok([1, 2, 3, 4, 5]));
+	expect(cursors).toStrictEqual([undefined, 1, 2]);
+});
+
+test("paginate: stops when a page has no next cursor", async () => {
+	const { load, cursors } = makePagedLoad([[1]]);
+	await expect(Task.Result.paginate(load)()).resolves.toStrictEqual(Result.make.ok([1]));
+	expect(cursors).toStrictEqual([undefined]);
+});
+
+test("paginate: continues after an empty page", async () => {
+	const { load, cursors } = makePagedLoad([[], [1]]);
+	await expect(Task.Result.paginate(load)()).resolves.toStrictEqual(Result.make.ok([1]));
+	expect(cursors).toStrictEqual([undefined, 1]);
+});
+
+test("paginate: returns the first error and stops", async () => {
+	let calls = 0;
+	const load = (_cursor: number | undefined): Task.Result<"failed", TestPage<number>> => {
+		calls++;
+		return calls === 1
+			? Task.from.sync(() => Result.make.ok({ items: [1], next: 1 }))
+			: Task.from.sync(() => Result.make.err("failed"));
+	};
+	const result = await Task.Result.paginate(load)();
+	expect(result).toStrictEqual(Result.make.err("failed"));
+	expect(calls).toBe(2);
+});
+
+test("paginate: does not start when the signal is already aborted", async () => {
+	const controller = new AbortController();
+	controller.abort("stop");
+	let calls = 0;
+	const load = (_cursor: number | undefined): Task.Result<never, TestPage<number>> => {
+		calls++;
+		return Task.from.sync(() => Result.make.ok({ items: [], next: 1 }));
+	};
+	const result = await Task.Result.paginate(load)(controller.signal);
+	expect(result).toStrictEqual(Result.make.err({ kind: "Aborted", reason: "stop" }));
+	expect(calls).toBe(0);
+});
+
+test("paginate: settles with Aborted when the caller aborts between pages", async () => {
+	const controller = new AbortController();
+	let calls = 0;
+	const load = (_cursor: number | undefined): Task.Result<never, TestPage<number>> => {
+		calls++;
+		controller.abort("cancelled");
+		return Task.from.sync(() => Result.make.ok({ items: [1], next: 1 }));
+	};
+	const result = await Task.Result.paginate(load)(controller.signal);
+	expect(result).toStrictEqual(Result.make.err({ kind: "Aborted", reason: "cancelled" }));
+	expect(calls).toBe(1);
+});
+
+test("paginate: passes the caller signal to the loader", async () => {
+	const controller = new AbortController();
+	let received: AbortSignal | undefined;
+	const load = (_cursor: number | undefined): Task.Result<never, TestPage<string>> => (signal) => {
+		received = signal;
+		return Deferred.from.Promise(Promise.resolve(Result.make.ok({ items: [] })));
+	};
+	await Task.Result.paginate(load)(controller.signal);
+	expect(received).toBe(controller.signal);
+});
+
+test("paginate: preserves falsy items", async () => {
+	const { load } = makePagedLoad<number | string | boolean>([[0, ""], [false]]);
+	await expect(Task.Result.paginate(load)()).resolves.toStrictEqual(Result.make.ok([0, "", false]));
 });

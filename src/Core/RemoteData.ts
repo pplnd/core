@@ -58,6 +58,9 @@ const isFailure = <E, A>(remoteData: RemoteData<E, A>): remoteData is RemoteData
 const isSuccess = <E, A>(remoteData: RemoteData<E, A>): remoteData is RemoteData.Success<A> =>
 	remoteData.kind === "Success";
 
+type StructErrorOf<T> = T extends RemoteData.Failure<infer E> ? E : never;
+type StructValueOf<T> = T extends RemoteData.Success<infer A> ? A : never;
+
 // =============================================================================
 // Public Export
 // =============================================================================
@@ -234,6 +237,56 @@ export const RemoteData = {
 			if (isLoading(remoteData) || isLoading(arg)) { return makeLoading(); }
 			return makeNotAsked();
 		},
+
+	/**
+	 * Combines a record of RemoteData values into a single RemoteData of a record.
+	 *
+	 * The record is `Success` only when every field is `Success`. Otherwise the first `Failure`
+	 * wins, then `Loading`, then `NotAsked`, matching `RemoteData.apply`. Own keys are processed
+	 * in order; inherited fields are not supported.
+	 *
+	 * @see {@link RemoteData.apply} to combine two values with a wrapped function.
+	 *
+	 * @example
+	 * ```ts
+	 * RemoteData.struct({
+	 *   user: RemoteData.make.success({ id: "u_1" }),
+	 *   alerts: RemoteData.make.loading(),
+	 * }); // Loading
+	 * ```
+	 */
+	struct: <T extends Record<string, RemoteData<unknown, unknown>>>(
+		fields: T,
+	): RemoteData<StructErrorOf<T[keyof T]>, { [K in keyof T]: StructValueOf<T[K]>; }> => {
+		type Out = { [K in keyof T]: StructValueOf<T[K]>; };
+		const result = {} as Out;
+		const keys = Reflect.ownKeys(fields);
+		let failure: RemoteData.Failure<StructErrorOf<T[keyof T]>> | undefined;
+		let loading = false;
+		let notAsked = false;
+		for (let i = 0; i < keys.length; i++) {
+			const key = keys[i];
+			const field = fields[key as keyof T];
+			if (isFailure(field)) {
+				failure = field as RemoteData.Failure<StructErrorOf<T[keyof T]>>;
+				break;
+			}
+			if (isSuccess(field)) {
+				result[key as keyof Out] = field.value as Out[keyof Out];
+			} else if (isLoading(field)) {
+				loading = true;
+			} else {
+				notAsked = true;
+			}
+		}
+		if (failure !== undefined) {
+			return failure;
+		}
+		if (loading) {
+			return makeLoading();
+		}
+		return notAsked ? makeNotAsked() : makeSuccess(result);
+	},
 
 	/**
 	 * Pattern matches on a RemoteData, returning the result of the matching case.

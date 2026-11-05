@@ -138,24 +138,24 @@ test("recover: replaces Err with fallback value", () => {
 });
 
 // ---------------------------------------------------------------------------
-// bimap — bifunctor laws
+// mapBoth — bifunctor laws
 // ---------------------------------------------------------------------------
 
-test("bimap: satisfies identity law", () => {
+test("mapBoth: satisfies identity law", () => {
 	fc.assert(fc.property(arbResult, (r) => {
-		expect(Result.bimap((e: string) => e, (x: number) => x)(r)).toStrictEqual(r);
+		expect(Result.mapBoth((e: string) => e, (x: number) => x)(r)).toStrictEqual(r);
 	}));
 });
 
-test("bimap: satisfies composition law", () => {
+test("mapBoth: satisfies composition law", () => {
 	fc.assert(fc.property(arbResult, fc.integer(), fc.string(), (r, a, s) => {
 		const f1 = (x: string) => x + s;
 		const f2 = (x: string) => `[${x}]`;
 		const g1 = (x: number) => x + a;
 		const g2 = (x: number) => x * 2;
 
-		const composed = Result.bimap((e: string) => f2(f1(e)), (v: number) => g2(g1(v)))(r);
-		const stepped = Result.bimap(f2, g2)(Result.bimap(f1, g1)(r));
+		const composed = Result.mapBoth((e: string) => f2(f1(e)), (v: number) => g2(g1(v)))(r);
+		const stepped = Result.mapBoth(f2, g2)(Result.mapBoth(f1, g1)(r));
 		expect(stepped).toStrictEqual(composed);
 	}));
 });

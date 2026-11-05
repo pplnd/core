@@ -22,15 +22,12 @@ test("from.Task: lifts infallible Task into Task.Result with never error", () =>
 	expectTypeOf(lifted).toEqualTypeOf<Task.Result<never, number>>();
 });
 
-test("all & sequential: infers heterogeneous error unions and tuple value types", () => {
+test("all: infers heterogeneous error unions and tuple value types", () => {
 	const t1 = Task.Result.make.ok(42);
 	const t2: Task.Result<"err", string> = Task.Result.make.err("err");
 
 	const allTask = Task.Result.all([t1, t2]);
 	expectTypeOf(allTask).toEqualTypeOf<Task.Result<"err" | Aborted, [number, string]>>();
-
-	const seqTask = Task.Result.sequential([t1, t2]);
-	expectTypeOf(seqTask).toEqualTypeOf<Task.Result<"err" | Aborted, [number, string]>>();
 });
 
 test("make: infers precise variant types for Ok and Err tasks", () => {
@@ -148,7 +145,6 @@ test("retry: preserves error and value channels with optional onRetry and when",
 
 test("empty collections: preserve the aborted-only error channel", () => {
 	expectTypeOf(Task.Result.all([])).toEqualTypeOf<Task.Result<Aborted, []>>();
-	expectTypeOf(Task.Result.sequential([])).toEqualTypeOf<Task.Result<Aborted, []>>();
 	expectTypeOf(Task.Result.struct({})).toEqualTypeOf<Task.Result<never, {}>>();
 });
 
@@ -184,4 +180,38 @@ test("recover: infallible fallback clears the error channel", () => {
 	const task: Task.Result<"err", number> = constTruthyBool() ? Task.Result.make.ok(1) : Task.Result.make.err("err");
 	const recovered = pipe(task, Task.Result.recover(() => Task.Result.make.ok("fallback")));
 	expectTypeOf(recovered).toEqualTypeOf<Task.Result<never, number | string>>();
+});
+
+test("poll: preserves both channels and types the predicate with the success value", () => {
+	const task: Task.Result<"offline", number> = constTruthyBool()
+		? Task.Result.make.ok(1)
+		: Task.Result.make.err("offline");
+	const polled = pipe(
+		task,
+		Task.Result.poll({
+			until: (value) => {
+				expectTypeOf(value).toEqualTypeOf<number>();
+				return value > 0;
+			},
+		}),
+	);
+	expectTypeOf(polled).toEqualTypeOf<Task.Result<"offline", number>>();
+});
+
+test("paginate: infers item and cursor channels and adds Aborted", () => {
+	type Issue = { readonly id: string; };
+	const loadPage = (
+		cursor: number | undefined,
+	): Task.Result<"offline", { readonly items: readonly Issue[]; readonly next?: number; }> =>
+		Task.Result.make.ok({ items: [], next: cursor });
+
+	const paged = Task.Result.paginate(loadPage);
+	expectTypeOf(paged).toEqualTypeOf<Task.Result<"offline" | Aborted, readonly Issue[]>>();
+});
+
+test("paginate: negative — a page must carry an items array", () => {
+	expectTypeOf(
+		// @ts-expect-error a page has to carry an `items` array
+		Task.Result.paginate((_cursor: string | undefined) => Task.from.sync(() => Result.make.ok({ next: "a" }))),
+	).toBeFunction();
 });

@@ -348,15 +348,4 @@ export const TaskMaybe = {
 					return CoreMaybe.make.some(record);
 				});
 			})()),
-
-	/**
-	 * Creates a memoized version of a Task.Maybe. The task is executed at most once on first call,
-	 * and its resolved Maybe is cached for all subsequent calls.
-	 *
-	 * @example
-	 * ```ts
-	 * const loadUser = Task.Maybe.memoize(fetchUserMaybeTask);
-	 * ```
-	 */
-	memoize: <A>(task: Task.Maybe<A>): Task.Maybe<A> => Task.memoize(task),
 };

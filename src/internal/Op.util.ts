@@ -8,6 +8,7 @@ import type { Op } from "../Core/Op.ts";
 import { Result } from "../Core/Result.ts";
 import { Duration } from "../Types/Duration.ts";
 import type { RetryPolicy } from "../Types/RetryPolicy.ts";
+import { toPositiveInteger } from "./Numbers.ts";
 import { clampTimerDelay } from "./timers.ts";
 
 // ---------------------------------------------------------------------------
@@ -87,7 +88,7 @@ export const runWithRetry = <Args extends readonly unknown[], E, A>(
 	onRetrying: (state: Op.Retrying<E>) => void,
 ): Promise<Result<E, A> | null> => {
 	const rawAttempts = policy.attempts;
-	const attempts = Number.isInteger(rawAttempts) && rawAttempts > 0 ? rawAttempts : 1;
+	const attempts = toPositiveInteger(rawAttempts) ?? 1;
 	const { when: shouldRetry, onRetry } = policy;
 
 	const attempt = async (left: number): Promise<Result<E, A> | null> => {

@@ -164,46 +164,6 @@ test("words: splits on mixed whitespace characters", () => {
 });
 
 // ---------------------------------------------------------------------------
-// parse.int
-// ---------------------------------------------------------------------------
-
-test("parse.int: returns Some for valid integer string", () => {
-	expect(Str.parse.int("42")).toStrictEqual(Maybe.make.some(42));
-});
-
-test("parse.int: truncates floats", () => {
-	expect(Str.parse.int("3.7")).toStrictEqual(Maybe.make.some(3));
-});
-
-test("parse.int: returns None for non-numeric string", () => {
-	expect(Str.parse.int("abc")).toStrictEqual(Maybe.make.none());
-});
-
-test("parse.int: returns None for empty string", () => {
-	expect(Str.parse.int("")).toStrictEqual(Maybe.make.none());
-});
-
-// ---------------------------------------------------------------------------
-// parse.float
-// ---------------------------------------------------------------------------
-
-test("parse.float: returns Some for valid float string", () => {
-	expect(Str.parse.float("3.14")).toStrictEqual(Maybe.make.some(3.14));
-});
-
-test("parse.float: returns Some for integer string", () => {
-	expect(Str.parse.float("42")).toStrictEqual(Maybe.make.some(42));
-});
-
-test("parse.float: returns None for non-numeric string", () => {
-	expect(Str.parse.float("abc")).toStrictEqual(Maybe.make.none());
-});
-
-test("parse.float: returns None for empty string", () => {
-	expect(Str.parse.float("")).toStrictEqual(Maybe.make.none());
-});
-
-// ---------------------------------------------------------------------------
 // replace
 // ---------------------------------------------------------------------------
 

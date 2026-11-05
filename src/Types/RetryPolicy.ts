@@ -1,3 +1,4 @@
+import { toPositiveInteger } from "../internal/Numbers.ts";
 import { clampTimerDelay, MAX_TIMER_MS } from "../internal/timers.ts";
 import { Duration } from "./Duration.ts";
 
@@ -16,6 +17,10 @@ import { Duration } from "./Duration.ts";
  * ```
  */
 export type RetryPolicy<E = unknown> = {
+	/**
+	 * Total number of attempts, including the first. A positive integer; `1` means no retry.
+	 * Any other value is treated as one attempt.
+	 */
 	readonly attempts: number;
 	readonly getDelay: (attempt: number) => Duration;
 	readonly when?: (error: E) => boolean;
@@ -55,15 +60,16 @@ export const RetryPolicy = {
 	 * });
 	 * ```
 	 */
-	constant: <E = unknown>(
-		options: {
-			readonly attempts: number;
-			readonly delay: Duration;
-			readonly when?: (error: E) => boolean;
-			readonly onRetry?: (metadata: RetryPolicy.Metadata<E>) => void;
-		},
-	): RetryPolicy<E> => ({
-		attempts: Number.isInteger(options.attempts) && options.attempts > 0 ? options.attempts : 1,
+	constant: <E = unknown>(options: {
+		/**
+		 * Total number of attempts, including the first. A positive integer.
+		 */
+		readonly attempts: number;
+		readonly delay: Duration;
+		readonly when?: (error: E) => boolean;
+		readonly onRetry?: (metadata: RetryPolicy.Metadata<E>) => void;
+	}): RetryPolicy<E> => ({
+		attempts: toPositiveInteger(options.attempts) ?? 1,
 		getDelay: () => options.delay,
 		...(options.when !== undefined ? { when: options.when } : {}),
 		...(options.onRetry !== undefined ? { onRetry: options.onRetry } : {}),
@@ -90,18 +96,19 @@ export const RetryPolicy = {
 	 * });
 	 * ```
 	 */
-	exponential: <E = unknown>(
-		options: {
-			readonly attempts: number;
-			readonly initial: Duration;
-			readonly factor?: number;
-			readonly jitter?: boolean;
-			readonly maxDelay?: Duration;
-			readonly when?: (error: E) => boolean;
-			readonly onRetry?: (metadata: RetryPolicy.Metadata<E>) => void;
-		},
-	): RetryPolicy<E> => {
-		const attempts = Number.isInteger(options.attempts) && options.attempts > 0 ? options.attempts : 1;
+	exponential: <E = unknown>(options: {
+		/**
+		 * Total number of attempts, including the first. A positive integer.
+		 */
+		readonly attempts: number;
+		readonly initial: Duration;
+		readonly factor?: number;
+		readonly jitter?: boolean;
+		readonly maxDelay?: Duration;
+		readonly when?: (error: E) => boolean;
+		readonly onRetry?: (metadata: RetryPolicy.Metadata<E>) => void;
+	}): RetryPolicy<E> => {
+		const attempts = toPositiveInteger(options.attempts) ?? 1;
 		const initialMs = Math.max(0, Duration.to.milliseconds(options.initial));
 		const rawFactor = options.factor ?? 2;
 		const factor = Number.isFinite(rawFactor) ? Math.max(0, rawFactor) : 2;

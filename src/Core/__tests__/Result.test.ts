@@ -890,23 +890,23 @@ test("ensure: does not invoke onFail on Ok when predicate returns true", () => {
 	expect(res).toStrictEqual(Result.make.ok(42));
 });
 
-// --- bimap ---
+// --- mapBoth ---
 
-test("bimap: applies onOk to Ok values", () => {
-	const res = pipe(Result.make.ok(5), Result.bimap((e) => `Err: ${e}`, (n) => n * 2));
+test("mapBoth: applies onOk to Ok values", () => {
+	const res = pipe(Result.make.ok(5), Result.mapBoth((e) => `Err: ${e}`, (n) => n * 2));
 	expect(res).toStrictEqual(Result.make.ok(10));
 });
 
-test("bimap: applies onErr to Err values", () => {
-	const res = pipe(Result.make.err("oops"), Result.bimap((e) => `Err: ${e}`, (n: number) => n * 2));
+test("mapBoth: applies onErr to Err values", () => {
+	const res = pipe(Result.make.err("oops"), Result.mapBoth((e) => `Err: ${e}`, (n: number) => n * 2));
 	expect(res).toStrictEqual(Result.make.err("Err: oops"));
 });
 
-test("bimap: does not invoke onErr on Ok", () => {
+test("mapBoth: does not invoke onErr on Ok", () => {
 	let onErrCalled = false;
 	const res = pipe(
 		Result.make.ok(5),
-		Result.bimap(() => {
+		Result.mapBoth(() => {
 			onErrCalled = true;
 			return "err";
 		}, (n) => n * 2),
@@ -915,11 +915,11 @@ test("bimap: does not invoke onErr on Ok", () => {
 	expect(res).toStrictEqual(Result.make.ok(10));
 });
 
-test("bimap: does not invoke onOk on Err", () => {
+test("mapBoth: does not invoke onOk on Err", () => {
 	let onOkCalled = false;
 	const res = pipe(
 		Result.make.err("error"),
-		Result.bimap((e) => `mapped: ${e}`, () => {
+		Result.mapBoth((e) => `mapped: ${e}`, () => {
 			onOkCalled = true;
 			return 0;
 		}),
@@ -928,13 +928,13 @@ test("bimap: does not invoke onOk on Err", () => {
 	expect(res).toStrictEqual(Result.make.err("mapped: error"));
 });
 
-test("bimap: operates on un-narrowed union type without CFA narrowing", () => {
+test("mapBoth: operates on un-narrowed union type without CFA narrowing", () => {
 	const naturalOk: Result<string, number> = constTruthyBool() ? Result.make.ok(42) : Result.make.err("err");
-	const resOk = pipe(naturalOk, Result.bimap((e) => `mapped:${e}`, (n) => n * 2));
+	const resOk = pipe(naturalOk, Result.mapBoth((e) => `mapped:${e}`, (n) => n * 2));
 	expect(resOk).toStrictEqual(Result.make.ok(84));
 
 	const naturalErr: Result<string, number> = constFalseBool() ? Result.make.ok(42) : Result.make.err("err");
-	const resErr = pipe(naturalErr, Result.bimap((e) => `mapped:${e}`, (n) => n * 2));
+	const resErr = pipe(naturalErr, Result.mapBoth((e) => `mapped:${e}`, (n) => n * 2));
 	expect(resErr).toStrictEqual(Result.make.err("mapped:err"));
 });
 
