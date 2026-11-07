@@ -1,134 +1,111 @@
-# Contributor Covenant Code of Conduct
+# Code of Conduct
 
-## Our Pledge
+`pipelined` is a TypeScript library for developers who have never used a functional-programming
+library. Its documentation and community work from that assumption.
 
-We as members, contributors, and leaders pledge to make participation in our community a
-harassment-free experience for everyone, regardless of age, body size, visible or invisible
-disability, ethnicity, sex characteristics, gender identity and expression, level of experience,
-education, socio-economic status, nationality, personal appearance, race, caste, color, religion, or
-sexual identity and orientation.
+Everyone should be able to take part without harassment, regardless of age, body size, visible or
+invisible disability, ethnicity, sex characteristics, gender identity and expression, level of
+experience, education, socio-economic status, nationality, personal appearance, race, caste, color,
+religion, or sexual identity and orientation. We pledge to act in ways that keep the project open to
+questions and disagreement.
 
-We pledge to act and interact in ways that contribute to an open, welcoming, diverse, inclusive, and
-healthy community.
+## Expected behavior
 
-## Our Standards
+- Treat other people with empathy and kindness.
+- Respect opinions, viewpoints, and experiences that differ from your own.
+- Give constructive feedback, and accept it in the same spirit.
+- Take responsibility for mistakes, apologize to the people affected, and learn from them.
+- Weigh what is best for the project and its users, as well as for yourself.
 
-Examples of behavior that contributes to a positive environment for our community include:
+## Unacceptable behavior
 
-- Demonstrating empathy and kindness toward other people
-- Being respectful of differing opinions, viewpoints, and experiences
-- Giving and gracefully accepting constructive feedback
-- Accepting responsibility and apologizing to those affected by our mistakes, and learning from the
-  experience
-- Focusing on what is best not just for us as individuals, but for the overall community
+- Sexualized language or imagery, and sexual attention or advances of any kind.
+- Trolling, insults, derogatory comments, and personal or political attacks.
+- Public or private harassment.
+- Publishing another person's private information, such as a physical or email address, without
+  explicit permission.
+- Other conduct that a reasonable person would consider inappropriate in a professional setting.
 
-Examples of unacceptable behavior include:
+## Anti-gatekeeping
 
-- The use of sexualized language or imagery, and sexual attention or advances of any kind
-- Trolling, insulting or derogatory comments, and personal or political attacks
-- Public or private harassment
-- Publishing others' private information, such as a physical or email address, without their
-  explicit permission
-- Other conduct which could reasonably be considered inappropriate in a professional setting
+The library is built for TypeScript developers who are new to functional programming. Explanations
+must work for them. The following behaviors are violations:
 
-## Enforcement Responsibilities
+- Answering a practical TypeScript question with academic terminology instead of an explanation.
+  Telling the asker to read the literature is not an explanation.
+- Belittling a pull request or issue because an approach is "not purely functional" or looks "too
+  imperative." Predictable TypeScript inference, runtime performance, and developer experience
+  decide the design.
+- Shaming someone for asking what a term means, or for saying they are new to functional patterns.
 
-Community leaders are responsible for clarifying and enforcing our standards of acceptable behavior
-and will take appropriate and fair corrective action in response to any behavior that they deem
-inappropriate, threatening, offensive, or harmful.
-
-Community leaders have the right and responsibility to remove, edit, or reject comments, commits,
-code, wiki edits, issues, and other contributions that are not aligned to this Code of Conduct, and
-will communicate reasons for moderation decisions when appropriate.
+Explanations start from concrete TypeScript: the value that is missing, the type that fails to
+infer, the pipeline that does not compile. Link the guide or the test that shows the behavior.
 
 ## Scope
 
-This Code of Conduct applies within all community spaces, and also applies when an individual is
-officially representing the community in public spaces. Examples of representing our community
-include using an official e-mail address, posting via an official social media account, or acting as
-an appointed representative at an online or offline event.
+This Code of Conduct applies in all project spaces: the repository, issues, pull requests,
+discussions, and any chat, call, or event run by the project. It also applies when someone
+represents the project in public, for example by using an official email address, posting from an
+official social media account, or acting as an appointed representative at an online or offline
+event.
+
+## Reporting
+
+Report abusive, harassing, or otherwise unacceptable behavior to code@lozgachev.dev. Include what
+happened, where it happened, and links or screenshots if you have them. All reports are reviewed and
+investigated promptly and fairly. Maintainers respect the privacy and security of the person who
+reports an incident.
 
 ## Enforcement
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the community
-leaders responsible for enforcement at code@lozgachev.dev. All complaints will be reviewed and
-investigated promptly and fairly.
+Maintainers clarify and enforce these standards. They take appropriate and fair corrective action in
+response to behavior they consider inappropriate, threatening, offensive, or harmful. They may
+remove, edit, or reject comments, commits, code, wiki edits, issues, and other contributions that do
+not follow this Code of Conduct. They will explain a moderation decision when appropriate.
 
-All community leaders are obligated to respect the privacy and security of the reporter of any
-incident.
+## Enforcement steps
 
-## Enforcement Guidelines
+Maintainers choose the step that matches the behavior and its history. Responses escalate from a
+private correction to a permanent ban.
 
-Community leaders will follow these Community Impact Guidelines in determining the consequences for
-any action they deem in violation of this Code of Conduct:
+### Correction
 
-### 1. Correction
+Inappropriate language, or other behavior that is unprofessional or unwelcome, receives a private
+written warning. The warning names the violation and explains why the behavior was inappropriate. A
+public apology may be requested.
 
-**Community Impact**: Use of inappropriate language or other behavior deemed unprofessional or
-unwelcome in the community.
+### Warning
 
-**Consequence**: A private, written warning from community leaders, providing clarity around the
-nature of the violation and an explanation of why the behavior was inappropriate. A public apology
-may be requested.
+A violation through a single incident or a series of actions receives a warning that states the
+consequences of continued behavior. For a specified period, the person does not interact with the
+people involved, including unsolicited contact with the maintainers enforcing this document. This
+covers project spaces and external channels such as social media. Violating these terms may lead to
+a temporary or permanent ban.
 
-### 2. Warning
+### Temporary ban
 
-**Community Impact**: A violation through a single incident or series of actions.
+A serious violation, including sustained inappropriate behavior, leads to a temporary ban from
+interaction or public communication with the community for a specified period. During the ban, the
+person has no public or private interaction with the people involved, including unsolicited contact
+with the maintainers enforcing this document. Violating these terms may lead to a permanent ban.
 
-**Consequence**: A warning with consequences for continued behavior. No interaction with the people
-involved, including unsolicited interaction with those enforcing the Code of Conduct, for a
-specified period of time. This includes avoiding interactions in community spaces as well as
-external channels like social media. Violating these terms may lead to a temporary or permanent ban.
+### Permanent ban
 
-### 3. Temporary Ban
-
-**Community Impact**: A serious violation of community standards, including sustained inappropriate
-behavior.
-
-**Consequence**: A temporary ban from any sort of interaction or public communication with the
-community for a specified period of time. No public or private interaction with the people involved,
-including unsolicited interaction with those enforcing the Code of Conduct, is allowed during this
-period. Violating these terms may lead to a permanent ban.
-
-### 4. Permanent Ban
-
-**Community Impact**: Demonstrating a pattern of violation of community standards, including
-sustained inappropriate behavior, harassment of an individual, or aggression toward or disparagement
-of classes of individuals.
-
-**Consequence**: A permanent ban from any sort of public interaction within the community.
-
----
-
-## Project-Specific Addendum: The Anti-Gatekeeping Clause
-
-`pipelined` brings structured error handling, optional values, and typed async to TypeScript
-developers who have never touched Haskell, Scala, `fp-ts`, or category theory. That is the audience.
-
-In addition to the baseline standards above, the following behaviors are classified as community
-violations:
-
-1. **Category-Theory Gatekeeping**: Dismissing practical developer questions with ungrounded
-   academic terminology (e.g. answering a TypeScript typing question with *"just use an
-   endofunctor"* or *"go read Bartosz Milewski"*). Explanations must be grounded in concrete
-   TypeScript mechanics and everyday application problems.
-2. **Functional Programming Purity Elitism**: Belittling pull requests or issues because an approach
-   is "not purely functional" or looks "too imperative." In this project, predictable TypeScript
-   inference, runtime performance, and developer experience (DX) strictly take precedence over
-   mathematical purity.
-3. **Academic Condescension**: Shaming contributors for asking questions about monadic concepts or
-   admitting unfamiliarity with functional patterns. Everyone encountering structured errors or
-   optional values for the first time is welcome here.
-
----
+A pattern of violations, including sustained inappropriate behavior, harassment of an individual, or
+aggression toward or disparagement of a class of individuals leads to a permanent ban from public
+interaction within the community.
 
 ## Attribution
 
-This Code of Conduct is adapted from the [Contributor Covenant][homepage], version 2.1, available at
-https://www.contributor-covenant.org/version/2/1/code_of_conduct.html.
+This document adapts the [Contributor Covenant][homepage], version 2.1, available at
+https://www.contributor-covenant.org/version/2/1/code_of_conduct.html. The Contributor Covenant is
+licensed under [CC BY 4.0][license], and this adaptation is shared under the same license. The
+wording is rewritten for this project; the anti-gatekeeping section and the reporting process are
+specific to it.
 
-Community Impact Guidelines were inspired by
-[Mozilla's code of conduct enforcement ladder][mozilla-coc].
+The enforcement steps adapt the Contributor Covenant's Community Impact Guidelines, which were
+inspired by [Mozilla's code of conduct enforcement ladder][mozilla-coc].
 
 [homepage]: https://www.contributor-covenant.org
+[license]: https://creativecommons.org/licenses/by/4.0/
 [mozilla-coc]: https://github.com/mozilla/diversity
