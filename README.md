@@ -24,8 +24,8 @@ work reads top to bottom in a `pipe`.
 
 <!-- BUNDLE_OVERVIEW:START -->
 
-It has zero dependencies, ships ESM and CommonJS builds, and tree-shakes down to ~27 B–6.51 kB
-gzipped for individual modules and 26.22 kB for the entire package.
+It has zero dependencies, ships ESM and CommonJS builds, and tree-shakes down to ~27 B–6.57 kB
+gzipped for individual modules and 26.79 kB for the entire package.
 
 <!-- BUNDLE_OVERVIEW:END -->
 
@@ -336,19 +336,19 @@ These measurements include each listed import and its dependencies, minified and
 | `Result`       | **1.51 kB**        |
 | `Validation`   | **1.51 kB**        |
 | `RemoteData`   | **1.94 kB**        |
-| `Machine`      | **2.04 kB**        |
-| `EventBus`     | **1.23 kB**        |
+| `Machine`      | **2.41 kB**        |
+| `EventBus`     | **1.61 kB**        |
 | `Batcher`      | **3.07 kB**        |
 | `Cache`        | **2.40 kB**        |
 | `Resource`     | **2.05 kB**        |
 | `Graph`        | **2.88 kB**        |
 | `Task`         | **4.55 kB**        |
 | `Transaction`  | **2.55 kB**        |
-| `Op`           | **6.28 kB**        |
+| `Op`           | **6.30 kB**        |
 | `Lens`         | **233 B**          |
-| `Arr`          | **6.51 kB**        |
-| `Rec`          | **3.22 kB**        |
-| `Dict`         | **2.41 kB**        |
+| `Arr`          | **6.57 kB**        |
+| `Rec`          | **3.25 kB**        |
+| `Dict`         | **2.44 kB**        |
 | `Str`          | **2.30 kB**        |
 
 <!-- BUNDLE_TABLE:END -->

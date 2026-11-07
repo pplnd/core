@@ -5,7 +5,7 @@ description: Merge, map, and look up string-keyed plain objects without mutating
 
 <!-- BUNDLE_SIZE:START -->
 
-> 3.22 kB minified + gzipped
+> 3.25 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

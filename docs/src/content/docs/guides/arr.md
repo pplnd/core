@@ -5,7 +5,7 @@ description: Search, split, regroup, and validate readonly arrays with bounds-sa
 
 <!-- BUNDLE_SIZE:START -->
 
-> 6.51 kB minified + gzipped
+> 6.57 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -51,7 +51,7 @@ flowchart TD
 ### Reading the Temperature Log
 
 ```ts
-import { Arr, Maybe, pipe, Str } from "@pplnd/core";
+import { Arr, Maybe, Num, pipe } from "@pplnd/core";
 
 type Line = { container: string; raw: string };
 type Sample = { container: string; celsius: number };
@@ -65,7 +65,7 @@ const lines: readonly Line[] = [
 
 const toSample = (line: Line): Maybe<Sample> =>
   pipe(
-    Str.parse.float(line.raw),
+    Num.from.string(line.raw),
     Maybe.map((celsius) => ({ container: line.container, celsius })),
   );
 

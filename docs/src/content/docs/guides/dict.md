@@ -5,7 +5,7 @@ description: Keep arbitrary keys in a readonly map and update entries without mu
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.41 kB minified + gzipped
+> 2.44 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

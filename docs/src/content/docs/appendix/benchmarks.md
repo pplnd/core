@@ -26,7 +26,8 @@ indexed `for` loop over a dense array skips those checks.
 ### Indexed loops instead of array callbacks
 
 The shortest implementation of `Arr.filter` is `items.filter(predicate)`. On 10,000 numbers it takes
-about 77 microseconds. An index loop that pushes matches takes about 20 microseconds.
+about 77 microseconds. An index loop that pre-allocates the input length, writes matches by index,
+and truncates the result takes about 20 microseconds.
 
 `Arr.flatMap` has the same gap: about 60 microseconds with a loop that pushes into a result array,
 against 279 microseconds for native `.flatMap()`. For `.every()` and `.some()` over 10,000 elements
@@ -51,6 +52,16 @@ On 10,000 numbers, `Arr.scan` with a pre-allocated array takes 10.5 microseconds
 microseconds for a `push` loop. `Arr.zip` falls from 57 microseconds with `push` to 38 microseconds
 with pre-allocation.
 
+The filtering combinators cannot know their output length, so they pre-allocate the input length,
+write survivors by index, and truncate with `result.length = count`. On 10,000 numbers the
+pre-allocated forms measure 29 microseconds for `Arr.filter` and 36 for `Arr.filterMap`;
+`Arr.partition` writes both groups into pre-allocated buffers and takes 31. `Arr.intersperse` knows
+its exact output length, `2n - 1`, and fills it directly: 34 microseconds. Truncation releases the
+unused backing store, so the larger temporary allocation is not retained.
+
+`Arr.takeWhile` counts the matching prefix and copies it with `.slice()`, which runs in C++: 5.6
+microseconds on 10,000 numbers against 17 for a `push` loop.
+
 The raw pre-allocated `Arr.map` loop takes 10 microseconds on 10,000 numbers against 42 to 48
 microseconds for `data.map(fn)`. Through `pipe(data, Arr.map(fn))` the curried wrapper prevents V8
 from inlining the callback and the mean rises to 52 microseconds. Its 75th percentile (52
@@ -74,6 +85,12 @@ the loop reads values through the keys array; a separate `Object.values` pass ra
 discriminator in place of an `Object.hasOwn` check per item, which brings its 10,000-item run to 225
 microseconds against 360.
 
+`Dict.from.record` applies the same pattern: `Object.keys` once and `Map.set` per key avoids the
+tuple array that `new Map(Object.entries(record))` materialises. On 10,000 keys it takes 1.5
+milliseconds against 2.8. `Dict.entries` pre-allocates `dict.size` and fills the array by index;
+`Array.from(dict.entries())` leaves the result length unknown and grows it, taking 173 microseconds
+against 49.
+
 ### Contiguous copies through built-ins
 
 A JavaScript `for` loop cannot beat the engine at copying a contiguous slice. V8 implements
@@ -84,6 +101,12 @@ On 10,000 elements, `Arr.take` through `.slice()` takes 0.8 microseconds against
 for a pre-allocated JavaScript copy. `Arr.drop` takes 0.7 against 5.1. `Arr.reverse` copies with
 `.slice()` and reverses that copy in place, which avoids a second full copy from spreading the input
 first: about 9 microseconds against 12.
+
+### Single-pass regex scans
+
+`Str.words` scans for non-whitespace runs with `text.match(/\S+/g) ?? []`. On a 10,000-word
+paragraph this takes 176 microseconds; `text.trim().split(/\s+/).filter(Boolean)` allocates a
+trimmed copy, a split array, and a filtered array, and takes 348.
 
 ## Cases where the library is slower
 
@@ -102,8 +125,10 @@ equivalent on the same input. Most benchmarks use 10,000 elements; `Rec`, `Dict`
 `pnpm bench` is exploratory. A comparison samples for about a second. Very fast comparisons also
 take time to report tens of millions of samples, and a full pass takes tens of minutes. The harness
 cannot resolve differences below about 30 nanoseconds per operation, so the suite omits those
-comparisons. `Dict` and `Uniq` fixtures are generated once with a fixed fast-check seed, so reruns
-measure identical data.
+comparisons. `Dict` and `Uniq` fixtures are generated once with
+`fc.sample(arbitrary, { numRuns: 1, seed: 42 })`, so reruns measure identical data. Benchmark files
+are part of `pnpm typecheck`; a renamed library export fails verification instead of throwing during
+an exploratory run.
 
 Vitest's module runner wraps module exports in getters. Calls that reach a module namespace inside
 the library, such as `Maybe.make.some` in `Dict.lookup`, pay that overhead in exploratory runs while
@@ -113,9 +138,10 @@ plain Node against the built bundle and does not pay it.
 The regression check is `pnpm bench:ci`. It runs `scripts/bench-gate.ts`, which measures the
 repaired paths against their documented loop, asserts both sides return equal results, and compares
 the current/reference ratio with the budgets in `benchmarks/baseline.json`. The gate covers
-`Arr.reduce`, `Arr.NonEmpty.reduce`, `Arr.reverse`, `Rec.map`, `Rec.filter`, `Rec.mapWithKey`,
-`Rec.filterMap`, `Rec.groupBy`, `Rec.mergeWith`, `Dict.reduce`, and `Num.format`. It takes about
-four seconds and runs in the verification workflow.
+`Arr.reduce`, `Arr.NonEmpty.reduce`, `Arr.reverse`, `Arr.filter`, `Arr.filterMap`, `Arr.partition`,
+`Arr.partitionMap`, `Arr.takeWhile`, `Arr.intersperse`, `Rec.map`, `Rec.filter`, `Rec.mapWithKey`,
+`Rec.filterMap`, `Rec.groupBy`, `Rec.mergeWith`, `Dict.reduce`, `Dict.from.record`, `Dict.entries`,
+`Str.words`, and `Num.format`. It takes a few seconds and runs in the verification workflow.
 
 ```sh
 pnpm bench:ci            # ratio gate, exits non-zero on a regression
@@ -133,8 +159,14 @@ pnpm build && node --expose-gc scripts/bench-gate.ts --update
 Each data comparison calls `assertEquivalent` (`src/Data/__bench__/equivalence.ts`) once outside the
 timed section and fails when the two results differ, so a semantic change on either side cannot
 produce a passing benchmark. Comparisons whose sides intentionally compute different work are marked
-overhead-only in the source: the `EventEmitter` throughput comparison and `Op.interpret` against a
-bare promise.
+overhead-only in the source: the `EventEmitter` throughput comparison and the keyed `Op.interpret`
+transition, which is measured against a direct outcome update rather than a second keyed engine.
+
+The `Op` scenarios measure three engine paths. A full `restartable` execution runs against a
+hand-written manager that performs the same transitions, so the ratio isolates the engine rather
+than the task; a dropped `once` call measures the cost of rejecting a terminal call; and a keyed
+transition measures a run while 128 keys hold settled state. The first two assert outcome
+equivalence on both sides.
 
 ### Coverage contract
 
@@ -145,11 +177,11 @@ without a benchmark fails the gate until it is measured or listed.
 
 | Module | Benchmarked leaves |
 | :----- | -----------------: |
-| `Arr`  |            17 / 73 |
+| `Arr`  |            21 / 73 |
 | `Rec`  |             9 / 35 |
-| `Dict` |            11 / 40 |
+| `Dict` |            13 / 40 |
 | `Uniq` |             9 / 24 |
-| `Str`  |             8 / 27 |
+| `Str`  |             6 / 25 |
 | `Num`  |             5 / 29 |
 
 Most out-of-scope entries are O(1) accessors such as `Arr.head` and `Dict.has`, or small helpers
