@@ -31,7 +31,7 @@ const distUrl = new URL("../dist/index.mjs", import.meta.url).href;
 const update = process.argv.includes("--update");
 
 const api = (await import(distUrl)) as RuntimeApi;
-const { Arr, Dict, Maybe, Num, Rec } = api;
+const { Arr, Dict, Maybe, Num, Rec, Result, Str } = api;
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -44,6 +44,7 @@ const recSecond10k: Record<string, number> = Object.fromEntries(
 );
 const dict10k: ReadonlyMap<string, number> = new Map(Array.from({ length: 10_000 }, (_, i) => [`key${i}`, i]));
 const words10k = Array.from({ length: 10_000 }, (_, i) => `word${i % 100}`);
+const paragraph10k = words10k.join(" ");
 const formatOptions: Intl.NumberFormatOptions = { style: "currency", currency: "USD" };
 const formatUsd = Num.format(formatOptions, "en-US");
 const numberFormatter = new Intl.NumberFormat("en-US", formatOptions);
@@ -56,6 +57,7 @@ const double = (value: number): number => value * 2;
 const isEven = (value: number): boolean => value % 2 === 0;
 const keyOfWord = (word: string): string => word.slice(-2);
 const toSome = (value: number) => value % 3 === 0 ? Maybe.make.none() : Maybe.make.some(value);
+const toResult = (value: number) => value % 3 === 0 ? Result.make.err(`bad:${value}`) : Result.make.ok(value);
 
 const setKey = <A>(record: Record<string, A>, key: string, value: A): void => {
 	if (key === "__proto__") {
@@ -72,6 +74,102 @@ const refReduce = <A, B>(initial: B, reducer: (accumulator: B, item: A) => B) =>
 	}
 	return accumulator;
 };
+
+const refFilter = <A>(predicate: (item: A) => boolean) => (items: readonly A[]): readonly A[] => {
+	const result = new Array<A>(items.length);
+	let count = 0;
+	for (let i = 0; i < items.length; i++) {
+		const item = items[i];
+		if (predicate(item)) { result[count++] = item; }
+	}
+	result.length = count;
+	return result;
+};
+
+const refFilterMap = <A, B>(transform: (item: A) => Api.Maybe<B>) => (items: readonly A[]): readonly B[] => {
+	const result = new Array<B>(items.length);
+	let count = 0;
+	for (let i = 0; i < items.length; i++) {
+		const mapped = transform(items[i]);
+		if (mapped.kind === "Some") { result[count++] = mapped.value; }
+	}
+	result.length = count;
+	return result;
+};
+
+const refPartition =
+	<A>(predicate: (item: A) => boolean) => (items: readonly A[]): readonly [readonly A[], readonly A[]] => {
+		const n = items.length;
+		const pass = new Array<A>(n);
+		const fail = new Array<A>(n);
+		let passCount = 0;
+		let failCount = 0;
+		for (let i = 0; i < n; i++) {
+			const item = items[i];
+			if (predicate(item)) {
+				pass[passCount++] = item;
+			} else {
+				fail[failCount++] = item;
+			}
+		}
+		pass.length = passCount;
+		fail.length = failCount;
+		return [pass, fail];
+	};
+
+const refPartitionMap =
+	<A, E, B>(transform: (item: A) => Api.Result<E, B>) => (
+		items: readonly A[],
+	): readonly [readonly E[], readonly B[]] => {
+		const errors: E[] = [];
+		const successes: B[] = [];
+		for (let i = 0; i < items.length; i++) {
+			const mapped = transform(items[i]);
+			if (mapped.kind === "Ok") {
+				successes.push(mapped.value);
+			} else {
+				errors.push(mapped.error);
+			}
+		}
+		return [errors, successes];
+	};
+
+const refTakeWhile = <A>(predicate: (item: A) => boolean) => (items: readonly A[]): readonly A[] => {
+	let i = 0;
+	while (i < items.length && predicate(items[i])) { i++; }
+	return items.slice(0, i);
+};
+
+const refIntersperse = <A>(separator: A) => (items: readonly A[]): readonly A[] => {
+	const n = items.length;
+	if (n <= 1) { return items; }
+	const result = new Array<A>(2 * n - 1);
+	result[0] = items[0];
+	for (let i = 1; i < n; i++) {
+		result[2 * i - 1] = separator;
+		result[2 * i] = items[i];
+	}
+	return result;
+};
+
+const refDictFromRecord = <A>(record: Readonly<Record<string, A>>): ReadonlyMap<string, A> => {
+	const recordKeys = Object.keys(record);
+	const result = new Map<string, A>();
+	for (let i = 0; i < recordKeys.length; i++) {
+		const key = recordKeys[i];
+		result.set(key, record[key]);
+	}
+	return result;
+};
+
+const refDictEntries = <A>(dict: ReadonlyMap<string, A>): readonly (readonly [string, A])[] => {
+	const result = new Array<readonly [string, A]>(dict.size);
+	let i = 0;
+	for (const entry of dict) { result[i++] = entry; }
+	return result;
+};
+
+const refWords = (text: string): readonly string[] => text.match(/\S+/g) ?? [];
 
 const refNonEmptyReduce = <A>(reducer: (accumulator: A, item: A) => A) => (items: readonly A[]): A => {
 	let accumulator = items[0];
@@ -242,6 +340,60 @@ const cases: readonly GateCase[] = [{
 	current: () => formatUsd(1234.5),
 	reference: () => refNumFormat(numberFormatter)(1234.5),
 	digest: (value) => typeof value === "object" && value !== null && "kind" in value && value.kind === "Some" ? 1 : 0,
+}, {
+	id: "arr.filter/10k",
+	iterations: 120,
+	current: () => Arr.filter(isEven)(arr10k),
+	reference: () => refFilter(isEven)(arr10k),
+	digest: (value) => Array.isArray(value) ? value.length : 0,
+}, {
+	id: "arr.filterMap/10k",
+	iterations: 80,
+	current: () => Arr.filterMap(toSome)(arr10k),
+	reference: () => refFilterMap(toSome)(arr10k),
+	digest: (value) => Array.isArray(value) ? value.length : 0,
+}, {
+	id: "arr.partition/10k",
+	iterations: 120,
+	current: () => Arr.partition(isEven)(arr10k),
+	reference: () => refPartition(isEven)(arr10k),
+	digest: (value) => Array.isArray(value) ? value.length + (Array.isArray(value[0]) ? value[0].length : 0) : 0,
+}, {
+	id: "arr.partitionMap/10k",
+	iterations: 100,
+	current: () => Arr.partitionMap(toResult)(arr10k),
+	reference: () => refPartitionMap(toResult)(arr10k),
+	digest: (value) => Array.isArray(value) ? value.length + (Array.isArray(value[0]) ? value[0].length : 0) : 0,
+}, {
+	id: "arr.takeWhile/10k",
+	iterations: 150,
+	current: () => Arr.takeWhile((value: number) => value < 5000)(arr10k),
+	reference: () => refTakeWhile((value: number) => value < 5000)(arr10k),
+	digest: (value) => Array.isArray(value) ? value.length : 0,
+}, {
+	id: "arr.intersperse/10k",
+	iterations: 100,
+	current: () => Arr.intersperse(-1)(arr10k),
+	reference: () => refIntersperse(-1)(arr10k),
+	digest: (value) => Array.isArray(value) ? value.length : 0,
+}, {
+	id: "dict.from.record/10k",
+	iterations: 4,
+	current: () => Dict.from.record(rec10k),
+	reference: () => refDictFromRecord(rec10k),
+	digest: (value) => value instanceof Map ? value.size : 0,
+}, {
+	id: "dict.entries/10k",
+	iterations: 30,
+	current: () => Dict.entries(dict10k),
+	reference: () => refDictEntries(dict10k),
+	digest: (value) => Array.isArray(value) ? value.length : 0,
+}, {
+	id: "str.words/10k",
+	iterations: 30,
+	current: () => Str.words(paragraph10k),
+	reference: () => refWords(paragraph10k),
+	digest: (value) => Array.isArray(value) ? value.length : 0,
 }];
 
 // ---------------------------------------------------------------------------

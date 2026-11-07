@@ -48,6 +48,12 @@ test("pipe: integrates in pipeline", () => {
 	expect(result).toStrictEqual([9, "PIPELINED"]);
 });
 
+test("juxt: applies a single function through the array overload", () => {
+	const double = juxt([(n: number) => n * 2]);
+
+	expect(double(21)).toStrictEqual([42]);
+});
+
 test("juxt: preserves homogeneous array return type", () => {
 	const transforms: ((n: number) => number)[] = [(n) => n + 1, (n) => n + 2, (n) => n + 3];
 	const addAll = juxt(transforms);

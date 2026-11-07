@@ -176,8 +176,7 @@ export const tapAsync = <A>(fn: (a: A) => Thenable<unknown>, options?: tapAsync.
  * );
  * ```
  */
-export const tapTime = <A>(fn: (a: A) => unknown, config: tapTime.Config) => (a: A): A => {
-	const start = performance.now();
+export const tapTime = <A>(fn: (a: A) => unknown, config: tapTime.Config) => {
 	const triggerFinish = (duration: Duration) => {
 		if (config.label !== undefined) {
 			console.log(`[${config.label}]: ${Duration.to.milliseconds(duration)}ms`);
@@ -186,28 +185,31 @@ export const tapTime = <A>(fn: (a: A) => unknown, config: tapTime.Config) => (a:
 		}
 	};
 
-	try {
-		const res = fn(a);
-		if (
-			res !== null && (typeof res === "object" || typeof res === "function") && typeof (res as any).then === "function"
-		) {
-			(res as any).then(() => {
+	return (a: A): A => {
+		const start = performance.now();
+		try {
+			const res = fn(a);
+			if (
+				res !== null && (typeof res === "object" || typeof res === "function") && typeof (res as any).then === "function"
+			) {
+				(res as any).then(() => {
+					const duration = Duration.milliseconds(performance.now() - start);
+					triggerFinish(duration);
+				}, () => {
+					const duration = Duration.milliseconds(performance.now() - start);
+					triggerFinish(duration);
+				});
+			} else {
 				const duration = Duration.milliseconds(performance.now() - start);
 				triggerFinish(duration);
-			}, () => {
-				const duration = Duration.milliseconds(performance.now() - start);
-				triggerFinish(duration);
-			});
-		} else {
+			}
+		} catch (err) {
 			const duration = Duration.milliseconds(performance.now() - start);
 			triggerFinish(duration);
+			throw err;
 		}
-	} catch (err) {
-		const duration = Duration.milliseconds(performance.now() - start);
-		triggerFinish(duration);
-		throw err;
-	}
-	return a;
+		return a;
+	};
 };
 
 export namespace tapLog {

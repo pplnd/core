@@ -76,8 +76,15 @@ const DictFrom = {
 	 * Dict.from.record({ a: 1, b: 2 }); // ReadonlyMap { "a" => 1, "b" => 2 }
 	 * ```
 	 */
-	record: <K extends string, V>(record: Readonly<Record<K, V>>): ReadonlyMap<K, V> =>
-		new globalThis.Map<K, V>(Object.entries(record) as unknown as (readonly [K, V])[]),
+	record: <K extends string, V>(record: Readonly<Record<K, V>>): ReadonlyMap<K, V> => {
+		const recordKeys = Object.keys(record) as K[];
+		const result = new globalThis.Map<K, V>();
+		for (let i = 0; i < recordKeys.length; i++) {
+			const key = recordKeys[i];
+			result.set(key, record[key]);
+		}
+		return result;
+	},
 
 	/**
 	 * Lifts a nullable dictionary into a `Maybe`. Returns `None` if null or undefined.
@@ -189,7 +196,14 @@ const values = <K, V>(dict: ReadonlyMap<K, V>): readonly V[] => Array.from(dict.
  * @see {@link keys} for extracting dictionary keys.
  * @see {@link values} for extracting dictionary values.
  */
-const entries = <K, V>(dict: ReadonlyMap<K, V>): readonly (readonly [K, V])[] => Array.from(dict.entries());
+const entries = <K, V>(dict: ReadonlyMap<K, V>): readonly (readonly [K, V])[] => {
+	const result = new Array<readonly [K, V]>(dict.size);
+	let i = 0;
+	for (const entry of dict) {
+		result[i++] = entry;
+	}
+	return result;
+};
 
 /**
  * Returns a new dictionary with the key set to value.

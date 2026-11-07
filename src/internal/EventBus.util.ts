@@ -29,10 +29,30 @@ export type EventBusForwardLink = (msg: unknown) => void;
 export type EventBusDelivery = { readonly message: unknown; readonly ancestry: ReadonlySet<EventBusForwardLink>; };
 
 /**
+ * A registered subscriber together with its registration order and observed event kinds.
+ *
+ * `interest` is `null` for wildcard subscribers (schema-wide and strict sequence matchers) that
+ * receive every event. Dispatch uses `order` to merge wildcard entries with per-kind bucket
+ * entries while preserving the documented registration-order delivery.
+ *
+ * Unsubscription replaces `subscriber` with a no-op, so an in-flight dispatch holding a snapshot
+ * of the entries skips a subscriber removed by an earlier callback without a per-delivery lookup.
+ *
+ * @internal
+ */
+export type EventBusSubscription = {
+	readonly order: number;
+	subscriber: (msg: unknown) => void;
+	readonly interest: ReadonlySet<string> | null;
+};
+
+/**
  * Low-level operational state backing an `EventBus` instance.
  *
- * Manages subscriber registration, cached snapshot arrays for zero-allocation emission loops,
- * and a synchronous reentrant emission queue to ensure deterministic FIFO event dispatch.
+ * Subscribers are indexed by the event kinds they observe, so an emission only visits subscribers
+ * that can react to it. Wildcard subscribers are kept in a separate ordered list and merged with
+ * the matching kind bucket at dispatch time. A synchronous FIFO trampoline queue provides
+ * deterministic reentrant dispatch.
  *
  * @internal
  */
@@ -43,22 +63,25 @@ export type EventBusInternalState = {
 	readonly options?: EventBusOptions;
 
 	/**
-	 * Primary mutable subscriber registry providing O(1) subscription addition, removal,
-	 * and reference identity deduplication.
+	 * Registry of every active subscriber keyed by its wrapper function. Provides O(1) identity
+	 * lookup for unsubscription and filters subscribers removed during an in-flight dispatch.
 	 */
-	readonly subscribers: Set<(msg: unknown) => void>;
+	readonly registry: Map<(msg: unknown) => void, EventBusSubscription>;
 
 	/**
-	 * Cached array snapshot of `subscribers`.
-	 *
-	 * Avoids allocating new array instances on every `emit` call (~3x throughput gain, 0 heap allocations
-	 * on hot paths). Invalidated to `null` whenever `subscribers` is mutated (`add` / `delete`).
-	 * Lazily rebuilt on the next emission loop.
-	 *
-	 * Guarantees snapshot isolation during emission so newly added subscribers do not execute
-	 * prematurely for in-flight events.
+	 * Per-kind subscriber buckets. Every array is append-only while subscribers register, so it is
+	 * already sorted by registration order and only needs to be merged with the wildcard list.
+	 * Arrays are replaced (never spliced) on unsubscription so in-flight dispatch snapshots stay
+	 * stable.
 	 */
-	subscriberArray: Array<(msg: unknown) => void> | null;
+	readonly buckets: Map<string, EventBusSubscription[]>;
+
+	/**
+	 * Wildcard subscribers that observe every event kind. The array is empty when none are
+	 * registered and is only replaced on unsubscription so in-flight dispatch snapshots stay
+	 * stable.
+	 */
+	wildcards: EventBusSubscription[];
 
 	/**
 	 * Breadth-first reentrancy queue buffering events emitted synchronously by subscriber callbacks.
@@ -76,6 +99,18 @@ export type EventBusInternalState = {
 	 * preventing recursive stack growth and ensuring deterministic ordering.
 	 */
 	isEmitting: boolean;
+
+	/**
+	 * Monotonic registration counter assigning each subscriber its delivery order.
+	 */
+	nextOrder: number;
+
+	/**
+	 * Last dispatched event kind and its resolved bucket, caching the kind index lookup for
+	 * workloads that emit the same kind repeatedly.
+	 */
+	lastKind: string | null;
+	lastBucket: EventBusSubscription[] | null;
 };
 
 /**

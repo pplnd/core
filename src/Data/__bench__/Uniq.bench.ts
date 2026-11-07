@@ -2,7 +2,7 @@ import { pipe } from "#composition";
 import { Uniq } from "#data";
 import * as fc from "fast-check";
 import { test } from "vitest";
-import { assertEquivalent } from "./equivalence.ts";
+import { assertEquivalent } from "../../__bench__/equivalence.ts";
 
 const pipeFn = pipe;
 const uniqFromArray = Uniq.from.array;
@@ -18,14 +18,16 @@ const uniqInsert = Uniq.insert;
 const data100 = Array.from({ length: 100 }, (_, i) => i);
 const data10k = Array.from({ length: 10_000 }, (_, i) => i);
 
-// varied fixtures — seeded once at module load, used across bench groups
-const [variedData100] = fc.sample(fc.array(fc.integer({ min: 0, max: 200 }), { minLength: 100, maxLength: 100 }), 1, {
+// varied fixtures — seeded once at module load, used across bench groups.
+// fast-check reads the seed from the second argument; a third argument is ignored, so
+// `fc.sample(arb, 1, { seed })` silently produced random fixtures on every run.
+const [variedData100] = fc.sample(fc.array(fc.integer({ min: 0, max: 200 }), { minLength: 100, maxLength: 100 }), {
+	numRuns: 1,
 	seed: 42,
 });
 const [variedData10k] = fc.sample(
 	fc.array(fc.integer({ min: 0, max: 20_000 }), { minLength: 10_000, maxLength: 10_000 }),
-	1,
-	{ seed: 42 },
+	{ numRuns: 1, seed: 42 },
 );
 const variedSet100 = uniqFromArray(variedData100);
 const variedSet10k = uniqFromArray(variedData10k);

@@ -1,7 +1,6 @@
 import { expect, test, vi } from "vitest";
 import { Duration } from "../../Types/Duration.ts";
-import type { RetryPolicy } from "../../Types/RetryPolicy.ts";
-import { RetryPolicy as CoreRetryPolicy } from "../../Types/RetryPolicy.ts";
+import { type RetryPolicy, RetryPolicy as CoreRetryPolicy } from "../../Types/RetryPolicy.ts";
 import { Deferred } from "../Deferred.ts";
 import { Result } from "../Result.ts";
 import { Supervisor } from "../Supervisor.ts";

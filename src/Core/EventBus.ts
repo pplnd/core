@@ -2,6 +2,7 @@ import {
 	EVENT_BUS_STATE,
 	type EventBusForwardLink,
 	type EventBusInternalState,
+	type EventBusSubscription,
 	toInternalEventBus,
 } from "../internal/EventBus.util.ts";
 
@@ -183,8 +184,8 @@ type CompatibleForwardTargets<
 /**
  * Initializes a new `EventBus` instance backed by private state.
  *
- * Allocates a `Set` for O(1) subscriber mutation, a lazy snapshot array slot (`subscriberArray`)
- * for zero-allocation iteration, and a FIFO trampoline queue for reentrant dispatch.
+ * Allocates a per-kind subscriber index (kind buckets plus wildcard entries), a registration
+ * registry for identity-based unsubscription, and a FIFO trampoline queue for reentrant dispatch.
  *
  * @internal
  */
@@ -195,10 +196,14 @@ const makeEventBus = <S extends Record<string, unknown>>(options?: EventBus.Opti
 		[Symbol.toStringTag]: busId !== undefined ? `EventBus(${busId})` : "EventBus",
 		[EVENT_BUS_STATE]: {
 			options,
-			subscribers: new Set(),
-			subscriberArray: null,
+			registry: new Map(),
+			buckets: new Map(),
+			wildcards: [],
 			queue: [],
 			isEmitting: false,
+			nextOrder: 0,
+			lastKind: null,
+			lastBucket: null,
 		} as EventBusInternalState,
 	}) as unknown as EventBus<S>;
 };
@@ -207,24 +212,187 @@ const makeEventBus = <S extends Record<string, unknown>>(options?: EventBus.Opti
  * Forward links traversed by the delivery currently being dispatched.
  *
  * Every new `emit` starts with an empty ancestry; a forwarder appends its own link before
- * re-emitting. The value is pushed before and popped after each subscriber dispatch, so queued
- * deliveries and nested buses keep independent histories. This detects true cycles without
- * rejecting acyclic fan-in or sequential re-emissions.
+ * re-emitting. Each subscriber dispatch saves and restores this slot, so queued deliveries and
+ * nested buses keep independent histories. This detects true cycles without rejecting acyclic
+ * fan-in or sequential re-emissions.
  *
  * @internal
  */
 const EMPTY_ANCESTRY: ReadonlySet<EventBusForwardLink> = new Set();
-const forwardAncestryStack: Array<ReadonlySet<EventBusForwardLink>> = [EMPTY_ANCESTRY];
+const ancestryState: { current: ReadonlySet<EventBusForwardLink>; } = { current: EMPTY_ANCESTRY };
 
 /**
- * Dispatches a message to all subscribers of a single `EventBus` instance.
+ * Drops the cached kind index after any subscriber mutation.
+ *
+ * @internal
+ */
+const invalidateDispatchCache = (internal: EventBusInternalState): void => {
+	internal.lastKind = null;
+	internal.lastBucket = null;
+};
+
+/**
+ * Tombstone assigned to a removed subscriber so in-flight dispatch snapshots skip it.
+ *
+ * @internal
+ */
+const REMOVED_SUBSCRIBER = (): void => {};
+
+/**
+ * Registers a subscriber for the event kinds it observes.
+ *
+ * A `null` interest marks a wildcard subscriber that receives every event. Bucket arrays are
+ * append-only while subscribers register, so they remain sorted by registration order.
+ *
+ * @internal
+ */
+const addSubscriber = (
+	internal: EventBusInternalState,
+	subscriber: (msg: unknown) => void,
+	interest: ReadonlySet<string> | null,
+): void => {
+	const entry: EventBusSubscription = { order: internal.nextOrder++, subscriber, interest };
+	internal.registry.set(subscriber, entry);
+	if (interest === null) {
+		internal.wildcards.push(entry);
+	} else {
+		for (const kind of interest) {
+			const bucket = internal.buckets.get(kind);
+			if (bucket === undefined) {
+				internal.buckets.set(kind, [entry]);
+			} else {
+				bucket.push(entry);
+			}
+		}
+	}
+	invalidateDispatchCache(internal);
+};
+
+/**
+ * Copies a bucket without the removed subscription.
+ *
+ * @internal
+ */
+const withoutEntry = (
+	entries: readonly EventBusSubscription[],
+	target: EventBusSubscription,
+): EventBusSubscription[] => {
+	const remaining: EventBusSubscription[] = [];
+	for (let i = 0; i < entries.length; i++) {
+		if (entries[i] !== target) { remaining.push(entries[i]); }
+	}
+	return remaining;
+};
+
+/**
+ * Removes a subscriber from the registry and every bucket it was registered for.
+ *
+ * Bucket arrays are replaced instead of spliced so an in-flight dispatch keeps a stable snapshot,
+ * and the entry itself is tombstoned so that snapshot skips it.
+ *
+ * @internal
+ */
+const removeSubscriber = (internal: EventBusInternalState, subscriber: (msg: unknown) => void): void => {
+	const entry = internal.registry.get(subscriber);
+	if (entry === undefined) { return; }
+	internal.registry.delete(subscriber);
+	entry.subscriber = REMOVED_SUBSCRIBER;
+	if (entry.interest === null) {
+		internal.wildcards = withoutEntry(internal.wildcards, entry);
+	} else {
+		for (const kind of entry.interest) {
+			// Every interest kind still has a bucket: unsubscription only deletes a bucket after
+			// the last entry for that kind is removed, and this entry is still in that bucket.
+			const remaining = withoutEntry(internal.buckets.get(kind)!, entry);
+			if (remaining.length === 0) {
+				internal.buckets.delete(kind);
+			} else {
+				internal.buckets.set(kind, remaining);
+			}
+		}
+	}
+	invalidateDispatchCache(internal);
+};
+
+/**
+ * Dispatches a message to every subscriber that observes its event kind.
+ *
+ * Kind buckets and the wildcard list are both sorted by registration order, so the two are merged
+ * on the fly to preserve the documented delivery order. Entries removed during the dispatch were
+ * tombstoned by {@link removeSubscriber}, and the captured entry counts keep late registrations out
+ * of an in-flight message.
+ *
+ * @internal
+ */
+const dispatchToSubscribers = (
+	internal: EventBusInternalState,
+	msg: EventBus.Message<Record<string, unknown>>,
+	ancestry: ReadonlySet<EventBusForwardLink>,
+): void => {
+	const wildcards = internal.wildcards;
+	let kinded: EventBusSubscription[] | undefined;
+	if (internal.buckets.size !== 0) {
+		if (msg.kind === internal.lastKind) {
+			const cached = internal.lastBucket;
+			kinded = cached === null ? undefined : cached;
+		} else {
+			const bucket = internal.buckets.get(msg.kind) ?? null;
+			internal.lastKind = msg.kind;
+			internal.lastBucket = bucket;
+			kinded = bucket === null ? undefined : bucket;
+		}
+	}
+	const wildcardCount = wildcards.length;
+	const kindedCount = kinded === undefined ? 0 : kinded.length;
+	if (wildcardCount === 0 && kindedCount === 0) { return; }
+
+	const previousAncestry = ancestryState.current;
+	ancestryState.current = ancestry;
+	try {
+		if (kindedCount === 0) {
+			for (let i = 0; i < wildcardCount; i++) {
+				wildcards[i].subscriber(msg);
+			}
+			return;
+		}
+		if (wildcardCount === 0) {
+			for (let i = 0; i < kindedCount; i++) {
+				kinded![i].subscriber(msg);
+			}
+			return;
+		}
+		let wildcardIndex = 0;
+		let kindedIndex = 0;
+		while (wildcardIndex < wildcardCount && kindedIndex < kindedCount) {
+			const wildcardEntry = wildcards[wildcardIndex];
+			const kindedEntry = kinded![kindedIndex];
+			if (wildcardEntry.order < kindedEntry.order) {
+				wildcardEntry.subscriber(msg);
+				wildcardIndex++;
+			} else {
+				kindedEntry.subscriber(msg);
+				kindedIndex++;
+			}
+		}
+		while (wildcardIndex < wildcardCount) {
+			wildcards[wildcardIndex++].subscriber(msg);
+		}
+		while (kindedIndex < kindedCount) {
+			kinded![kindedIndex++].subscriber(msg);
+		}
+	} finally {
+		ancestryState.current = previousAncestry;
+	}
+};
+
+/**
+ * Emits a message, dispatching directly when no emission loop is active and queueing only for
+ * reentrant emissions.
  *
  * Employs a synchronous breadth-first queue trampoline:
- * 1. Pushes the message and its ancestry to `internal.queue`.
- * 2. If already in an emission loop, returns immediately (the active loop will drain the queue).
- * 3. Otherwise, marks `isEmitting = true` and drains `internal.queue` sequentially in FIFO order.
- * 4. Reuses the cached `internal.subscriberArray` snapshot, or lazily builds it via `Array.from(subscribers)`
- *    if invalidated by subscriber mutations (`add` / `delete`).
+ * 1. Marks `isEmitting = true` and dispatches the message immediately.
+ * 2. Reentrant emissions push to `queue` and return; the active loop drains them in FIFO order.
+ * 3. Always resets the queue and the emission flag, even when a subscriber throws.
  *
  * @internal
  */
@@ -234,25 +402,18 @@ const emitSingleBus = (
 	ancestry: ReadonlySet<EventBusForwardLink> = EMPTY_ANCESTRY,
 ): void => {
 	const internal = toInternalEventBus(bus)[EVENT_BUS_STATE];
-	internal.queue.push({ message: msg, ancestry });
-	if (internal.isEmitting) { return; }
+	if (internal.isEmitting) {
+		internal.queue.push({ message: msg, ancestry });
+		return;
+	}
 	internal.isEmitting = true;
 	try {
+		dispatchToSubscribers(internal, msg, ancestry);
+		const { queue } = internal;
 		let queueHead = 0;
-		while (queueHead < internal.queue.length) {
-			const delivery = internal.queue[queueHead++];
-			internal.subscriberArray ??= Array.from(internal.subscribers);
-			const subscribers = internal.subscriberArray;
-			forwardAncestryStack.push(delivery.ancestry);
-			try {
-				for (let i = 0; i < subscribers.length; i++) {
-					if (internal.subscribers.has(subscribers[i])) {
-						subscribers[i](delivery.message);
-					}
-				}
-			} finally {
-				forwardAncestryStack.pop();
-			}
+		while (queueHead < queue.length) {
+			const delivery = queue[queueHead++];
+			dispatchToSubscribers(internal, delivery.message as EventBus.Message<Record<string, unknown>>, delivery.ancestry);
 		}
 	} finally {
 		internal.queue.length = 0;
@@ -323,30 +484,25 @@ function forwardEventBus(
 
 	const handler = (msg: unknown) => {
 		const typedMsg = msg as EventBus.Message<Record<string, unknown>>;
-		if (filterSet !== null && !filterSet.has(typedMsg.kind)) {
-			return;
-		}
 		// A message that reaches this link again on the same ancestry has looped back. Acyclic
 		// fan-in and sequential re-emissions start from separate ancestries and are not cycles.
-		const currentAncestry = forwardAncestryStack[forwardAncestryStack.length - 1]!;
-		if (currentAncestry.has(handler)) {
+		const ancestryChain = ancestryState.current;
+		if (ancestryChain.has(handler)) {
 			throw new Error(
 				`EventBus: forwarding cycle detected for message kind "${typedMsg.kind}" on bus "${
 					internalFrom.options?.id ?? "(anonymous)"
 				}"`,
 			);
 		}
-		const ancestry = new Set(currentAncestry);
+		const ancestry = new Set(ancestryChain);
 		ancestry.add(handler);
 		emitEventBus(options.to, typedMsg as any, ancestry);
 	};
 
-	internalFrom.subscribers.add(handler);
-	internalFrom.subscriberArray = null;
+	addSubscriber(internalFrom, handler, filterSet);
 
 	return () => {
-		internalFrom.subscribers.delete(handler);
-		internalFrom.subscriberArray = null;
+		removeSubscriber(internalFrom, handler);
 	};
 }
 
@@ -484,15 +640,9 @@ function subscribeEventBus(
 					currentState = reducer(rawMsg as EventBus.Message<Record<string, unknown>, string>, currentState);
 				};
 
-				const unsubscribe = () => {
-					internal.subscribers.delete(subscriberFn);
-					internal.subscriberArray = null;
-				};
+				addSubscriber(internal, subscriberFn, null);
 
-				internal.subscribers.add(subscriberFn);
-				internal.subscriberArray = null;
-
-				return { unsubscribe, getState: () => currentState };
+				return { unsubscribe: () => removeSubscriber(internal, subscriberFn), getState: () => currentState };
 			},
 
 			tap: (effect: (msg: EventBus.Message<Record<string, unknown>, string>) => void): () => void => {
@@ -500,15 +650,9 @@ function subscribeEventBus(
 					effect(rawMsg as EventBus.Message<Record<string, unknown>, string>);
 				};
 
-				const unsubscribe = () => {
-					internal.subscribers.delete(subscriberFn);
-					internal.subscriberArray = null;
-				};
+				addSubscriber(internal, subscriberFn, null);
 
-				internal.subscribers.add(subscriberFn);
-				internal.subscriberArray = null;
-
-				return unsubscribe;
+				return () => removeSubscriber(internal, subscriberFn);
 			},
 		};
 	}
@@ -523,6 +667,17 @@ function subscribeEventBus(
 	const optionalKinds = options?.optional
 		? new Set<string>(Array.isArray(options.optional) ? options.optional : [options.optional])
 		: null;
+
+	// Strict sequences react to every kind because an unrelated event resets progress. Every other
+	// subscription reacts only to its selected kinds plus its reset kinds, which lets dispatch skip
+	// it entirely for unrelated events.
+	const interestKinds: Set<string> | null = isOrdered && isStrict ? null : new Set<string>(eventList);
+	if (interestKinds !== null && resetKinds !== null) {
+		for (const kind of resetKinds) {
+			interestKinds.add(kind);
+		}
+	}
+
 	const restartIndex = (kind: string): number => {
 		let index = 0;
 		while (index < eventList.length && eventList[index] !== kind && optionalKinds?.has(eventList[index])) {
@@ -531,7 +686,15 @@ function subscribeEventBus(
 		return eventList[index] === kind ? index + 1 : 0;
 	};
 
-	const createMatcher = (onMatch: (msg: EventBus.Message<Record<string, unknown>, string>) => void) => {
+	const createMatcher = (
+		onMatch: (msg: EventBus.Message<Record<string, unknown>, string>) => void,
+	): (msg: unknown) => void => {
+		// Unordered subscriptions without reset rules are dispatched only for their selected kinds,
+		// so the callback itself can be registered without a matching wrapper.
+		if (!isOrdered && resetKinds === null) {
+			return onMatch as (msg: unknown) => void;
+		}
+
 		let sequenceIndex = 0;
 
 		return (rawMsg: unknown) => {
@@ -542,9 +705,7 @@ function subscribeEventBus(
 			}
 
 			if (!isOrdered) {
-				if (eventList.includes(msg.kind)) {
-					onMatch(msg);
-				}
+				onMatch(msg);
 				return;
 			}
 
@@ -571,9 +732,7 @@ function subscribeEventBus(
 					sequenceIndex = 0;
 					onMatch(msg);
 				}
-			} else if (isStrict) {
-				sequenceIndex = restartIndex(msg.kind);
-			} else if (eventList.includes(msg.kind)) {
+			} else {
 				sequenceIndex = restartIndex(msg.kind);
 			}
 		};
@@ -593,25 +752,22 @@ function subscribeEventBus(
 			}
 
 			if (!isOrdered) {
-				if (eventList.includes(msg.kind)) {
-					collected[msg.kind] = msg.value;
-					let hasAll = true;
-					for (let i = 0; i < eventList.length; i++) {
-						const k = eventList[i];
-						if (!(k in collected) && (optionalKinds === null || !optionalKinds.has(k))) {
-							hasAll = false;
-							break;
-						}
+				collected[msg.kind] = msg.value;
+				let hasAll = true;
+				for (let i = 0; i < eventList.length; i++) {
+					const k = eventList[i];
+					if (!(k in collected) && (optionalKinds === null || !optionalKinds.has(k))) {
+						hasAll = false;
+						break;
 					}
-					if (hasAll) {
-						const result = { ...collected };
-						collected = {};
-						if (isOnce) {
-							internal.subscribers.delete(subscriberFn);
-							internal.subscriberArray = null;
-						}
-						effect(result);
+				}
+				if (hasAll) {
+					const result = { ...collected };
+					collected = {};
+					if (isOnce) {
+						removeSubscriber(internal, subscriberFn);
 					}
+					effect(result);
 				}
 				return;
 			}
@@ -641,39 +797,23 @@ function subscribeEventBus(
 					const result = { ...collected };
 					collected = {};
 					if (isOnce) {
-						internal.subscribers.delete(subscriberFn);
-						internal.subscriberArray = null;
+						removeSubscriber(internal, subscriberFn);
 					}
 					effect(result);
 				}
-			} else if (isStrict) {
+			} else {
 				sequenceIndex = restartIndex(msg.kind);
 				if (sequenceIndex > 0) {
 					collected = { [msg.kind]: msg.value };
 				} else {
-					sequenceIndex = 0;
-					collected = {};
-				}
-			} else if (eventList.includes(msg.kind)) {
-				sequenceIndex = restartIndex(msg.kind);
-				if (sequenceIndex > 0) {
-					collected = { [msg.kind]: msg.value };
-				} else {
-					sequenceIndex = 0;
 					collected = {};
 				}
 			}
 		};
 
-		const unsubscribe = () => {
-			internal.subscribers.delete(subscriberFn);
-			internal.subscriberArray = null;
-		};
+		addSubscriber(internal, subscriberFn, interestKinds);
 
-		internal.subscribers.add(subscriberFn);
-		internal.subscriberArray = null;
-
-		return unsubscribe;
+		return () => removeSubscriber(internal, subscriberFn);
 	};
 
 	return {
@@ -685,41 +825,27 @@ function subscribeEventBus(
 
 			const subscriberFn = createMatcher((msg) => {
 				if (isOnce) {
-					internal.subscribers.delete(subscriberFn);
-					internal.subscriberArray = null;
+					removeSubscriber(internal, subscriberFn);
 				}
 				currentState = reducer(msg, currentState);
 			});
 
-			const unsubscribe = () => {
-				internal.subscribers.delete(subscriberFn);
-				internal.subscriberArray = null;
-			};
+			addSubscriber(internal, subscriberFn, interestKinds);
 
-			internal.subscribers.add(subscriberFn);
-			internal.subscriberArray = null;
-
-			return { unsubscribe, getState: () => currentState };
+			return { unsubscribe: () => removeSubscriber(internal, subscriberFn), getState: () => currentState };
 		},
 
 		tap: (effect: (msg: EventBus.Message<Record<string, unknown>, string>) => void): () => void => {
 			const subscriberFn = createMatcher((msg) => {
 				if (isOnce) {
-					internal.subscribers.delete(subscriberFn);
-					internal.subscriberArray = null;
+					removeSubscriber(internal, subscriberFn);
 				}
 				effect(msg);
 			});
 
-			const unsubscribe = () => {
-				internal.subscribers.delete(subscriberFn);
-				internal.subscriberArray = null;
-			};
+			addSubscriber(internal, subscriberFn, interestKinds);
 
-			internal.subscribers.add(subscriberFn);
-			internal.subscriberArray = null;
-
-			return unsubscribe;
+			return () => removeSubscriber(internal, subscriberFn);
 		},
 
 		collect,

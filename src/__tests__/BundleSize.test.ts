@@ -22,10 +22,8 @@ function formatBytes(bytes: number): string {
 }
 
 function getMeasuredSizes(): Map<string, SizeItem> {
-	const coreDist = path.join(projectRoot, "dist/index.mjs");
-	if (!fs.existsSync(coreDist)) {
-		execSync("pnpm build", { cwd: projectRoot, stdio: "pipe" });
-	}
+	// Always rebuild: a stale dist would report sizes for code that is no longer in the tree.
+	execSync("pnpm build", { cwd: projectRoot, stdio: "pipe" });
 	const raw = execSync("npx size-limit --json", { cwd: projectRoot, encoding: "utf8" });
 	const items = JSON.parse(raw) as SizeItem[];
 	const map = new Map<string, SizeItem>();
@@ -84,6 +82,16 @@ test("BundleSize: enforces size-limit budgets across all targets", () => {
 	for (const item of sizeMap.values()) {
 		expect(item.passed).toBe(true);
 	}
+});
+
+test("BundleSize: every entry measures the published entry file", () => {
+	const pkg = JSON.parse(fs.readFileSync(path.join(projectRoot, "package.json"), "utf8")) as {
+		"size-limit": Array<{ name: string; path: string; }>;
+	};
+	const nonPublished = pkg["size-limit"].filter((item) => item.path !== "dist/index.mjs").map((item) =>
+		`${item.name}: measures ${item.path} instead of the published entry`
+	);
+	expect(nonPublished).toStrictEqual([]);
 });
 
 test("BundleSize: verifies README.md reflects current measured sizes", () => {

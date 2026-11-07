@@ -2,7 +2,7 @@ import { pipe } from "#composition";
 import { Maybe } from "#core";
 import { Arr, Num } from "#data";
 import { test } from "vitest";
-import { assertEquivalent } from "./equivalence.ts";
+import { assertEquivalent } from "../../__bench__/equivalence.ts";
 
 const pipeFn = pipe;
 const arrMap = Arr.map;

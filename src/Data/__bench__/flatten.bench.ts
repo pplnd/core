@@ -1,7 +1,7 @@
 import { pipe } from "#composition";
 import { Arr } from "#data";
 import { test } from "vitest";
-import { assertEquivalent } from "./equivalence.ts";
+import { assertEquivalent } from "../../__bench__/equivalence.ts";
 
 const pipeFn = pipe;
 const arrFlatten = Arr.flatten;

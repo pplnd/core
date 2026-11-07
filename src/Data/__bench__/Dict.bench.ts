@@ -3,7 +3,7 @@ import { Maybe } from "#core";
 import { Dict } from "#data";
 import * as fc from "fast-check";
 import { test } from "vitest";
-import { assertEquivalent } from "./equivalence.ts";
+import { assertEquivalent } from "../../__bench__/equivalence.ts";
 
 const pipeFn = pipe;
 const dictFromEntries = Dict.from.entries;
@@ -21,16 +21,16 @@ const dictGroupBy = Dict.groupBy;
 const makeDict = (n: number): ReadonlyMap<string, number> =>
 	dictFromEntries(Array.from({ length: n }, (_, i) => [`key${i}`, i]));
 
-// varied fixtures — generated once at module load, non-sequential keys and values
+// varied fixtures — generated once at module load, non-sequential keys and values.
+// fast-check reads the seed from the second argument; a third argument is ignored, so
+// `fc.sample(arb, 1, { seed })` silently produced random fixtures on every run.
 const [variedEntries100] = fc.sample(
 	fc.array(fc.tuple(fc.string({ minLength: 1, maxLength: 10 }), fc.integer()), { minLength: 100, maxLength: 100 }),
-	1,
-	{ seed: 42 },
+	{ numRuns: 1, seed: 42 },
 ) as [[string, number][]];
 const [variedEntries10k] = fc.sample(
 	fc.array(fc.tuple(fc.string({ minLength: 1, maxLength: 10 }), fc.integer()), { minLength: 10_000, maxLength: 10_000 }),
-	1,
-	{ seed: 42 },
+	{ numRuns: 1, seed: 42 },
 ) as [[string, number][]];
 const variedDict100 = dictFromEntries(variedEntries100);
 const variedDict10k = dictFromEntries(variedEntries10k);

@@ -24,6 +24,28 @@ const _pending: Op.Pending = { kind: "Pending" };
 const ok = <A>(value: A): Op.Ok<A> => ({ kind: "OpOk", value });
 const err = <E>(error: E): Op.Err<E> => ({ kind: "OpErr", error });
 
+/**
+ * Every dropped call settles with the same immutable outcome. `@__PURE__` marks the call as
+ * side-effect-free so a bundler can drop it, and the `Deferred` namespace with it, when the
+ * package is imported only for other exports.
+ */
+const droppedDeferred: Deferred<Op.Nil> = /* @__PURE__ */ Deferred.from.Promise(
+	/* @__PURE__ */ Promise.resolve(_droppedNil),
+);
+
+const toOutcome = <E, A>(result: Result<E, A> | null): Op.Outcome<E, A> =>
+	result === null ? _abortedNil : result.kind === "Ok" ? ok(result.value) : err(result.error);
+
+/**
+ * Converts the raw task result inside the consumer's continuation. Building the
+ * Deferred by composition instead of `then(toOutcome)` keeps the conversion and
+ * the caller's settlement in one microtask and skips an intermediate promise.
+ */
+const mapOutcome = <E, A>(source: Deferred<Result<E, A> | null>): Deferred<Op.Outcome<E, A>> =>
+	({
+		then: (onSettled: (outcome: Op.Outcome<E, A>) => unknown) => source.then((result) => onSettled(toOutcome(result))),
+	}) as unknown as Deferred<Op.Outcome<E, A>>;
+
 const getMs = (duration: Duration): number => Duration.to.milliseconds(duration);
 
 const withManagerMeta = <T extends object>(manager: T, id?: string, opId?: string): T => {
@@ -139,14 +161,15 @@ export const execute = <Args extends readonly unknown[], E, A>(
 ): Deferred<Op.Outcome<E, A>> => {
 	const { signal } = controller;
 
-	const toOutcome = (r: Result<E, A> | null): Op.Outcome<E, A> =>
-		r === null ? _abortedNil : (r.kind === "Ok" ? ok(r.value) : err(r.error));
+	const source: Deferred<Result<E, A> | null> = retryOptions !== undefined && onRetrying !== undefined
+		? Deferred.from.Promise(runWithRetry(op, args, signal, retryOptions, onRetrying))
+		: toInternalOp(op)[OP_FACTORY](args, signal);
+	const outcomeDeferred = mapOutcome(source);
 
-	const runPromise: Promise<Op.Outcome<E, A>> = retryOptions !== undefined && onRetrying !== undefined
-		? runWithRetry(op, args, signal, retryOptions, onRetrying).then(toOutcome)
-		: Deferred.to.Promise(toInternalOp(op)[OP_FACTORY](args, signal)).then(toOutcome);
+	if (timeoutOptions === undefined) { return outcomeDeferred; }
 
-	if (timeoutOptions === undefined) { return Deferred.from.Promise(runPromise); }
+	// Only the deadline path needs a promise to race the timer against.
+	const runPromise: Promise<Op.Outcome<E, A>> = Deferred.to.Promise(outcomeDeferred);
 
 	let timerId: ReturnType<typeof setTimeout> | undefined;
 	const onAbort = () => {
@@ -215,7 +238,8 @@ export const makeRestartable = <Args extends readonly unknown[], E, A>(
 
 				const startExecution = (): void => {
 					if (currentController !== controller || controller.signal.aborted) { return; }
-					lastStartTime = Date.now();
+					// Only the minInterval gate reads the start timestamp.
+					if (minInterval !== undefined) { lastStartTime = Date.now(); }
 					emit(_pending);
 					if (currentController !== controller || controller.signal.aborted) { return; }
 
@@ -319,7 +343,7 @@ export const makeExclusive = <Args extends readonly unknown[], E, A>(
 	const run = (...args: Args): Deferred<Op.Outcome<E, A>> => {
 		if (currentController !== undefined || cooldownTimer !== undefined) {
 			// In-flight or in cooldown — drop this call immediately.
-			return Deferred.from.Promise(Promise.resolve(_droppedNil));
+			return droppedDeferred;
 		}
 		return Deferred.from.Promise(
 			new Promise<Op.Outcome<E, A>>((resolve) => {
@@ -532,7 +556,7 @@ export const makeQueue = <Args extends readonly unknown[], E, A>(
 		}
 
 		// Drop (default when maxSize is set).
-		return Deferred.from.Promise(Promise.resolve(_droppedNil));
+		return droppedDeferred;
 	};
 
 	const abort = (): void => {
@@ -994,7 +1018,7 @@ export const makeThrottled = <Args extends readonly unknown[], E, A>(
 	const run = (...args: Args): Deferred<Op.Outcome<E, A>> => {
 		if (cooldownTimer !== undefined) {
 			if (!trailing) {
-				return Deferred.from.Promise(Promise.resolve(_droppedNil));
+				return droppedDeferred;
 			}
 			return Deferred.from.Promise(
 				new Promise<Op.Outcome<E, A>>((resolve) => {
@@ -1164,7 +1188,7 @@ export const makeConcurrent = <Args extends readonly unknown[], E, A>(
 		}
 
 		if (overflow === "drop") {
-			return Deferred.from.Promise(Promise.resolve(_droppedNil));
+			return droppedDeferred;
 		}
 
 		return Deferred.from.Promise(
@@ -1249,6 +1273,9 @@ export const makeKeyed = <Args extends readonly unknown[], K, E, A>(
 	const subscribers = new Set<(state: ReadonlyMap<K, PerKeyS>) => void>();
 
 	const emitSnapshot = (): void => {
+		// Copying the whole per-key map for nobody is the dominant cost of a keyed
+		// transition in subscriber-free use; the `state` getter snapshots on demand.
+		if (subscribers.size === 0) { return; }
 		const snapshot = new Map(stateMap) as ReadonlyMap<K, PerKeyS>;
 		for (const cb of subscribers) {
 			cb(snapshot);
@@ -1260,7 +1287,7 @@ export const makeKeyed = <Args extends readonly unknown[], K, E, A>(
 
 		if (slots.has(k)) {
 			if (perKey === "exclusive") {
-				return Deferred.from.Promise(Promise.resolve(_droppedNil));
+				return droppedDeferred;
 			}
 			// restartable: cancel existing slot
 			const existing = slots.get(k)!;
@@ -1379,7 +1406,7 @@ export const makeOnce = <Args extends readonly unknown[], E, A>(
 	const run = (...args: Args): Deferred<Op.Outcome<E, A>> => {
 		// Terminal: once the manager leaves Idle, all subsequent calls are dropped.
 		if (currentState.kind !== "Idle") {
-			return Deferred.from.Promise(Promise.resolve(_droppedNil));
+			return droppedDeferred;
 		}
 		return Deferred.from.Promise(
 			new Promise<Op.Outcome<E, A>>((resolve) => {

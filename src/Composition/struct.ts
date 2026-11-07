@@ -25,9 +25,11 @@ export function struct<const Fns extends Record<PropertyKey, (value: any) => unk
 ): (value: StructInput<Fns>) => StructOutput<Fns>;
 export function struct<A, R extends object>(fields: { [K in keyof R]: (value: A) => R[K]; }): (value: A) => R;
 export function struct(fields: Record<PropertyKey, (value: any) => unknown>) {
+	const keys = Reflect.ownKeys(fields);
 	return (value: unknown): any => {
 		const result: Record<PropertyKey, unknown> = {};
-		for (const key of Reflect.ownKeys(fields)) {
+		for (let i = 0; i < keys.length; i++) {
+			const key = keys[i];
 			result[key] = fields[key](value);
 		}
 		return result;

@@ -61,6 +61,16 @@ const setupStateCollect = () => {
 	return { bus };
 };
 
+const setupWideKindSpace = (kindCount: number) => {
+	const bus = eventBusMake<Record<string, { v: number; }>>();
+	const ee = new EventEmitter();
+	for (let i = 0; i < kindCount; i++) {
+		eventBusSubscribe(bus, `kind${i}`).tap(() => {});
+		ee.on(`kind${i}`, () => {});
+	}
+	return { bus, ee };
+};
+
 // =============================================================================
 // Scenario 1: Emission throughput across subscribers
 //
@@ -96,7 +106,28 @@ test("event-bus-emission-10-listeners", async ({ bench }) => {
 });
 
 // =============================================================================
-// Scenario 2: Sequence Pattern Matching
+// Scenario 2: Dispatch Scaling Across Event Kinds
+//
+// A bus with many distinct event kinds exercises the per-event subscriber index.
+// EventEmitter keeps a per-name listener map, so it is a meaningful reference
+// for the cost of finding the listeners of one kind.
+// =============================================================================
+
+test("event-bus-emission-wide-kind-space", async ({ bench }) => {
+	const { bus, ee } = setupWideKindSpace(100);
+
+	await bench.compare(
+		bench("1. (current) EventBus.emit (100 kinds, 1 matching)", () => {
+			eventBusEmit(bus, { kind: "kind50", value: { v: 1 } });
+		}),
+		bench("2. EventEmitter.emit (100 kinds, 1 matching)", () => {
+			ee.emit("kind50", { v: 1 });
+		}),
+	);
+});
+
+// =============================================================================
+// Scenario 3: Sequence Pattern Matching
 // =============================================================================
 
 test("event-bus-sequence-matching", async ({ bench }) => {
@@ -111,7 +142,7 @@ test("event-bus-sequence-matching", async ({ bench }) => {
 });
 
 // =============================================================================
-// Scenario 3: State Reduction
+// Scenario 4: State Reduction
 // =============================================================================
 
 test("event-bus-state-reduction", async ({ bench }) => {
@@ -124,7 +155,7 @@ test("event-bus-state-reduction", async ({ bench }) => {
 });
 
 // =============================================================================
-// Scenario 4: State Collection
+// Scenario 5: State Collection
 // =============================================================================
 
 test("event-bus-collect", async ({ bench }) => {

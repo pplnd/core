@@ -247,7 +247,7 @@ export const Str = {
 	 * Str.words("  hello   world  "); // ["hello", "world"]
 	 * ```
 	 */
-	words: (text: string): readonly string[] => text.trim().split(/\s+/).filter(Boolean),
+	words: (text: string): readonly string[] => text.match(/\S+/g) ?? [],
 
 	/**
 	 * Returns the UTF-16 code-unit length of the string.

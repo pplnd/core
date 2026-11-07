@@ -25,10 +25,8 @@ export function formatBytes(bytes: number): string {
 }
 
 export function getMeasuredSizes(): Map<string, SizeItem> {
-	const coreDist = path.join(projectRoot, "dist/index.mjs");
-	if (!fs.existsSync(coreDist)) {
-		execSync("pnpm build", { cwd: projectRoot, stdio: "inherit" });
-	}
+	// Always rebuild so the synced badges describe the current tree, not a stale dist.
+	execSync("pnpm build", { cwd: projectRoot, stdio: "inherit" });
 	const raw = execSync("pnpm size-limit --json", { cwd: projectRoot, encoding: "utf8" });
 	const items = JSON.parse(raw) as SizeItem[];
 	const map = new Map<string, SizeItem>();

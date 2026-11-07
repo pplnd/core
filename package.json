@@ -172,7 +172,7 @@
 			"name": "Transaction",
 			"import": "{ Transaction }",
 			"path": "dist/index.mjs",
-			"limit": "7 KB",
+			"limit": "3 KB",
 			"gzip": true
 		},
 		{
@@ -186,7 +186,7 @@
 			"name": "Aborted",
 			"import": "{ Aborted }",
 			"path": "dist/index.mjs",
-			"limit": "150 B",
+			"limit": "100 B",
 			"gzip": true
 		},
 		{
@@ -200,7 +200,7 @@
 			"name": "EventBus",
 			"import": "{ EventBus }",
 			"path": "dist/index.mjs",
-			"limit": "1.5 KB",
+			"limit": "2 KB",
 			"gzip": true
 		},
 		{
@@ -389,7 +389,7 @@
 			"name": "BigNum",
 			"import": "{ BigNum }",
 			"path": "dist/index.mjs",
-			"limit": "3 KB",
+			"limit": "2 KB",
 			"gzip": true
 		},
 		{

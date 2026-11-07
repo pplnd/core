@@ -1,7 +1,7 @@
 import { pipe } from "#composition";
-import { Op } from "#core";
+import { Op, Task } from "#core";
 import { test } from "vitest";
-import { assertEquivalent } from "../../Data/__bench__/equivalence.ts";
+import { assertEquivalent } from "../../__bench__/equivalence.ts";
 
 const pipeFn = pipe;
 const outcomeMake = Op.Outcome.make;
@@ -10,6 +10,7 @@ const outcomeChain = Op.Outcome.chain;
 const outcomeMatch = Op.Outcome.match;
 const opMake = Op.make;
 const opInterpret = Op.interpret;
+const { tryCatch } = Task.Result;
 
 const currentOutcomePipeline = () => {
 	const outcome = outcomeMake.ok(42);
@@ -27,6 +28,49 @@ const manualOutcomePipeline = () => {
 	return s2.kind === "OpOk" ? `ok:${s2.value}` : s2.kind === "OpErr" ? `err:${s2.error}` : "nil";
 };
 
+// Shared by both sides of the manager comparisons, so the measured difference is
+// the Op engine rather than the task.
+const doubleTask = (n: number): Task.Result<string, number> =>
+	tryCatch((_signal) => Promise.resolve(n * 2), { onError: String });
+
+const op = opMake(doubleTask);
+
+// Hand-written single-slot restartable manager performing the same observable work:
+// cancel the superseded run, emit Pending, run the task, settle the caller, emit the outcome.
+const makeManualRestartable = (task: typeof doubleTask) => {
+	let state: Op.State<string, number> = { kind: "Idle" };
+	let controller: AbortController | undefined;
+	let settleCurrent: ((outcome: Op.Outcome<string, number>) => void) | undefined;
+
+	const run = (n: number): Promise<Op.Outcome<string, number>> =>
+		new Promise<Op.Outcome<string, number>>((resolve) => {
+			controller?.abort();
+			controller = new AbortController();
+			const running = controller;
+			const previous = settleCurrent;
+			settleCurrent = resolve;
+			previous?.(outcomeMake.nil("replaced"));
+			state = { kind: "Pending" };
+			task(n)(running.signal).then((result) => {
+				if (controller !== running) { return; }
+				const settle = settleCurrent;
+				settleCurrent = undefined;
+				controller = undefined;
+				if (result.kind !== "Ok") { return; }
+				const outcome = outcomeMake.ok(result.value);
+				state = outcome;
+				settle?.(outcome);
+			});
+		});
+
+	return {
+		run,
+		get state() {
+			return state;
+		},
+	};
+};
+
 // =============================================================================
 // Scenario 1: Sync Outcome Transformations
 // =============================================================================
@@ -42,20 +86,74 @@ test("op-sync-transformations", async ({ bench }) => {
 // =============================================================================
 // Scenario 2: Op.interpret Execution
 //
-// Overhead-only comparison: `manager.run` executes the op state machine and
-// `Promise.resolve` does not, so the two sides do not compute the same result.
+// `restartable` is used on purpose: `once` settles permanently, so every call
+// after the first returns DroppedNil without touching the task (the previous
+// version of this benchmark measured that drop path, not execution).
+// Both sides run the same `Task.Result`, so the measured difference is the
+// manager engine: state emission, cancellation plumbing, and settlement.
 // =============================================================================
 
 test("op-interpret-execution", async ({ bench }) => {
-	const op = opMake((_signal: AbortSignal) => (n: number) => Promise.resolve(n * 2), { onError: String });
-	const manager = opInterpret(op, { strategy: "once" });
+	const manager = opInterpret(op, { strategy: "restartable" });
+	const manual = makeManualRestartable(doubleTask);
+	assertEquivalent("op-interpret-execution", await manager.run(50), await manual.run(50));
 
 	await bench.compare(
-		bench("1. Op.interpret execution", async () => {
+		bench("1. Op.interpret restartable (full execution)", async () => {
 			await manager.run(50);
 		}),
-		bench("2. Native Promise async resolution", async () => {
-			await Promise.resolve(100);
+		bench("2. hand-written equivalent manager", async () => {
+			await manual.run(50);
+		}),
+	);
+});
+
+// =============================================================================
+// Scenario 3: Dropped Runs
+//
+// `once` is terminal: after the first settled run every further call settles
+// with DroppedNil. This measures the cost of a rejected call, which is the
+// documented behavior for duplicate `once`, `exclusive`, and `keyed` runs.
+// =============================================================================
+
+test("op-dropped-run", async ({ bench }) => {
+	const manager = opInterpret(op, { strategy: "once" });
+	await manager.run(1);
+	assertEquivalent("op-dropped-run", await manager.run(2), outcomeMake.nil("dropped"));
+
+	await bench.compare(
+		bench("1. Op.interpret once — run after settlement (DroppedNil)", async () => {
+			await manager.run(50);
+		}),
+		bench("2. Promise.resolve of the same DroppedNil", async () => {
+			await Promise.resolve(outcomeMake.nil("dropped"));
+		}),
+	);
+});
+
+// =============================================================================
+// Scenario 4: Keyed Transitions
+//
+// Each keyed transition publishes a fresh snapshot of the whole per-key state
+// map. With 128 settled keys the engine copies 128 entries on every run.
+// Overhead-only comparison: the reference updates the outcome directly without
+// the state machine, so the two sides do not compute equal work.
+// =============================================================================
+
+test("op-keyed-transition", async ({ bench }) => {
+	const manager = opInterpret(op, { strategy: "keyed", key: (n: number) => n, perKey: "exclusive" });
+	for (let key = 0; key < 128; key++) {
+		await manager.run(key);
+	}
+
+	assertEquivalent("op-keyed-transition", await manager.run(50), outcomeMake.ok(100));
+
+	await bench.compare(
+		bench("1. Op.interpret keyed — one transition with 128 settled keys", async () => {
+			await manager.run(50);
+		}),
+		bench("2. direct outcome without the engine", async () => {
+			await Promise.resolve(outcomeMake.ok(100));
 		}),
 	);
 });

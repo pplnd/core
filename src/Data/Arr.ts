@@ -288,10 +288,13 @@ function filter<A>(predicate: (item: A) => boolean): (items: readonly A[]) => re
 function filter<A>(predicate: (item: A) => boolean): (items: readonly A[]) => readonly A[] {
 	return (items: readonly A[]): readonly A[] => {
 		const n = items.length;
-		const result: A[] = [];
+		const result = new Array<A>(n);
+		let count = 0;
 		for (let i = 0; i < n; i++) {
-			if (predicate(items[i])) { result.push(items[i]); }
+			const item = items[i];
+			if (predicate(item)) { result[count++] = item; }
 		}
+		result.length = count;
 		return result;
 	};
 }
@@ -313,11 +316,14 @@ function filter<A>(predicate: (item: A) => boolean): (items: readonly A[]) => re
  * ```
  */
 const filterMap = <A, B>(transform: (item: A) => CoreMaybe<B>) => (items: readonly A[]): readonly B[] => {
-	const result: B[] = [];
-	for (let i = 0; i < items.length; i++) {
+	const n = items.length;
+	const result = new Array<B>(n);
+	let count = 0;
+	for (let i = 0; i < n; i++) {
 		const mapped = transform(items[i]);
-		if (mapped.kind === "Some") { result.push(mapped.value); }
+		if (mapped.kind === "Some") { result[count++] = mapped.value; }
 	}
+	result.length = count;
 	return result;
 };
 
@@ -339,11 +345,21 @@ function partition<A, B extends A>(
 function partition<A>(predicate: (item: A) => boolean): (items: readonly A[]) => readonly [readonly A[], readonly A[]];
 function partition<A>(predicate: (item: A) => boolean): (items: readonly A[]) => readonly [readonly A[], readonly A[]] {
 	return (items: readonly A[]): readonly [readonly A[], readonly A[]] => {
-		const pass: A[] = [];
-		const fail: A[] = [];
-		for (const item of items) {
-			(predicate(item) ? pass : fail).push(item);
+		const n = items.length;
+		const pass = new Array<A>(n);
+		const fail = new Array<A>(n);
+		let passCount = 0;
+		let failCount = 0;
+		for (let i = 0; i < n; i++) {
+			const item = items[i];
+			if (predicate(item)) {
+				pass[passCount++] = item;
+			} else {
+				fail[failCount++] = item;
+			}
 		}
+		pass.length = passCount;
+		fail.length = failCount;
 		return [pass, fail];
 	};
 }
@@ -412,8 +428,9 @@ const partitionMap =
 	(items: readonly A[]): readonly [readonly E[], readonly B[]] => {
 		const errors: E[] = [];
 		const successes: B[] = [];
-		for (const item of items) {
-			const mapped = transform(item);
+		const n = items.length;
+		for (let i = 0; i < n; i++) {
+			const mapped = transform(items[i]);
 			if (mapped.kind === "Ok") {
 				successes.push(mapped.value);
 			} else {
@@ -615,10 +632,14 @@ const zipWith =
  * ```
  */
 const intersperse = <const A>(separator: A) => <B>(items: readonly B[]): readonly (A | B)[] => {
-	if (items.length <= 1) { return items as readonly (A | B)[]; }
-	const result: (A | B)[] = [items[0]];
-	for (let i = 1; i < items.length; i++) {
-		result.push(separator, items[i]);
+	const n = items.length;
+	if (n <= 1) { return items as readonly (A | B)[]; }
+	const [first] = items;
+	const result = new Array<A | B>(2 * n - 1);
+	result[0] = first;
+	for (let i = 1; i < n; i++) {
+		result[2 * i - 1] = separator;
+		result[2 * i] = items[i];
 	}
 	return result;
 };
@@ -886,12 +907,9 @@ const drop = (count: number) => <A>(items: readonly A[]): readonly A[] =>
  * ```
  */
 const takeWhile = <A>(predicate: (item: A) => boolean) => (items: readonly A[]): readonly A[] => {
-	const result: A[] = [];
-	for (const item of items) {
-		if (!predicate(item)) { break; }
-		result.push(item);
-	}
-	return result;
+	let i = 0;
+	while (i < items.length && predicate(items[i])) { i++; }
+	return items.slice(0, i);
 };
 
 /**

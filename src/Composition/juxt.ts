@@ -18,5 +18,25 @@ export function juxt<A, B, C, D, E>(
 ): (a: A) => [B, C, D, E];
 export function juxt<A, B>(fns: ReadonlyArray<(a: A) => B>): (a: A) => B[];
 export function juxt<A>(fns: ReadonlyArray<(a: A) => unknown>): (a: A) => unknown[] {
-	return (a: A) => fns.map((f) => f(a));
+	switch (fns.length) {
+		case 2: {
+			const [first, second] = fns;
+			return (a: A) => [first(a), second(a)];
+		}
+		case 3: {
+			const [first, second, third] = fns;
+			return (a: A) => [first(a), second(a), third(a)];
+		}
+		case 4: {
+			const [first, second, third, fourth] = fns;
+			return (a: A) => [first(a), second(a), third(a), fourth(a)];
+		}
+	}
+	return (a: A) => {
+		const results = new Array<unknown>(fns.length);
+		for (let i = 0; i < fns.length; i++) {
+			results[i] = fns[i](a);
+		}
+		return results;
+	};
 }

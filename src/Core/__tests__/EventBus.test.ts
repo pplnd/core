@@ -1125,6 +1125,85 @@ test("emit: does not invoke subscriber that was unsubscribed by an earlier subsc
 	expect(sub2Calls).toBe(0);
 });
 
+test("emit: preserves registration order across schema-wide and targeted subscribers", () => {
+	const targetedFirst = EventBus.make<TestSchema>();
+	const targetedFirstLog: string[] = [];
+	EventBus.subscribe(targetedFirst, "A").tap(() => targetedFirstLog.push("targeted"));
+	EventBus.subscribe(targetedFirst).tap(() => targetedFirstLog.push("wildcard"));
+	EventBus.emit(targetedFirst, { kind: "A", value: { value: 1 } });
+	expect(targetedFirstLog).toStrictEqual(["targeted", "wildcard"]);
+
+	const wildcardFirst = EventBus.make<TestSchema>();
+	const wildcardFirstLog: string[] = [];
+	EventBus.subscribe(wildcardFirst).tap(() => wildcardFirstLog.push("wildcard"));
+	EventBus.subscribe(wildcardFirst, "A").tap(() => wildcardFirstLog.push("targeted"));
+	EventBus.emit(wildcardFirst, { kind: "A", value: { value: 1 } });
+	expect(wildcardFirstLog).toStrictEqual(["wildcard", "targeted"]);
+});
+
+test("emit: skips schema-wide subscriber unsubscribed during the same emission", () => {
+	const s = EventBus.make<TestSchema>();
+	let laterCalls = 0;
+	const holder: { stop?: () => void; } = {};
+
+	EventBus.subscribe(s).tap(() => {
+		holder.stop?.();
+	});
+
+	holder.stop = EventBus.subscribe(s).tap(() => {
+		laterCalls++;
+	});
+
+	EventBus.emit(s, { kind: "A", value: { value: 1 } });
+	expect(laterCalls).toBe(0);
+});
+
+test("emit: handles repeated emissions of a kind with no subscribers", () => {
+	const s = EventBus.make<TestSchema>();
+	let calls = 0;
+	EventBus.subscribe(s, "A").tap(() => {
+		calls++;
+	});
+
+	EventBus.emit(s, { kind: "C", value: { flag: true } });
+	EventBus.emit(s, { kind: "C", value: { flag: false } });
+	EventBus.emit(s, { kind: "A", value: { value: 1 } });
+
+	expect(calls).toBe(1);
+});
+
+test("subscribe: reset events do not reach unordered tap subscribers", () => {
+	const s = EventBus.make<TestSchema>();
+	const kinds: string[] = [];
+
+	EventBus.subscribe(s, ["A", "B"], { reset: "C" }).tap((msg) => {
+		kinds.push(msg.kind);
+	});
+
+	EventBus.emit(s, { kind: "A", value: { value: 1 } });
+	EventBus.emit(s, { kind: "C", value: { flag: true } });
+	EventBus.emit(s, { kind: "B", value: { text: "b" } });
+
+	expect(kinds).toStrictEqual(["A", "B"]);
+});
+
+test("collect: reset event clears unordered collection progress", () => {
+	const s = EventBus.make<TestSchema>();
+	const collected: Array<{ A: { value: number; }; B: { text: string; }; }> = [];
+
+	EventBus.subscribe(s, ["A", "B"], { reset: "ResetEvent" }).collect((payloads) => {
+		collected.push(payloads);
+	});
+
+	EventBus.emit(s, { kind: "A", value: { value: 1 } });
+	EventBus.emit(s, { kind: "ResetEvent", value: { reason: "restart" } });
+	EventBus.emit(s, { kind: "B", value: { text: "b" } });
+	expect(collected).toStrictEqual([]);
+
+	EventBus.emit(s, { kind: "A", value: { value: 2 } });
+	expect(collected).toStrictEqual([{ A: { value: 2 }, B: { text: "b" } }]);
+});
+
 test("subscribe: restarts ordered sequence when unexpected event matches after leading optional step", () => {
 	const s = EventBus.make<TestSchema>();
 	let tapCount = 0;

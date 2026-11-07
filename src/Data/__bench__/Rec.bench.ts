@@ -2,7 +2,7 @@ import { pipe } from "#composition";
 import { Maybe } from "#core";
 import { Rec } from "#data";
 import { test } from "vitest";
-import { assertEquivalent, sameRecordContent } from "./equivalence.ts";
+import { assertEquivalent, sameRecordContent } from "../../__bench__/equivalence.ts";
 
 const pipeFn = pipe;
 const recMap = Rec.map;

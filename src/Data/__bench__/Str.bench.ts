@@ -1,15 +1,13 @@
 import { pipe } from "#composition";
 import { Str } from "#data";
 import { test } from "vitest";
-import { assertEquivalent } from "./equivalence.ts";
+import { assertEquivalent } from "../../__bench__/equivalence.ts";
 
 // Local bindings to eliminate Vite module runner export getter overhead
 const strSplit = Str.split;
 const strTrim = Str.trim;
 const strLines = Str.lines;
 const strWords = Str.words;
-const strParseInt = Str.parse.int;
-const strParseFloat = Str.parse.float;
 const strSize = Str.size;
 const strGraphemeSize = Str.graphemeSize;
 const pipeFn = pipe;
@@ -21,12 +19,6 @@ const multiline10k = Array.from({ length: 10_000 }, (_, i) => `line ${i}`).join(
 const paragraph100 = Array.from({ length: 100 }, (_, i) => `word${i}`).join(" ");
 const paragraph10k = Array.from({ length: 10_000 }, (_, i) => `word${i}`).join(" ");
 const paddedStr = `   ${paragraph100}   `;
-const intStrings100 = Array.from({ length: 100 }, (_, i) => String(i));
-const mixedIntStrings100 = Array.from({ length: 100 }, (_, i) => (i % 10 === 0 ? "abc" : String(i)));
-const floatStrings100 = Array.from({ length: 100 }, (_, i) => String(i * 0.5));
-const intStrings10k = Array.from({ length: 10_000 }, (_, i) => String(i));
-const mixedIntStrings10k = Array.from({ length: 10_000 }, (_, i) => (i % 10 === 0 ? "abc" : String(i)));
-const floatStrings10k = Array.from({ length: 10_000 }, (_, i) => String(i * 0.5));
 
 const asciiShort = "hello";
 const asciiMedium =
@@ -44,18 +36,6 @@ const currentLines = (text: string) => strLines(text);
 const nativeLines = (text: string) => text.split(/\r?\n|\r/);
 const currentWords = (text: string) => strWords(text);
 const nativeWords = (text: string) => text.trim().split(/\s+/).filter(Boolean);
-const currentParseInt = (strings: readonly string[]) => strings.map(strParseInt);
-const nativeParseInt = (strings: readonly string[]) =>
-	strings.map((s) => {
-		const n = Number.parseInt(s, 10);
-		return Number.isNaN(n) ? { kind: "None" as const } : { kind: "Some" as const, value: n };
-	});
-const currentParseFloat = (strings: readonly string[]) => strings.map(strParseFloat);
-const nativeParseFloat = (strings: readonly string[]) =>
-	strings.map((s) => {
-		const n = Number.parseFloat(s);
-		return Number.isNaN(n) ? { kind: "None" as const } : { kind: "Some" as const, value: n };
-	});
 const nativeGraphemeCount = (text: string) => {
 	let count = 0;
 	for (const _ of segmenter.segment(text)) {
@@ -136,61 +116,7 @@ test("words-10k", async ({ bench }) => {
 	);
 });
 
-// =============================================================================
-// parse.int
-// =============================================================================
-
-test("parse-int-100-valid", async ({ bench }) => {
-	assertEquivalent("parse-int-100-valid", currentParseInt(intStrings100), nativeParseInt(intStrings100));
-	await bench.compare(
-		bench("1. (current) Str.parse.int 100 (all valid)", () => currentParseInt(intStrings100)),
-		bench("2. native parseInt 100 (all valid)", () => nativeParseInt(intStrings100)),
-	);
-});
-
-test("parse-int-100-mixed", async ({ bench }) => {
-	assertEquivalent("parse-int-100-mixed", currentParseInt(mixedIntStrings100), nativeParseInt(mixedIntStrings100));
-	await bench.compare(
-		bench("1. (current) Str.parse.int 100 (mixed)", () => currentParseInt(mixedIntStrings100)),
-		bench("2. native parseInt 100 (mixed)", () => nativeParseInt(mixedIntStrings100)),
-	);
-});
-
-test("parse-int-10k-valid", async ({ bench }) => {
-	assertEquivalent("parse-int-10k-valid", currentParseInt(intStrings10k), nativeParseInt(intStrings10k));
-	await bench.compare(
-		bench("1. (current) Str.parse.int 10k (all valid)", () => currentParseInt(intStrings10k)),
-		bench("2. native parseInt 10k (all valid)", () => nativeParseInt(intStrings10k)),
-	);
-});
-
-test("parse-int-10k-mixed", async ({ bench }) => {
-	assertEquivalent("parse-int-10k-mixed", currentParseInt(mixedIntStrings10k), nativeParseInt(mixedIntStrings10k));
-	await bench.compare(
-		bench("1. (current) Str.parse.int 10k (mixed)", () => currentParseInt(mixedIntStrings10k)),
-		bench("2. native parseInt 10k (mixed)", () => nativeParseInt(mixedIntStrings10k)),
-	);
-});
-
-// =============================================================================
-// parse.float
-// =============================================================================
-
-test("parse-float-100-valid", async ({ bench }) => {
-	assertEquivalent("parse-float-100-valid", currentParseFloat(floatStrings100), nativeParseFloat(floatStrings100));
-	await bench.compare(
-		bench("1. (current) Str.parse.float 100 (all valid)", () => currentParseFloat(floatStrings100)),
-		bench("2. native parseFloat 100 (all valid)", () => nativeParseFloat(floatStrings100)),
-	);
-});
-
-test("parse-float-10k-valid", async ({ bench }) => {
-	assertEquivalent("parse-float-10k-valid", currentParseFloat(floatStrings10k), nativeParseFloat(floatStrings10k));
-	await bench.compare(
-		bench("1. (current) Str.parse.float 10k (all valid)", () => currentParseFloat(floatStrings10k)),
-		bench("2. native parseFloat 10k (all valid)", () => nativeParseFloat(floatStrings10k)),
-	);
-});
+// Parsing no longer lives in `Str`; `Num.from.string` is benchmarked in Num.bench.ts.
 
 // =============================================================================
 // size & graphemeSize
