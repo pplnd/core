@@ -5,7 +5,7 @@ description: Run asynchronous work through a manager that reports state and sett
 
 <!-- BUNDLE_SIZE:START -->
 
-> 6.30 kB minified + gzipped
+> 6.39 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -133,7 +133,7 @@ covers thresholds and probe behavior.
 | `manager.run(...args)`                | Starts or schedules one invocation.                       | `Deferred` of that invocation's outcome     |
 | `manager.state` / `subscribe(fn)`     | Reads state / observes changes.                           | `subscribe` returns an unsubscribe function |
 | `manager.abort()` / `reset()`         | Aborts active work / returns the manager to idle.         | `reset` also aborts active work             |
-| `manager.poll({ interval })(...args)` | Runs once now and again on every interval.                | Returns a function that stops polling       |
+| `manager.poll({ interval })(...args)` | Runs once now, then again at every interval boundary.     | Returns a function that stops polling       |
 | `Op.wire(manager, sideEffect)`        | Calls the side effect for successful states.              | Returns an unsubscribe function             |
 
 A new subscriber receives the current state unless the manager is idle. For `keyed`, the snapshot
@@ -199,9 +199,14 @@ cancellation and accept that work which ignores the signal keeps running. `Op` r
 as a nil reason; [Aborted](/guides/aborted/) describes the cancellation value that `Graph`,
 `Transaction`, and `Batcher` carry in their error channels.
 
-Polling starts one run immediately and schedules the rest at the interval. Stopping the poll
-prevents future runs; the active run continues unless `abort` is called. For `keyed`, `abort()`
-aborts every key while `abort(undefined)` aborts only the key `undefined`.
+Polling starts one run immediately and schedules the rest on absolute boundaries of a monotonic
+clock (`start + k * interval`), so timer jitter never accumulates across repeats. Every finite
+interval is honored at full length, including intervals longer than the platform's single-timer
+limit of about 24.8 days, which are delivered by chaining timers; the environment delivers each
+repeat at or after its boundary. A non-finite, sub-millisecond, zero, or negative interval schedules
+no repeat: the initial run still executes, and that once. Stopping the poll prevents future runs;
+the active run continues unless `abort` is called. For `keyed`, `abort()` aborts every key while
+`abort(undefined)` aborts only the key `undefined`.
 
 The retry predicate, `onRetry` callback, timeout handler, key function, and subscribers must not
 throw. Subscriber callbacks run inside the manager's state transition, so a throw can skip the rest

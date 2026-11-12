@@ -91,7 +91,7 @@ Running follows one shape: configuration first, definition last, so the definiti
 await Task.run(signal)(task);
 await Graph.run(input, { signal })(graph);
 await Transaction.run(input, { signal })(transaction);
-await Resource.use({ run: (db: DbClient) => query(db) })(resource);
+await Resource.use(resource, { run: (db: DbClient) => query(db) });
 
 const manager = Op.interpret(op, { strategy: "restartable" });
 const outcome = await manager.run(argumentsForTheOp);
@@ -100,6 +100,11 @@ const outcome = await manager.run(argumentsForTheOp);
 A definition with no input is run with an empty call: `Graph.run()(graph)` and
 `Transaction.run()(transaction)`. When such a definition also needs run options, pass `undefined`
 in the input position: `Graph.run(undefined, { signal })(graph)`.
+
+Run options bind in the outer call, before the definition — and its channels — exist, so they never
+reference those channels. Callbacks that consume a definition's channels attach where the definition
+is in the same call: `Transaction.observe(transaction, hooks)` for telemetry, `Op.wire(manager,
+sideEffect)` for a manager's success side effects.
 
 Engines that stay live after creation — `Batcher`, `Cache`, `CircuitBreaker`, `EventBus`, `RateLimiter`,
 `Supervisor` — are instances immediately, so they expose methods instead of a separate `run` function.

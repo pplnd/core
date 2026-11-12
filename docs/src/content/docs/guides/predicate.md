@@ -5,7 +5,7 @@ description: Combine, adapt, and branch on reusable boolean checks.
 
 <!-- BUNDLE_SIZE:START -->
 
-> 185 B minified + gzipped
+> 196 B minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -114,9 +114,9 @@ error-carrying results.
 
 ### Choosing a Branch
 
-| Signature                   | What it does                                                  | Return type                        |
-| :-------------------------- | :------------------------------------------------------------ | :--------------------------------- |
-| `match(branches, fallback)` | Runs the handler of the first passing check, or the fallback. | Handler result or fallback result. |
+| Signature                   | What it does                                                  | Return type                                                                           |
+| :-------------------------- | :------------------------------------------------------------ | :------------------------------------------------------------------------------------ |
+| `match(branches, fallback)` | Runs the handler of the first passing check, or the fallback. | Handler and fallback results unify into one type; divergent returns widen to a union. |
 
 ## Failure Behavior and Edge Cases
 
@@ -129,3 +129,15 @@ or `match`'s fallback is not caught and propagates to the caller.
 `match` evaluates branches in array order and calls only the first matching handler. When conditions
 overlap, the earliest branch wins, so put the narrower condition first. The fallback runs only after
 every branch predicate has failed.
+
+Complementary branch handlers share one result type, so an empty-literal fallback does not collapse
+to `never[]`:
+
+```ts
+import { Predicate } from "@pplnd/core";
+
+const label = Predicate.match([[(n: number) => n < 0, () => ["negative"]]], () => []);
+label(5).push("positive"); // string[] — ["negative"] and [] unify into one mutable array type
+```
+
+Handlers returning genuinely different types widen the result to their union.

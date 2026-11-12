@@ -5,7 +5,7 @@ description: Run ordered asynchronous steps and undo completed ones when a later
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.55 kB minified + gzipped
+> 2.58 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -152,10 +152,10 @@ declare const sendThrough: (session: UploadSession, name: string) => Task.Result
 const streamingUpload = step(
   "upload",
   ({ ctx }) => (signal: AbortSignal | undefined) =>
-    Resource.use({
+    Resource.use(uploadSession, {
       run: (session: UploadSession) => sendThrough(session, ctx.input),
       signal,
-    })(uploadSession),
+    }),
   ({ ctx }) => removeUpload(ctx.output),
 );
 ```
@@ -193,9 +193,11 @@ no step requires input, call `Transaction.run()(transaction)`. When the transact
 options but no input, pass `undefined` in the input position:
 `Transaction.run(undefined, { signal })(transaction)`.
 
-Run options accept an `AbortSignal` and three telemetry callbacks. `onStepSuccess` receives
-`{ stepId, output }`, `onStepFailure` receives `{ stepId, error }` before rollback starts, and
-`onUndo` receives `{ stepId }` plus `error` when the undo failed.
+Run options accept an `AbortSignal`. Telemetry hooks attach to the definition with
+`Transaction.observe(transaction, hooks)` — a direct call, so the hooks see the transaction's exact
+error channels. `onStepSuccess` receives `{ stepId, output }`, `onStepFailure` receives
+`{ stepId, error }` before rollback starts, and `onUndo` receives `{ stepId }` plus `error` when the
+undo failed. Attaching a second time replaces the hooks.
 
 `make` checks that step IDs are unique and that each dependency is the same step object supplied
 earlier in the sequence. The same earlier step can appear under multiple dependency names. Literal

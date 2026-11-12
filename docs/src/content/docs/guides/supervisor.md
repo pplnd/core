@@ -5,7 +5,7 @@ description: Restart a long-running task under a retry policy and report its run
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.56 kB minified + gzipped
+> 2.58 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -115,10 +115,12 @@ const unsubscribe = outbox.subscribe((next) => {
 });
 ```
 
-Subscribers run as the state changes, and the final one runs after the lifetime settles. Listeners
-must not throw, and `subscribe` returns an unsubscribe function. [`EventBus`](/guides/event-bus/) is
-the right tool for broadcasting events to many consumers; this listener exists for lifecycle
-telemetry only.
+Subscribers run as the state changes, and the final one runs after the lifetime settles. A listener
+may call `run()` or `abort()` synchronously; when that call changes the state during the
+notification, the listeners after it receive the newer state, and the superseded one is not
+delivered again. Listeners must not throw, and `subscribe` returns an unsubscribe function.
+[`EventBus`](/guides/event-bus/) is the right tool for broadcasting events to many consumers; this
+listener exists for lifecycle telemetry only.
 
 ### Pacing the Deliveries
 
@@ -180,11 +182,14 @@ either `"completed"` or `"aborted"`. `Failed` carries `attempts` and the final e
 An attempt that returns `Ok` ends the lifetime, so a task that swallows its failures will look
 healthy and stop the supervisor from restarting it. Report expected failures as `Err`.
 
-Aborting during a backoff settles the lifetime immediately and clears the timer. Aborting during an
-attempt signals that attempt and waits: a task that ignores its signal delays shutdown, because
-[cancellation](/guides/aborted/) is cooperative and the supervisor will not report a clean stop
-while work continues. Aborting with no lifetime active is a no-op, and a second abort while stopping
-is ignored.
+Aborting during a backoff settles the lifetime immediately and clears the timer, and this includes
+aborting from a subscriber reacting to the `BackingOff` notification: the lifetime ends on the spot,
+and no further attempt runs after it. Aborting from inside `onRetry` behaves the same way — the
+lifetime settles as `Stopped("aborted")`, and `BackingOff` is never published after `Stopped`.
+Aborting during an attempt signals that attempt and waits: a task that ignores its signal delays
+shutdown, because [cancellation](/guides/aborted/) is cooperative and the supervisor will not report
+a clean stop while work continues. Aborting with no lifetime active is a no-op, and a second abort
+while stopping is ignored.
 
 After a lifetime ends, `run()` starts a new one, which lets a health probe or an operator re-arm a
 stopped worker. The previous state remains readable until that call.

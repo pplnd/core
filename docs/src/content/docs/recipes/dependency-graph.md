@@ -141,7 +141,7 @@ const runGraph = (input: ReconciliationInput) =>
   (signal?: AbortSignal) => Graph.run(input, { signal })(reconciliation);
 
 const runReconciliation = (input: ReconciliationInput) =>
-  Resource.use({
+  Resource.use(infra, {
     run: ({ connection, lock }: { readonly connection: DbClient; readonly lock: LockHandle }) =>
       pipe(
         runGraph(input),
@@ -152,7 +152,7 @@ const runReconciliation = (input: ReconciliationInput) =>
             )
         ),
       ),
-  })(infra);
+  });
 
 const outcome = await runReconciliation({ accountId: "acct_88", period: "2026-10" });
 // Ok(acc), or Err(ReadError | WriteError | Aborted | Transaction.Failure)

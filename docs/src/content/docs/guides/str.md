@@ -5,7 +5,7 @@ description: Normalize, split, and parse text while keeping whole-value checks s
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.30 kB minified + gzipped
+> 2.36 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

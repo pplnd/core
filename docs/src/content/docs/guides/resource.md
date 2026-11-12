@@ -117,7 +117,7 @@ const openImport = (online: boolean): Resource<string, ImportSession> =>
   });
 
 const importCatalog = (online: boolean) =>
-  Resource.use({
+  Resource.use(openImport(online), {
     run: ({ catalog, lock }: ImportSession) =>
       Task.Result.tryCatch(
         async () => {
@@ -127,7 +127,7 @@ const importCatalog = (online: boolean) =>
         },
         { onError: (error) => `Import failed: ${describeError(error)}` },
       ),
-  })(openImport(online));
+  });
 
 console.log(await importCatalog(true));
 // { kind: "Ok", value: { lock: "catalog-import", imported: 3 } }
@@ -164,10 +164,10 @@ const importBatch = Transaction.make(
     )),
 );
 
-const outcome = await Resource.use({
+const outcome = await Resource.use(openImport(true), {
   run: ({ catalog }: ImportSession) => (signal: AbortSignal | undefined) =>
     Transaction.run({ client: catalog, items: importItems }, { signal })(importBatch),
-})(openImport(true));
+});
 ```
 
 The client is still released after the transaction settles, whatever the transaction's outcome. See
@@ -197,9 +197,9 @@ The client is still released after the transaction settles, whatever the transac
 
 ### Running a Scope
 
-| Signature                                  | What it does                         | Return type                           |
-| :----------------------------------------- | :----------------------------------- | :------------------------------------ |
-| `Resource.use({ run, signal? })(resource)` | Acquires, runs `run`, then releases. | Data-last; a deferred `Result<E, B>`. |
+| Signature                                  | What it does                         | Return type                |
+| :----------------------------------------- | :----------------------------------- | :------------------------- |
+| `Resource.use(resource, { run, signal? })` | Acquires, runs `run`, then releases. | A deferred `Result<E, B>`. |
 
 For an infallible acquisition, convert it first with `Task.Result.from.Task(acquire)`; the resource
 then has error type `never`. Annotate the `run` parameter with the acquired type. The resource is

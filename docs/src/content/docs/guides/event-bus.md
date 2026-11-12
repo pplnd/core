@@ -5,7 +5,7 @@ description: Publish typed events to in-process subscribers, including ordered s
 
 <!-- BUNDLE_SIZE:START -->
 
-> 1.61 kB minified + gzipped
+> 1.62 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
