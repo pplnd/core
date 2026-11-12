@@ -24,7 +24,7 @@ describe("Bool type-level tests", () => {
 				expectTypeOf(maybeStr).toEqualTypeOf<string>();
 			}
 			if (Bool.is.falsy(maybeStr)) {
-				expectTypeOf(maybeStr).toEqualTypeOf<"" | null>();
+				expectTypeOf(maybeStr).toEqualTypeOf<string | null>();
 			}
 		};
 		checkNullable("test");
@@ -38,7 +38,7 @@ describe("Bool type-level tests", () => {
 
 		const checkLiteral = (value: 0 | 1) => {
 			if (Bool.is.falsy(value)) {
-				expectTypeOf(value).toEqualTypeOf<0>();
+				expectTypeOf(value).toEqualTypeOf<0 | 1>();
 			}
 		};
 		checkLiteral(0);

@@ -25,6 +25,10 @@ import type { Lens } from "./Lens.ts";
  *
  * State.run(0)(program); // [2, 2]  — value is 2, final state is 2
  * ```
+ * `S` is invariant — it appears in the produced state — so a program composed in a pipe
+ * from `State.make` must annotate the state channel: `State.make<S, A>(value)`.
+ * An unannotated `State.make` pins `S` to `unknown`, so a program piped from it will not
+ * typecheck against a concrete initial state — annotate the channel: `State.make<S, A>(value)`.
  */
 export type State<S, A> = (s: S) => readonly [A, S];
 
@@ -46,7 +50,7 @@ export const State = {
 	 *
 	 * @example
 	 * ```ts
-	 * State.run(10)(State.make(42)); // [42, 10] — value 42, state unchanged
+	 * State.run(10)(State.make<number, number>(42)); // [42, 10] — value 42, state unchanged
 	 * ```
 	 */
 	make: <S, A>(value: A): State<S, A> => (s) => [value, s],
@@ -130,7 +134,7 @@ export const State = {
 	 *   State.chain(() => State.get<string[]>()),
 	 * );
 	 *
-	 * State.evaluate([])(program); // ["a", "b"]
+	 * State.evaluate<string[]>([])(program); // ["a", "b"]
 	 * ```
 	 */
 	chain: chainState,
@@ -239,7 +243,7 @@ export const State = {
 	 *
 	 * @example
 	 * ```ts
-	 * pipe(State.make(42), State.assignTo("value")); // State({ value: 42 })
+	 * pipe(State.make<number, number>(42), State.assignTo("value")); // State({ value: 42 })
 	 * ```
 	 */
 	assignTo: <K extends string>(key: K) => <S = never, A = unknown>(state: State<S, A>): State<S, { [P in K]: A; }> =>
@@ -254,7 +258,7 @@ export const State = {
 	 * ```ts
 	 * pipe(
 	 *   State.make({ a: 1 }),
-	 *   State.assign("b", ({ a }) => State.make(a + 1))
+	 *   State.assign("b", ({ a }) => State.make<{ a: number }, number>(a + 1))
 	 * ); // State({ a: 1, b: 2 })
 	 * ```
 	 */

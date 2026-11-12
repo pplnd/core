@@ -28,15 +28,15 @@ test("use: passes acquired value to consume and unifies error channels", async (
 		(_n) => Task.make(undefined),
 	);
 
-	const program = Resource.use({
+	const program = Resource.use(resFallible, {
 		run: (n: number) => constTruthyBool() ? Task.Result.make.ok(n.toString()) : Task.Result.make.err(500),
-	})(resFallible);
+	});
 	expectTypeOf(program).toEqualTypeOf<Deferred<Result<"acquire_err" | 500, string>>>();
 	const outcome = await program;
 	expectTypeOf(outcome).toEqualTypeOf<Result<"acquire_err" | 500, string>>();
 
 	// @ts-expect-error — consume callback must return Task.Result, not a primitive
-	Resource.use({ run: (n: number) => n * 2 })(resFallible);
+	Resource.use(resFallible, { run: (n: number) => n * 2 });
 });
 
 test("combine: sequences two resources and combines values and error channels", () => {
@@ -125,4 +125,23 @@ test("all: infers tuple elements and named records with unified error channels",
 
 	// @ts-expect-error — all requires Resource values in record
 	Resource.all({ a: rA, b: 123 });
+});
+
+test("use: the run callback's parameter is inferred from the resource", () => {
+	interface DbClient {
+		query(sql: string): Promise<unknown>;
+	}
+	const dbResource = Resource.make(
+		Task.Result.tryCatch((): Promise<DbClient> => Promise.resolve({ query: () => Promise.resolve([]) }), {
+			onError: () => new Error("db"),
+		}),
+		() => Task.make(undefined),
+	);
+	const program = Resource.use(dbResource, {
+		run: (conn) => {
+			expectTypeOf(conn).toEqualTypeOf<DbClient>();
+			return Task.Result.make.ok("done");
+		},
+	});
+	expectTypeOf(program).toEqualTypeOf<Deferred<Result<Error, string>>>();
 });

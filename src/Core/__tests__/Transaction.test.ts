@@ -522,11 +522,13 @@ test("telemetry: fires onStepSuccess, onStepFailure, and onUndo hooks", async ()
 	);
 	const tx = Transaction.make(transactionStep0, transactionStep1);
 
-	await Transaction.run(undefined, {
-		onStepSuccess: (meta) => successes.push(meta),
-		onStepFailure: (meta) => failures.push(meta),
-		onUndo: (meta) => undos.push(meta),
-	})(tx);
+	await Transaction.run()(
+		Transaction.observe(tx, {
+			onStepSuccess: (meta) => successes.push(meta),
+			onStepFailure: (meta) => failures.push(meta),
+			onUndo: (meta) => undos.push(meta),
+		}),
+	);
 
 	expect(successes).toStrictEqual([{ stepId: "s1", output: "val1" }]);
 	expect(failures).toStrictEqual([{ stepId: "s2", error: "fail2" }]);
@@ -544,11 +546,11 @@ test("telemetry: fires onUndo with the error when undo fails", async () => {
 	const transactionStep1 = Transaction.step("s2", () => Task.Result.make.err("step2_fail"));
 	const tx = Transaction.make(transactionStep0, transactionStep1);
 
-	const outcome = await Transaction.run(undefined, {
+	const outcome = await Transaction.run()(Transaction.observe(tx, {
 		onUndo: (meta) => {
 			undos.push(meta);
 		},
-	})(tx);
+	}));
 
 	expect(Result.is.err(outcome)).toBe(true);
 	expect(undos).toStrictEqual([{ stepId: "s1", error: "undo_failed_err" }]);
@@ -572,17 +574,32 @@ test("signals: aborts a running transaction through the run signal", async () =>
 	);
 });
 
-test("run: accepts run options when the transaction takes no input", async () => {
+test("observe: attaches telemetry when the transaction takes no input", async () => {
 	let succeeded = false;
 	const transactionStep0 = Transaction.step("s1", () => Task.Result.make.ok("v1"));
 	const tx = Transaction.make(transactionStep0);
-	const outcome = await Transaction.run(undefined, {
+	const audited = Transaction.observe(tx, {
 		onStepSuccess: () => {
 			succeeded = true;
 		},
-	})(tx);
+	});
+	const outcome = await Transaction.run()(audited);
 	expect(Result.is.ok(outcome)).toBe(true);
 	expect(succeeded).toBe(true);
+});
+
+test("observe: attaching telemetry twice replaces the previous hooks", async () => {
+	const first: string[] = [];
+	const second: string[] = [];
+	const transactionStep0 = Transaction.step("s1", () => Task.Result.make.ok("v1"));
+	const tx = Transaction.make(transactionStep0);
+	const audited = Transaction.observe(tx, { onStepSuccess: () => first.push("first") });
+	const replaced = Transaction.observe(audited, { onStepSuccess: () => second.push("second") });
+
+	await Transaction.run()(replaced);
+
+	expect(first).toStrictEqual([]);
+	expect(second).toStrictEqual(["second"]);
 });
 
 test("run: returns initial stepId when empty transaction is aborted prior to execution", async () => {

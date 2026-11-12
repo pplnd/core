@@ -49,3 +49,10 @@ describe("Predicate type-level tests", () => {
 		expectTypeOf(pipe(hasSalary, Predicate.or(hasName))).toEqualTypeOf<Predicate<Employee>>();
 	});
 });
+
+describe("Predicate.match", () => {
+	it("unifies complementary array results into one mutable array type", () => {
+		const classify = Predicate.match([[(n: number) => n < 0, () => ["negative"]]], () => []);
+		expectTypeOf(classify(5)).toEqualTypeOf<string[]>();
+	});
+});

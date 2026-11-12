@@ -284,10 +284,10 @@ export const These = {
 	 * pipe(These.make.first(5), These.getFirstOrElse(() => 0));            // 5
 	 * pipe(These.make.both(5, "warn"), These.getFirstOrElse(() => 0));     // 5
 	 * pipe(These.make.second("warn"), These.getFirstOrElse(() => 0));      // 0
-	 * pipe(These.make.second("warn"), These.getFirstOrElse(() => null));   // null — typed as number | null
+	 * pipe(These.make.second("warn"), These.getFirstOrElse(() => null));   // null
 	 * ```
 	 */
-	getFirstOrElse: <C>(fallback: () => C) => <A, B = never>(these: These<A, B>): A | C =>
+	getFirstOrElse: <C>(fallback: () => C) => <A = never, B = never>(these: These<A, B>): A | C =>
 		hasFirst(these) ? these.first : fallback(),
 
 	/**
@@ -301,10 +301,10 @@ export const These = {
 	 * pipe(These.make.second("warn"), These.getSecondOrElse(() => "none")); // "warn"
 	 * pipe(These.make.both(5, "warn"), These.getSecondOrElse(() => "none")); // "warn"
 	 * pipe(These.make.first(5), These.getSecondOrElse(() => "none"));       // "none"
-	 * pipe(These.make.first(5), These.getSecondOrElse(() => null));         // null — typed as string | null
+	 * pipe(These.make.first(5), These.getSecondOrElse(() => null));         // null
 	 * ```
 	 */
-	getSecondOrElse: <D>(fallback: () => D) => <B, A = never>(these: These<A, B>): B | D =>
+	getSecondOrElse: <D>(fallback: () => D) => <B = never, A = never>(these: These<A, B>): B | D =>
 		hasSecond(these) ? these.second : fallback(),
 
 	/**

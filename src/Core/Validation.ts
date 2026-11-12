@@ -83,10 +83,10 @@ function toResult<E1, E2, A>(arg: ((errors: NonEmptyArr<E1>) => E2) | Validation
 	return isPassed(arg) ? CoreResult.make.ok(arg.value) : CoreResult.make.err(arg.errors);
 }
 
-function apply<E2 = never, A = unknown>(
+function apply<E2 = never, A = never>(
 	arg: Validation<E2, A>,
 ): <B, E1 = never>(validation: Validation<E1, (value: A) => B>) => Validation<E1 | E2, B>;
-function apply<E2 = never, A = unknown>(
+function apply<E2 = never, A = never>(
 	arg: Validation<E2, A>,
 ): <B, E1 = never>(validation: Validation<E1, (value: A) => B>) => Validation<E1 | E2, B> {
 	return <B, E1 = never>(validation: Validation<E1, (value: A) => B>): Validation<E1 | E2, B> => {
@@ -512,7 +512,7 @@ export const Validation = {
 	 * }); // Failed(["Name required", "Age must be >= 0"])
 	 * ```
 	 */
-	struct: <T extends Record<string, Validation<unknown, unknown>>>(
+	struct: <T extends { readonly [K in keyof T]: Validation<unknown, unknown>; }>(
 		fields: T,
 	): Validation<StructErrorOf<T[keyof T]>, { [K in keyof T]: StructValueOf<T[K]>; }> => {
 		type ErrUnion = StructErrorOf<T[keyof T]>;

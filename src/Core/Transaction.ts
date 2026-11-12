@@ -160,27 +160,36 @@ export namespace Transaction {
 	};
 
 	/**
-	 * Execution options and telemetry hooks for `Transaction.run`.
+	 * Run configuration for `Transaction.run`. Options bind in the outer call of the curried
+	 * `run`, before the transaction — and its error channels — exist, so it carries no
+	 * channel-dependent values.
+	 *
+	 * @see {@link Transaction.observe} for telemetry hooks typed with the transaction's channels.
 	 */
-	export type RunOptions<E = unknown, EUndo = unknown> = {
+	export type RunOptions = {
 		/**
 		 * AbortSignal passed to forward tasks. Completed steps are rolled back after a failure
 		 * or when cancellation is observed before the next step.
 		 */
 		readonly signal?: AbortSignal;
+	};
 
+	/**
+	 * Telemetry hooks for `Transaction.observe`, typed with the transaction's exact error channels.
+	 */
+	export type Telemetry<E, EUndo> = {
 		/**
-		 * Telemetry callback fired whenever a forward step succeeds.
+		 * Telemetry hook fired whenever a forward step succeeds.
 		 */
 		readonly onStepSuccess?: (metadata: { readonly stepId: string; readonly output: unknown; }) => void;
 
 		/**
-		 * Telemetry callback fired whenever a forward step fails (before rollback begins).
+		 * Telemetry hook fired whenever a forward step fails (before rollback begins).
 		 */
 		readonly onStepFailure?: (metadata: { readonly stepId: string; readonly error: E; }) => void;
 
 		/**
-		 * Telemetry callback fired whenever an individual step's `undo` action completes.
+		 * Telemetry hook fired whenever an individual step's `undo` action completes.
 		 */
 		readonly onUndo?: (metadata: { readonly stepId: string; readonly error?: EUndo; }) => void;
 	};
@@ -237,7 +246,10 @@ type ValidSequence<S extends readonly AnyStepInternal[], Ids extends string = ne
 type InternalStepValue = AnyStepInternal & { readonly [_internalStep]: InternalStep; };
 const toInternalStep = (step: AnyStepInternal): InternalStepValue => step as InternalStepValue;
 
-type InternalTransactionState = { readonly steps: readonly InternalStep[]; };
+type InternalTransactionState = {
+	readonly steps: readonly InternalStep[];
+	readonly telemetry?: Transaction.Telemetry<any, any>;
+};
 
 type InternalTransaction<In, Acc extends Record<string, unknown>, E, EUndo> = Transaction<In, Acc, E, EUndo> & {
 	readonly [_internalTransaction]: InternalTransactionState;
@@ -262,7 +274,7 @@ type UndoItem = {
 
 const drainUndoStack = async (
 	undoStack: readonly UndoItem[],
-	options: Transaction.RunOptions | undefined,
+	telemetry: Transaction.Telemetry<any, any> | undefined,
 	input: unknown,
 ): Promise<readonly Transaction.UndoFailure[]> => {
 	const undoErrors: Transaction.UndoFailure[] = [];
@@ -274,9 +286,9 @@ const drainUndoStack = async (
 		if (Result.is.err(undoOutcome)) {
 			const errRecord = { stepId: item.id, error: undoOutcome.error };
 			undoErrors.push(errRecord);
-			options?.onUndo?.(errRecord);
+			telemetry?.onUndo?.(errRecord);
 		} else {
-			options?.onUndo?.({ stepId: item.id });
+			telemetry?.onUndo?.({ stepId: item.id });
 		}
 	}
 
@@ -375,6 +387,8 @@ const makeTransaction = <const S extends readonly AnyStepInternal[]>(
  * input when such a transaction also needs run options:
  * `Transaction.run(undefined, { signal })(transaction)`.
  *
+ * @see {@link Transaction.observe} for telemetry hooks typed with the transaction's error channels.
+ *
  * @example
  * ```ts
  * const outcome = await Transaction.run(orderInput)(checkoutTransaction);
@@ -416,7 +430,7 @@ function runTransaction<In>(input?: In, options?: Transaction.RunOptions) {
 				const stepDef = internal.steps[i];
 
 				if (activeSignal?.aborted) {
-					const undoErrors = await drainUndoStack(undoStack, options, input);
+					const undoErrors = await drainUndoStack(undoStack, internal.telemetry, input);
 					return Result.make.err({
 						kind: "TransactionFailure" as const,
 						stepId: stepDef.id,
@@ -436,9 +450,9 @@ function runTransaction<In>(input?: In, options?: Transaction.RunOptions) {
 				const stepOutcome = await Deferred.to.Promise(stepTask(activeSignal));
 				if (Result.is.err(stepOutcome)) {
 					const { error } = stepOutcome;
-					options?.onStepFailure?.({ stepId: stepDef.id, error });
+					internal.telemetry?.onStepFailure?.({ stepId: stepDef.id, error });
 
-					const undoErrors = await drainUndoStack(undoStack, options, input);
+					const undoErrors = await drainUndoStack(undoStack, internal.telemetry, input);
 					return Result.make.err({
 						kind: "TransactionFailure" as const,
 						stepId: stepDef.id,
@@ -448,7 +462,7 @@ function runTransaction<In>(input?: In, options?: Transaction.RunOptions) {
 				}
 
 				const out = stepOutcome.value;
-				options?.onStepSuccess?.({ stepId: stepDef.id, output: out });
+				internal.telemetry?.onStepSuccess?.({ stepId: stepDef.id, output: out });
 
 				acc[stepDef.id] = out;
 				if (stepDef.undo) {
@@ -511,6 +525,42 @@ export const Transaction = {
 	 * ```
 	 */
 	step,
+
+	/**
+	 * Attaches telemetry hooks to a transaction, typed with its exact error channels.
+	 *
+	 * Run options bind in the outer call of the curried `Transaction.run`, before the transaction
+	 * — and its channels — exist, so telemetry cannot live there. `observe` derives a transaction
+	 * that runs identically and reports every step outcome to the given hooks.
+	 *
+	 * Attaching telemetry a second time replaces the previous hooks.
+	 *
+	 * @see {@link Transaction.run} for starting the transaction with a signal.
+	 *
+	 * @example
+	 * ```ts
+	 * const auditedCheckout = Transaction.observe(checkoutTransaction, {
+	 *   onStepFailure: ({ stepId, error }) => {
+	 *     auditLog.push({ stepId, error }); // error: "cart_empty" | "payment_declined" | Transaction.Aborted
+	 *   },
+	 *   onUndo: ({ stepId, error }) => {
+	 *     if (error !== undefined) console.error(`undo of ${stepId} failed`, error);
+	 *   },
+	 * });
+	 *
+	 * const outcome = await Transaction.run(orderInput)(auditedCheckout);
+	 * ```
+	 */
+	observe: <In, Acc extends Record<string, unknown>, E, EUndo>(
+		transaction: Transaction<In, Acc, E, EUndo>,
+		telemetry: Transaction.Telemetry<E, EUndo>,
+	): Transaction<In, Acc, E, EUndo> => {
+		const next: InternalTransaction<In, Acc, E, EUndo> = {
+			...transaction,
+			[_internalTransaction]: { ...toInternal(transaction)[_internalTransaction], telemetry },
+		};
+		return next;
+	},
 
 	/**
 	 * Starts a `Transaction` and returns a deferred result.

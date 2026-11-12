@@ -6,8 +6,9 @@ import { Maybe } from "./Maybe.ts";
  * may not be present, providing a composable way to safely read, overwrite, and immutably
  * transform nested nullable data.
  *
- * Reads return `Maybe<A>`. Overwriting or modifying returns the original structure
- * unchanged if the path is broken.
+ * Reads return `Maybe<A>`. Property focuses write through broken paths, creating the missing
+ * key; indexed focuses leave the structure unchanged when the index is out of bounds, and
+ * `modify` preserves a structure whose path is broken.
  *
  * Compose with other Optionals via `andThen`, or with a Lens via `andThenLens`.
  *

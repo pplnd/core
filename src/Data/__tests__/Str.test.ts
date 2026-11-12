@@ -449,3 +449,26 @@ test("truncate: never splits a surrogate pair", () => {
 	expect(pipe("😀😀", Str.truncate({ length: 3, suffix: "" }))).toBe("😀");
 	expect(pipe("😀😀", Str.truncate({ length: 1, suffix: "😀" }))).toBe("");
 });
+
+test("replaceAll: treats a non-global RegExp as global", () => {
+	expect(pipe("aAbBaA", Str.replaceAll(/a/i, "x"))).toBe("xxbBxx");
+});
+
+test("replace: does not disturb a global regex's lastIndex", () => {
+	const pattern = /a/g;
+	pattern.lastIndex = 2;
+	pipe("a-a-a", Str.replace(pattern, "b"));
+	expect(pattern.lastIndex).toBe(2);
+});
+
+test("replace: accepts a frozen RegExp", () => {
+	expect(pipe("a-a", Str.replace(Object.freeze(/a/g), "b"))).toBe("b-b");
+});
+
+test("padStart: leaves the text unchanged for targets beyond the engine's string limit", () => {
+	expect(pipe("hi", Str.padStart(1e15, "0"))).toBe("hi");
+});
+
+test("padEnd: leaves the text unchanged for targets beyond the engine's string limit", () => {
+	expect(pipe("hi", Str.padEnd(1e15, "0"))).toBe("hi");
+});

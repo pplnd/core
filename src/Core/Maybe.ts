@@ -425,7 +425,7 @@ export const Maybe = {
 	 * ); // Some(8)
 	 * ```
 	 */
-	apply: <A>(arg: Maybe<A>) => <B>(maybe: Maybe<(value: A) => B>): Maybe<B> =>
+	apply: <A = never>(arg: Maybe<A>) => <B>(maybe: Maybe<(value: A) => B>): Maybe<B> =>
 		isSome(maybe) && isSome(arg) ? makeSome(maybe.value(arg.value)) : makeNone(),
 
 	/**
@@ -490,7 +490,9 @@ export const Maybe = {
 	 * }); // Some({ name: "Alice", age: 30 })
 	 * ```
 	 */
-	struct: <T extends Record<string, Maybe<unknown>>>(fields: T): Maybe<{ [K in keyof T]: StructValueOf<T[K]>; }> => {
+	struct: <T extends { readonly [K in keyof T]: Maybe<unknown>; }>(
+		fields: T,
+	): Maybe<{ [K in keyof T]: StructValueOf<T[K]>; }> => {
 		type Out = { [K in keyof T]: StructValueOf<T[K]>; };
 		const result = {} as Out;
 		const keys = Reflect.ownKeys(fields);

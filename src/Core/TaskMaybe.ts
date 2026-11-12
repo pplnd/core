@@ -159,7 +159,7 @@ export const TaskMaybe = {
 	 * ); // Task.Maybe resolving to Some(8)
 	 * ```
 	 */
-	apply: <A>(arg: Task.Maybe<A>) => <B>(task: Task.Maybe<(value: A) => B>): Task.Maybe<B> => (signal) =>
+	apply: <A = never>(arg: Task.Maybe<A>) => <B>(task: Task.Maybe<(value: A) => B>): Task.Maybe<B> => (signal) =>
 		Deferred.from.Promise(
 			Promise.all([Deferred.to.Promise(task(signal)), Deferred.to.Promise(arg(signal))]).then(([of_, oa]) =>
 				CoreMaybe.apply(oa)(of_)

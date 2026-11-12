@@ -329,7 +329,7 @@ const dispatchToSubscribers = (
 	msg: EventBus.Message<Record<string, unknown>>,
 	ancestry: ReadonlySet<EventBusForwardLink>,
 ): void => {
-	const wildcards = internal.wildcards;
+	const { wildcards } = internal;
 	let kinded: EventBusSubscription[] | undefined;
 	if (internal.buckets.size !== 0) {
 		if (msg.kind === internal.lastKind) {

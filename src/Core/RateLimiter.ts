@@ -85,7 +85,8 @@ export namespace RateLimiter {
 		readonly limit: number;
 
 		/**
-		 * Length of the sliding window. Every admitted call occupies a permit for this long.
+		 * Length of the sliding window. Every admitted call occupies a permit for this long. A
+		 * non-finite or non-positive window disables pacing: every permit expires immediately.
 		 */
 		readonly window: Duration;
 

@@ -13,7 +13,7 @@ test("use: release always runs on successful work", async () => {
 				return Promise.resolve();
 			}, { onError: () => {} }));
 
-		const result = await Resource.use({ run: (_n: number) => Task.Result.make.ok(workResult) })(res);
+		const result = await Resource.use(res, { run: (_n: number) => Task.Result.make.ok(workResult) });
 
 		expect(released).toBe(true);
 		expect(result).toStrictEqual({ kind: "Ok", value: workResult });
@@ -29,7 +29,7 @@ test("use: release always runs on work failure", async () => {
 				return Promise.resolve();
 			}, { onError: () => {} }));
 
-		const result = await Resource.use({ run: (_n: number) => Task.Result.make.err(workError) })(res);
+		const result = await Resource.use(res, { run: (_n: number) => Task.Result.make.err(workError) });
 
 		expect(released).toBe(true);
 		expect(result).toStrictEqual({ kind: "Err", error: workError });
@@ -46,12 +46,12 @@ test("use: release never runs when acquire fails", async () => {
 				return Promise.resolve();
 			}, { onError: () => {} }));
 
-		const result = await Resource.use({
+		const result = await Resource.use(res, {
 			run: (_n: never) => {
 				workCalled = true;
 				return Task.Result.make.ok(42);
 			},
-		})(res);
+		});
 
 		expect(released).toBe(false);
 		expect(workCalled).toBe(false);
@@ -75,7 +75,7 @@ test("combine: releases in reverse acquisition order", async () => {
 			}, { onError: () => {} }));
 
 		const combined = Resource.combine(resA, resB);
-		await Resource.use({ run: ([_a, _b]: readonly [number, string]) => Task.Result.make.ok(true) })(combined);
+		await Resource.use(combined, { run: ([_a, _b]: readonly [number, string]) => Task.Result.make.ok(true) });
 
 		expect(releaseOrder).toStrictEqual(["B", "A"]);
 	}));
@@ -86,8 +86,8 @@ test("map: satisfies functor identity law", async () => {
 		const res = Resource.make(Task.Result.make.ok(val), () => Task.make(undefined));
 		const mapped = pipe(res, Resource.map((x) => x));
 
-		const resultOriginal = await Resource.use({ run: (n: number) => Task.Result.make.ok(n) })(res);
-		const resultMapped = await Resource.use({ run: (n: number) => Task.Result.make.ok(n) })(mapped);
+		const resultOriginal = await Resource.use(res, { run: (n: number) => Task.Result.make.ok(n) });
+		const resultMapped = await Resource.use(mapped, { run: (n: number) => Task.Result.make.ok(n) });
 
 		expect(resultMapped).toStrictEqual(resultOriginal);
 	}));
@@ -104,8 +104,8 @@ test("map: satisfies functor composition law", async () => {
 
 		const composedFused = pipe(res, Resource.map((x) => g(f(x))));
 
-		const resultSeparate = await Resource.use({ run: (s: string) => Task.Result.make.ok(s) })(composedSeparately);
-		const resultFused = await Resource.use({ run: (s: string) => Task.Result.make.ok(s) })(composedFused);
+		const resultSeparate = await Resource.use(composedSeparately, { run: (s: string) => Task.Result.make.ok(s) });
+		const resultFused = await Resource.use(composedFused, { run: (s: string) => Task.Result.make.ok(s) });
 
 		expect(resultSeparate).toStrictEqual(resultFused);
 	}));
@@ -130,7 +130,7 @@ test("chain: releases in strict reverse order across arbitrary pairs", async () 
 
 		const chained = pipe(resA, Resource.chain(resB));
 
-		await Resource.use({ run: (_val: string) => Task.Result.make.ok(true) })(chained);
+		await Resource.use(chained, { run: (_val: string) => Task.Result.make.ok(true) });
 
 		expect(releaseOrder).toStrictEqual(["inner", "outer"]);
 	}));
@@ -149,7 +149,7 @@ test("all: releases arbitrary arrays of resources in strict reverse LIFO order",
 		);
 
 		const allRes = Resource.all(resources);
-		await Resource.use({ run: (_vals: readonly number[]) => Task.Result.make.ok(true) })(allRes);
+		await Resource.use(allRes, { run: (_vals: readonly number[]) => Task.Result.make.ok(true) });
 
 		const expectedOrder = values.map((_v, idx) => idx).reverse();
 		expect(releaseOrder).toStrictEqual(expectedOrder);

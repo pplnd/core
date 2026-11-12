@@ -126,11 +126,6 @@ export function flow(
 ): unknown {
 	const len = arguments.length;
 	switch (len) {
-		case 0: {
-			return function(...args: unknown[]) {
-				return args[0];
-			};
-		}
 		case 1: {
 			return ab;
 		}

@@ -280,3 +280,18 @@ test("converters: single-variant channels default to never", () => {
 	expectTypeOf(Result.to.Maybe(error)).toEqualTypeOf<Maybe<never>>();
 	expectTypeOf(Result.to.Validation(error)).toEqualTypeOf<Validation<"failed", never>>();
 });
+
+test("apply: a failure-variant argument keeps the wrapped function assignable in direct curried calls", () => {
+	const add = (a: number) => (b: number) => a + b;
+	const supply = Result.apply(Result.make.err("bad"));
+	expectTypeOf(supply(Result.make.ok(add))).toEqualTypeOf<Result<"bad", (b: number) => number>>();
+});
+
+test("struct: accepts interface-typed records of containers", () => {
+	interface Form {
+		name: Result<string, string>;
+		age: Result<string, number>;
+	}
+	const form: Form = { name: Result.make.ok("a"), age: Result.make.ok(1) };
+	expectTypeOf(Result.struct(form)).toEqualTypeOf<Result<string, { name: string; age: number; }>>();
+});

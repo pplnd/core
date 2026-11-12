@@ -295,18 +295,37 @@ test("step: positional compensation and dependencies preserve inferred channels"
 	expectTypeOf<DependentOut>().toEqualTypeOf<string>();
 });
 
-test("run: telemetry options are typed independently of the transaction error channel", () => {
+test("observe: telemetry handlers bind the transaction's error channels", () => {
 	const step = Transaction.step("load", () => Task.Result.make.err("load_failed"));
 	const tx = Transaction.make(step);
 	expectTypeOf(Transaction.run()(tx)).toEqualTypeOf<
 		Deferred<Result<Transaction.Failure<"load_failed" | Aborted, never>, { readonly load: never; }>>
 	>();
-	Transaction.run(undefined, {
-		onStepFailure: (metadata: { readonly stepId: string; readonly error: unknown; }) => {
-			expectTypeOf(metadata.error).toEqualTypeOf<unknown>();
+	Transaction.observe(tx, {
+		onStepFailure: (metadata) => {
+			expectTypeOf(metadata.error).toEqualTypeOf<"load_failed">();
 		},
-		onUndo: (metadata: { readonly stepId: string; readonly error?: unknown; }) => {
-			expectTypeOf(metadata.error).toEqualTypeOf<unknown>();
+		onStepSuccess: (metadata) => {
+			expectTypeOf(metadata.output).toEqualTypeOf<unknown>();
 		},
-	})(tx);
+	});
+});
+
+test("observe: a handler for a different error channel is rejected", () => {
+	const step = Transaction.step("load", () => Task.Result.make.err("load_failed"));
+	const tx = Transaction.make(step);
+	const wrongTelemetry: Transaction.Telemetry<"other", never> = { onStepFailure: ({ error: _channel }) => undefined };
+	// @ts-expect-error the handler's channel must match the transaction's
+	expectTypeOf(Transaction.observe(tx, wrongTelemetry)).toBeObject();
+});
+
+test("run: options carry no telemetry keys", () => {
+	const step = Transaction.step("load", () => Task.Result.make.ok("v"));
+	const tx = Transaction.make(step);
+	expectTypeOf(
+		Transaction.run(undefined, {
+			// @ts-expect-error telemetry attaches to the definition with Transaction.observe
+			onStepSuccess: () => undefined,
+		})(tx),
+	).toBeObject();
 });

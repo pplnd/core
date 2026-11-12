@@ -3353,3 +3353,38 @@ test("interpret: queue clamps non-positive maxSize to 1 so replace-last never re
 	await expect(p1).resolves.toStrictEqual({ kind: "OpOk", value: 1 });
 	await expect(p3).resolves.toStrictEqual({ kind: "OpOk", value: 3 });
 });
+
+test("poll: non-finite, zero, and negative intervals run once and never reschedule", async () => {
+	for (const interval of [Duration.milliseconds(0), Duration.milliseconds(Number.NaN), Duration.milliseconds(-5)]) {
+		let calls = 0;
+		const op = Op.make(() =>
+			Task.Result.tryCatch(() => {
+				calls++;
+				return Promise.resolve(1);
+			}, { onError: (e) => String(e) })
+		);
+		const manager = Op.interpret(op, { strategy: "restartable" });
+		const stop = manager.poll({ interval })();
+		await new Promise((resolve) => setTimeout(resolve, 40));
+		expect(calls).toBe(1);
+		stop();
+	}
+});
+
+test("poll: a positive interval keeps repeating until stopped", async () => {
+	let calls = 0;
+	const op = Op.make(() =>
+		Task.Result.tryCatch(() => {
+			calls++;
+			return Promise.resolve(1);
+		}, { onError: (e) => String(e) })
+	);
+	const manager = Op.interpret(op, { strategy: "restartable" });
+	const stop = manager.poll({ interval: Duration.milliseconds(10) })();
+	await new Promise((resolve) => setTimeout(resolve, 70));
+	const afterRepeats = calls;
+	expect(afterRepeats).toBeGreaterThanOrEqual(2);
+	stop();
+	await new Promise((resolve) => setTimeout(resolve, 40));
+	expect(calls).toBe(afterRepeats);
+});

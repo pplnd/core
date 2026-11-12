@@ -175,3 +175,11 @@ test("swap: interchanges first and second channels", () => {
 	const swapped = These.swap(naturalUnion);
 	expectTypeOf(swapped).toEqualTypeOf<These<string, number>>();
 });
+
+test("getFirstOrElse: an absent first channel yields the fallback type, not unknown", () => {
+	expectTypeOf(These.getFirstOrElse(() => null)(These.make.second("warn"))).toEqualTypeOf<null>();
+});
+
+test("getSecondOrElse: an absent second channel yields the fallback type, not unknown", () => {
+	expectTypeOf(These.getSecondOrElse(() => "none")(These.make.first(5))).toEqualTypeOf<string>();
+});

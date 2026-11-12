@@ -13,6 +13,8 @@ const mask = (n: number) => n ^ 1;
 
 // A rotating input keeps V8 from constant-folding a fixed pipeline.
 const inputs = Array.from({ length: 1024 }, (_, i) => i);
+// Benchmark state is intentionally shared across iterations, so it lives outside hooks.
+// oxlint-disable-next-line vitest/require-hook
 let cursor = 0;
 const nextInput = () => {
 	cursor = (cursor + 1) & 1023;

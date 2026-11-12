@@ -267,3 +267,17 @@ test("recover: infallible fallback preserves the value channel", () => {
 	const recovered = pipe(Maybe.make.none(), Maybe.recover(() => Maybe.make.none()));
 	expectTypeOf(recovered).toEqualTypeOf<Maybe<never>>();
 });
+
+test("apply: a None argument keeps the wrapped function assignable in direct curried calls", () => {
+	const double = (n: number) => n * 2;
+	expectTypeOf(Maybe.apply(Maybe.make.none())(Maybe.make.some(double))).toEqualTypeOf<Maybe<number>>();
+});
+
+test("struct: accepts interface-typed records of containers", () => {
+	interface Form {
+		name: Maybe<string>;
+		age: Maybe<number>;
+	}
+	const form: Form = { name: Maybe.make.some("a"), age: Maybe.make.some(1) };
+	expectTypeOf(Maybe.struct(form)).toEqualTypeOf<Maybe<{ name: string; age: number; }>>();
+});

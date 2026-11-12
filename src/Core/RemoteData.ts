@@ -227,7 +227,7 @@ export const RemoteData = {
 	 * ```
 	 */
 	apply:
-		<E2 = never, A = unknown>(arg: RemoteData<E2, A>) =>
+		<E2 = never, A = never>(arg: RemoteData<E2, A>) =>
 		<B, E1 = never>(remoteData: RemoteData<E1, (value: A) => B>): RemoteData<E1 | E2, B> => {
 			if (isSuccess(remoteData) && isSuccess(arg)) {
 				return makeSuccess(remoteData.value(arg.value));
@@ -255,7 +255,7 @@ export const RemoteData = {
 	 * }); // Loading
 	 * ```
 	 */
-	struct: <T extends Record<string, RemoteData<unknown, unknown>>>(
+	struct: <T extends { readonly [K in keyof T]: RemoteData<unknown, unknown>; }>(
 		fields: T,
 	): RemoteData<StructErrorOf<T[keyof T]>, { [K in keyof T]: StructValueOf<T[K]>; }> => {
 		type Out = { [K in keyof T]: StructValueOf<T[K]>; };

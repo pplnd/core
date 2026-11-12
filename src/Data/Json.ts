@@ -52,7 +52,7 @@ export const Json = {
 		space?: string | number,
 	): Result<TypeError, string> => {
 		try {
-			const text = JSON.stringify(value, replacer as any, space);
+			const text = JSON.stringify(value, replacer, space);
 			if (text === undefined) {
 				return Result.make.err(new TypeError("Value is not JSON serializable"));
 			}

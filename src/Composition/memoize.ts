@@ -30,6 +30,7 @@ import { storeLru, touchLru } from "../internal/lru.ts";
  *   { maxSize: 100 }
  * );
  * ```
+ * If the memoized function returns a promise, a rejection evicts its entry so the next call retries; concurrent calls for the same key still share one promise.
  */
 export const memoize = <A, B>(f: (a: A) => B, options?: {
 	/**
@@ -66,6 +67,16 @@ export const memoize = <A, B>(f: (a: A) => B, options?: {
 		}
 
 		const result = f(a);
+		const thenable = result as { readonly then?: unknown; } | null | undefined;
+		if (typeof thenable?.then === "function") {
+			// A rejected promise must not stay cached: evict this entry on rejection, but only
+			// while it is still the stored one for this key (a newer load survives).
+			thenable.then(() => undefined, () => {
+				if (cache.get(key) === result) {
+					cache.delete(key);
+				}
+			});
+		}
 		if (maxSize === undefined) {
 			cache.set(key, result);
 		} else {

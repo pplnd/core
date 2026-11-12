@@ -8,6 +8,8 @@ const third = (text: string) => text.toUpperCase();
 const fourth = (text: string) => text.slice(0, 1);
 
 const pool = Array.from({ length: 256 }, (_, i) => `value-${i}`);
+// Benchmark state is intentionally shared across iterations, so it lives outside hooks.
+// oxlint-disable-next-line vitest/require-hook
 let cursor = 0;
 const nextText = () => {
 	cursor = (cursor + 1) & 255;

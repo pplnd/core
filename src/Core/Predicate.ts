@@ -30,6 +30,45 @@ export type Predicate<A> = (a: A) => boolean;
 
 const fromRefinement = <A, B extends A>(refinement: Refinement<A, B>): Predicate<A> => refinement;
 
+/**
+ * Performs declarative conditional branching over `[predicate, handler]` pairs,
+ * returning the handler result of the first matching predicate or evaluating the fallback.
+ *
+ * @example
+ * ```ts
+ * const classifyNumber = Predicate.match(
+ *   [
+ *     [(n: number) => n < 0, () => "negative"],
+ *     [(n: number) => n === 0, () => "zero"],
+ *   ],
+ *   () => "positive",
+ * );
+ * classifyNumber(-5); // "negative"
+ * ```
+ */
+function match<A, B>(
+	branches: ReadonlyArray<readonly [Predicate<A>, (value: A) => B]>,
+	fallback: (value: A) => B,
+): (value: A) => B;
+function match<A, B, C>(
+	branches: ReadonlyArray<readonly [Predicate<A>, (value: A) => B]>,
+	fallback: (value: A) => C,
+): (value: A) => B | C;
+function match(
+	branches: ReadonlyArray<readonly [(value: unknown) => boolean, (value: unknown) => unknown]>,
+	fallback: (value: unknown) => unknown,
+): (value: unknown) => unknown {
+	return (value: unknown): unknown => {
+		for (let i = 0; i < branches.length; i++) {
+			const [predicate, handler] = branches[i];
+			if (predicate(value)) {
+				return handler(value);
+			}
+		}
+		return fallback(value);
+	};
+}
+
 export const Predicate = {
 	/**
 	 * Negates a predicate: the result passes exactly when the original fails.
@@ -192,31 +231,5 @@ export const Predicate = {
 		Refinement: fromRefinement,
 	},
 
-	/**
-	 * Performs declarative conditional branching over `[predicate, handler]` pairs,
-	 * returning the handler result of the first matching predicate or evaluating the fallback.
-	 *
-	 * @example
-	 * ```ts
-	 * const classifyNumber = Predicate.match(
-	 *   [
-	 *     [(n: number) => n < 0, () => "negative"],
-	 *     [(n: number) => n === 0, () => "zero"],
-	 *   ],
-	 *   () => "positive",
-	 * );
-	 * classifyNumber(-5); // "negative"
-	 * ```
-	 */
-	match:
-		<A, B, C = B>(branches: ReadonlyArray<readonly [Predicate<A>, (value: A) => B]>, fallback: (value: A) => C) =>
-		(value: A): B | C => {
-			for (let i = 0; i < branches.length; i++) {
-				const [predicate, handler] = branches[i];
-				if (predicate(value)) {
-					return handler(value);
-				}
-			}
-			return fallback(value);
-		},
+	match,
 };

@@ -303,3 +303,19 @@ test("from: absent single-variant channels default to never", () => {
 	expectTypeOf(Validation.from.Maybe(() => "missing")(Maybe.make.none())).toEqualTypeOf<Validation<"missing", never>>();
 	expectTypeOf(Validation.from.Result(Result.make.err("failed"))).toEqualTypeOf<Validation<"failed", never>>();
 });
+
+test("apply: a Failed argument keeps the wrapped function assignable in direct curried calls", () => {
+	const length = (text: string) => text.length;
+	expectTypeOf(Validation.apply(Validation.make.failed("bad"))(Validation.make.passed(length))).toEqualTypeOf<
+		Validation<"bad", number>
+	>();
+});
+
+test("struct: accepts interface-typed records of containers", () => {
+	interface LoginForm {
+		name: Validation<string, string>;
+		age: Validation<string, number>;
+	}
+	const form: LoginForm = { name: Validation.make.passed("a"), age: Validation.make.passed(1) };
+	expectTypeOf(Validation.struct(form)).toEqualTypeOf<Validation<string, { name: string; age: number; }>>();
+});

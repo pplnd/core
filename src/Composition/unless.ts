@@ -5,14 +5,17 @@
  * ```ts
  * pipe(
  *   5,
- *   unless(n => n % 2 === 0, n => n * 2)
+ *   unless((n: number) => n % 2 === 0, (n: number) => n * 2)
  * ); // 10
  *
  * pipe(
  *   4,
- *   unless(n => n % 2 === 0, n => n * 2)
+ *   unless((n: number) => n % 2 === 0, (n: number) => n * 2)
  * ); // 4
  * ```
+ *
+ * Annotate the predicate's parameter when TypeScript cannot infer the input type — the same
+ * contract `on` and `converge` document.
  *
  * @see {@link when} for executing when a predicate is met
  */

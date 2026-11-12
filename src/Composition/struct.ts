@@ -6,16 +6,18 @@ type StructOutput<Fns> = { -readonly [K in keyof Fns]: Fns[K] extends (value: an
 /**
  * Builds an object by applying a record of field-level transformer functions to the input value.
  *
- * The input type is inferred from the transformer parameters, so standalone `struct({...})` works.
- * Own string and symbol keys are processed; inherited fields are ignored.
+ * Annotate the transformer parameters — unannotated parameters widen to `any` and disable
+ * input checking. Own string and symbol keys are processed; inherited fields are ignored.
  *
  * @example
  * ```ts
+ * type User = { name: string; age: number };
+ *
  * pipe(
  *   { name: "Alice", age: 25 },
  *   struct({
- *     name: u => u.name,
- *     isAdult: u => u.age >= 18
+ *     name: (u: User) => u.name,
+ *     isAdult: (u: User) => u.age >= 18
  *   })
  * ); // { name: "Alice", isAdult: true }
  * ```

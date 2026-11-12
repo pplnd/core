@@ -436,8 +436,8 @@ test("to.record: safely handles __proto__ without prototype pollution", () => {
 	const map = Dict.from.entries([["__proto__", "polluted" as unknown]]);
 	const rec = Dict.to.record(map);
 	expect(Object.hasOwn(rec, "__proto__")).toBe(true);
-	expect((rec as any)["__proto__"]).toBe("polluted");
-	expect(({} as any)["polluted"]).toBeUndefined();
+	expect(Object.entries(rec)).toStrictEqual([["__proto__", "polluted"]]);
+	expect(Object.hasOwn(Object.prototype, "polluted")).toBe(false);
 });
 
 // ---------------------------------------------------------------------------

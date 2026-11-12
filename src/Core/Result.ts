@@ -422,7 +422,7 @@ export const Result = {
 	 * ```
 	 */
 	apply:
-		<E2 = never, A = unknown>(arg: Result<E2, A>) =>
+		<E2 = never, A = never>(arg: Result<E2, A>) =>
 		<B, E1 = never>(result: Result<E1, (value: A) => B>): Result<E1 | E2, B> =>
 			isOk(result) && isOk(arg) ? makeOk(result.value(arg.value)) : (isErr(result) ? result : (arg as Result.Err<E2>)),
 
@@ -484,7 +484,7 @@ export const Result = {
 	 * }); // Ok({ name: "Alice", age: 30 })
 	 * ```
 	 */
-	struct: <T extends Record<string, Result<unknown, unknown>>>(
+	struct: <T extends { readonly [K in keyof T]: Result<unknown, unknown>; }>(
 		fields: T,
 	): Result<StructErrorOf<T[keyof T]>, { [K in keyof T]: StructValueOf<T[K]>; }> => {
 		type Out = { [K in keyof T]: StructValueOf<T[K]>; };

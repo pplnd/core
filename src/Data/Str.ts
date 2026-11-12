@@ -68,6 +68,21 @@ const isBlank = (text: string): boolean => text.trim().length === 0;
 // =============================================================================
 // Public Export
 // =============================================================================
+/** Clones a caller-supplied pattern so `lastIndex` and frozen state are never touched. */
+const cloneRegex = (pattern: string | RegExp): string | RegExp =>
+	typeof pattern === "string" ? pattern : new RegExp(pattern.source, pattern.flags);
+
+/** Normalizes a pattern for `replaceAll`: non-global regular expressions become global. */
+const toGlobalRegex = (pattern: string | RegExp): string | RegExp =>
+	typeof pattern === "string"
+		? pattern
+		: pattern.global
+		? new RegExp(pattern.source, pattern.flags)
+		: new RegExp(pattern.source, `${pattern.flags}g`);
+
+/** The longest string the engine can allocate; padding targets beyond it leave the text unchanged. */
+const maxStringLength = (): number => 2 ** 29 - 24;
+
 export const Str = {
 	/**
 	 * Predicates and type guards for strings.
@@ -148,9 +163,12 @@ export const Str = {
 	 * pipe("foo foo foo", Str.replace("foo", "bar")); // "bar foo foo"
 	 * pipe("Hello World", Str.replace(/world/i, "Earth")); // "Hello Earth"
 	 * ```
+	 *
+	 * A regular expression pattern is never mutated: its `lastIndex` is preserved, and frozen
+	 * expressions are supported.
 	 */
 	replace: (pattern: string | RegExp, replacement: string) => (text: string): string =>
-		text.replace(pattern, replacement),
+		text.replace(cloneRegex(pattern), replacement),
 
 	/**
 	 * Replaces all occurrences of a pattern in a string. Data-last: use in `pipe`.
@@ -160,11 +178,13 @@ export const Str = {
 	 * @example
 	 * ```ts
 	 * pipe("foo foo foo", Str.replaceAll("foo", "bar")); // "bar bar bar"
-	 * pipe("aAbBaA", Str.replaceAll(/a/gi, "x")); // "xxBBxx"
+	 * pipe("aAbBaA", Str.replaceAll(/a/gi, "x")); // "xxbBxx"
 	 * ```
+	 *
+	 * A non-global regular expression is treated as global instead of throwing.
 	 */
 	replaceAll: (pattern: string | RegExp, replacement: string) => (text: string): string =>
-		text.replaceAll(pattern, replacement),
+		text.replaceAll(toGlobalRegex(pattern), replacement),
 
 	/**
 	 * Returns `true` when the string starts with the given prefix.
@@ -302,7 +322,8 @@ export const Str = {
 
 	/**
 	 * Pads the start of a string to a specified length. Data-last: use in `pipe`.
-	 * Fractional targets are floored; negative, `NaN`, and infinite targets leave the text unchanged.
+	 * Fractional targets are floored; negative, `NaN`, infinite, and beyond-maximum-length targets
+	 * leave the text unchanged.
 	 *
 	 * @see {@link padEnd} for padding the right side of a string.
 	 *
@@ -312,12 +333,15 @@ export const Str = {
 	 * pipe("hi", Str.padStart(5));     // "   hi"
 	 * ```
 	 */
-	padStart: (maxLength: number, fillString?: string) => (text: string): string =>
-		text.padStart(toFiniteCount(maxLength, text.length), fillString),
+	padStart: (maxLength: number, fillString?: string) => (text: string): string => {
+		const target = toFiniteCount(maxLength, text.length);
+		return target > maxStringLength() ? text : text.padStart(target, fillString);
+	},
 
 	/**
 	 * Pads the end of a string to a specified length. Data-last: use in `pipe`.
-	 * Fractional targets are floored; negative, `NaN`, and infinite targets leave the text unchanged.
+	 * Fractional targets are floored; negative, `NaN`, infinite, and beyond-maximum-length targets
+	 * leave the text unchanged.
 	 *
 	 * @see {@link padStart} for padding the left side of a string.
 	 *
@@ -327,8 +351,10 @@ export const Str = {
 	 * pipe("hi", Str.padEnd(5));       // "hi   "
 	 * ```
 	 */
-	padEnd: (maxLength: number, fillString?: string) => (text: string): string =>
-		text.padEnd(toFiniteCount(maxLength, text.length), fillString),
+	padEnd: (maxLength: number, fillString?: string) => (text: string): string => {
+		const target = toFiniteCount(maxLength, text.length);
+		return target > maxStringLength() ? text : text.padEnd(target, fillString);
+	},
 
 	/**
 	 * Matches a string against a regular expression.

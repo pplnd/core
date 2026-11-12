@@ -1,6 +1,9 @@
 /**
  * Applies an input to an array of functions and collects the results into a tuple.
  *
+ * Typed tuples cover up to four functions; a longer homogeneous list falls back to a plain
+ * array of the first function's return type.
+ *
  * @example
  * ```ts
  * const nameParts = juxt([

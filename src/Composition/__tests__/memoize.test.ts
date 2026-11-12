@@ -265,3 +265,33 @@ test("memoizeWeak: caches results keyed by function reference", () => {
 	describe(fn2);
 	expect(callCount).toBe(2);
 });
+
+test("memoize: evicts a rejected promise so the next call retries", async () => {
+	let calls = 0;
+	const load = memoize((_key: string) => {
+		calls++;
+		return calls === 1 ? Promise.reject(new Error("blip")) : Promise.resolve("ok");
+	});
+
+	await expect(load("u_1")).rejects.toThrow("blip");
+	await expect(load("u_1")).resolves.toBe("ok");
+	expect(calls).toBe(2);
+});
+
+test("memoize: a late rejection does not evict a newer entry for the same key", async () => {
+	let calls = 0;
+	const load = memoize((key: string) => {
+		calls++;
+		if (key === "a" && calls === 1) {
+			return new Promise<string>((_resolve, reject) => setTimeout(() => reject(new Error("late")), 10));
+		}
+		return Promise.resolve(`ok:${key}`);
+	}, { maxSize: 1 });
+
+	void load("a").catch(() => undefined);
+	await expect(load("b")).resolves.toBe("ok:b");
+	await expect(load("a")).resolves.toBe("ok:a");
+	await new Promise((resolve) => setTimeout(resolve, 30));
+	await expect(load("a")).resolves.toBe("ok:a");
+	expect(calls).toBe(3);
+});

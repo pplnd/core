@@ -2,7 +2,8 @@ import type { Awaitable } from "../internal/InternalTypes";
 
 /**
  * Pipes a value through a sequence of operations, supporting asynchronous transitions at any step.
- * Awaits promises at each step before passing the resolved value to the next function.
+ * Awaits promises at each step before passing the resolved value to the next function. Like
+ * `pipe`, at most 10 functions.
  *
  * @example
  * ```ts

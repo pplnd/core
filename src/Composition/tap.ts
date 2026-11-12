@@ -19,6 +19,10 @@ const getNodeInspect = (): InspectFn | undefined =>
  * Executes a side effect function and returns the original value unchanged.
  * Useful for logging, debugging, or other side effects within a pipeline.
  *
+ * The side effect must be synchronous: a promise it returns is discarded, so a rejection
+ * becomes an unhandled rejection. For asynchronous side effects use `tapAsync`, which reports
+ * callback failures through `onError`.
+ *
  * @example
  * ```ts
  * // Debugging a pipeline
@@ -42,6 +46,7 @@ const getNodeInspect = (): InspectFn | undefined =>
  * );
  * ```
  *
+ * @see {@link tapAsync} for side effects that await
  * @see {@link Maybe.tap} for Maybe-specific tap that only runs on Some
  */
 export function tap<A>(f: (a: A) => void) {
@@ -189,10 +194,11 @@ export const tapTime = <A>(fn: (a: A) => unknown, config: tapTime.Config) => {
 		const start = performance.now();
 		try {
 			const res = fn(a);
-			if (
-				res !== null && (typeof res === "object" || typeof res === "function") && typeof (res as any).then === "function"
-			) {
-				(res as any).then(() => {
+			const thenable = res !== null && (typeof res === "object" || typeof res === "function")
+				? (res as { readonly then?: unknown; })
+				: undefined;
+			if (typeof thenable?.then === "function") {
+				thenable.then(() => {
 					const duration = Duration.milliseconds(performance.now() - start);
 					triggerFinish(duration);
 				}, () => {
@@ -271,7 +277,8 @@ export namespace tapAsync {
 export namespace tapTime {
 	/**
 	 * Configuration options for {@link tapTime}, enforcing mutual exclusivity
-	 * between console logging and custom handlers.
+	 * between console logging and custom handlers. A custom `onFinish` handler must not throw:
+	 * on the async path a throwing handler surfaces as an unhandled rejection.
 	 */
 	export type Config = { label: string; onFinish?: never; } | { onFinish: (duration: Duration) => void; label?: never; };
 }

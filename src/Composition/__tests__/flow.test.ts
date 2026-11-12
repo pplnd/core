@@ -129,15 +129,6 @@ test("flow: composes 10 functions", () => {
 	expect(flow(inc, inc, inc, inc, inc, inc, inc, inc, inc, inc)(0)).toBe(10);
 });
 
-test("flow: returns first argument unchanged when called with zero functions", () => {
-	// The typed overloads don't expose flow() with no arguments, but the
-	// underlying implementation has a defensive guard: if no functions are
-	// provided, return the first argument as-is.
-	const identity = (flow as (...fns: Array<(...a: unknown[]) => unknown>) => (...a: unknown[]) => unknown)();
-	expect(identity(42)).toBe(42);
-	expect(identity("hello")).toBe("hello");
-});
-
 // --- when ---
 
 test("when: runs onTrue if predicate is met", () => {

@@ -235,3 +235,21 @@ test("struct: unions field errors across a heterogeneous record", () => {
 		>
 	>();
 });
+
+test("apply: a Failure argument keeps the wrapped function assignable in direct curried calls", () => {
+	const double = (n: number) => n * 2;
+	expectTypeOf(RemoteData.apply(RemoteData.make.failure("bad"))(RemoteData.make.success(double))).toEqualTypeOf<
+		RemoteData<"bad", number>
+	>();
+});
+
+test("struct: accepts interface-typed records of containers", () => {
+	interface Dashboard {
+		user: RemoteData<string, { id: string; }>;
+		alerts: RemoteData<string, number>;
+	}
+	const dashboard: Dashboard = { user: RemoteData.make.success({ id: "u_1" }), alerts: RemoteData.make.success(2) };
+	expectTypeOf(RemoteData.struct(dashboard)).toEqualTypeOf<
+		RemoteData<string, { user: { id: string; }; alerts: number; }>
+	>();
+});

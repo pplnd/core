@@ -126,6 +126,11 @@ const makeSupervisor = <E>(
 		}
 		const snapshot = state;
 		for (const listener of Array.from(subscribers)) {
+			// A listener may re-enter and transition the state; the newer state was already
+			// delivered to every listener by that re-entrant notify() — skip stale deliveries.
+			if (state !== snapshot) {
+				return;
+			}
 			listener(snapshot);
 		}
 	};
@@ -185,9 +190,21 @@ const makeSupervisor = <E>(
 
 			const delay = policy.getDelay(attempt);
 			policy.onRetry?.({ attempt, error, delay });
+			// An abort inside onRetry or inside the notification completes the lifetime; a
+			// finished session must not publish further states or arm its backoff timer.
+			if (current.aborting || session !== current) {
+				return;
+			}
+
 			state = { kind: "SupervisorBackingOff", attempt, delay, error };
 			notify();
 
+			if (current.aborting || session !== current) {
+				return;
+			}
+
+			// No fire-time guard is needed: finish() and requestAbort() both clear the armed
+			// backoff timer, so it can never outlive the session it belongs to.
 			current.backoff = setTimeout(() => {
 				current.backoff = undefined;
 				startAttempt(current, attempt + 1);

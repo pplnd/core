@@ -167,6 +167,21 @@ export namespace Op {
 		abort: () => void;
 		subscribe: (cb: (state: S) => void) => () => void;
 		reset: () => void;
+		/**
+		 * Runs the operation immediately, then re-runs it on a repeating schedule until the
+		 * returned stop function is called.
+		 *
+		 * Repeat boundaries are absolute positions on a monotonic clock, so timer jitter never
+		 * accumulates, and any finite interval is honored at full length. A non-finite,
+		 * sub-millisecond, zero, or negative interval schedules no repeat — the initial run
+		 * still executes. The environment delivers each repeat at or after its boundary.
+		 *
+		 * @example
+		 * ```ts
+		 * const stopPolling = manager.poll({ interval: Duration.seconds(30) })("user_123");
+		 * stopPolling();
+		 * ```
+		 */
 		poll: (options: { interval: Duration; }) => (...args: Args) => () => void;
 	};
 	export type KeyedManager<Args extends readonly unknown[], K, E, PerKeyS> = {
@@ -194,6 +209,21 @@ export namespace Op {
 		abort: (key?: K) => void;
 		subscribe: (cb: (state: ReadonlyMap<K, PerKeyS>) => void) => () => void;
 		reset: () => void;
+		/**
+		 * Runs the operation immediately for the given key, then re-runs it on a repeating
+		 * schedule until the returned stop function is called.
+		 *
+		 * Repeat boundaries are absolute positions on a monotonic clock, so timer jitter never
+		 * accumulates, and any finite interval is honored at full length. A non-finite,
+		 * sub-millisecond, zero, or negative interval schedules no repeat — the initial run
+		 * still executes. The environment delivers each repeat at or after its boundary.
+		 *
+		 * @example
+		 * ```ts
+		 * const stopPolling = keyedManager.poll({ interval: Duration.seconds(30) })("item_1");
+		 * stopPolling();
+		 * ```
+		 */
 		poll: (options: { interval: Duration; }) => (...args: Args) => () => void;
 	};
 	export type OnceState<E, A> = Idle | Pending | Ok<A> | Err<E> | AbortedNil | DroppedNil;

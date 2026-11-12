@@ -9,7 +9,8 @@ import { Result } from "../Core/Result.ts";
 import { Duration } from "../Types/Duration.ts";
 import type { RetryPolicy } from "../Types/RetryPolicy.ts";
 import { toPositiveInteger } from "./Numbers.ts";
-import { clampTimerDelay } from "./timers.ts";
+import { clampTimerDelay, MAX_TIMER_MS } from "./timers.ts";
+import { waitForDelay } from "./waitForDelay.ts";
 
 // ---------------------------------------------------------------------------
 // Internal singletons & helpers
@@ -48,6 +49,56 @@ const mapOutcome = <E, A>(source: Deferred<Result<E, A> | null>): Deferred<Op.Ou
 
 const getMs = (duration: Duration): number => Duration.to.milliseconds(duration);
 
+const noop = (): void => {};
+
+/**
+ * Schedules `fire` to repeat every `interval` until the returned cancel function runs.
+ *
+ * Repeat boundaries are absolute positions on the monotonic clock (`start + k * interval`):
+ * timer jitter never accumulates across cycles, and a finite interval longer than the
+ * platform's single-timer maximum is honored at full length by chaining timers instead of
+ * clamping the request. A non-finite, sub-millisecond, zero, or negative interval schedules
+ * no repeat — the initial run is the caller's.
+ */
+export const schedulePollRepeat = (
+	interval: Duration,
+	fire: () => void,
+	stepCap: number = MAX_TIMER_MS,
+): () => void => {
+	const total = Math.floor(getMs(interval));
+	if (!Number.isFinite(total) || total < 1) {
+		return noop;
+	}
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	let cancelled = false;
+	let boundary = performance.now() + total;
+	const tick = (): void => {
+		if (cancelled) {
+			return;
+		}
+		timer = undefined;
+		const remaining = boundary - performance.now();
+		if (remaining > 0) {
+			timer = setTimeout(tick, Math.min(remaining, stepCap));
+			return;
+		}
+		fire();
+		const now = performance.now();
+		do {
+			boundary += total;
+		} while (boundary <= now);
+		timer = setTimeout(tick, Math.min(boundary - now, stepCap));
+	};
+	timer = setTimeout(tick, Math.min(boundary - performance.now(), stepCap));
+	return () => {
+		cancelled = true;
+		if (timer !== undefined) {
+			clearTimeout(timer);
+			timer = undefined;
+		}
+	};
+};
+
 const withManagerMeta = <T extends object>(manager: T, id?: string, opId?: string): T => {
 	if (id !== undefined) {
 		(manager as { id?: string; }).id = id;
@@ -78,20 +129,10 @@ export const toInternalOp = <Args extends readonly unknown[], E, A>(op: Op<Args,
 /** Waits by the specified duration. Resolves early if the signal fires (non-blocking abort). */
 export const cancellableWait = (duration: Duration, signal: AbortSignal): Promise<void> => {
 	const rawMs = getMs(duration);
-	if (rawMs <= 0 || signal.aborted) { return Promise.resolve(); }
-	return new Promise<void>((resolve) => {
-		// oxlint-disable-next-line prefer-const
-		let timerId: ReturnType<typeof setTimeout>;
-		const onAbort = (): void => {
-			clearTimeout(timerId);
-			resolve();
-		};
-		timerId = setTimeout(() => {
-			signal.removeEventListener("abort", onAbort);
-			resolve();
-		}, clampTimerDelay(rawMs));
-		signal.addEventListener("abort", onAbort, { once: true });
-	});
+	if (rawMs <= 0) {
+		return Promise.resolve();
+	}
+	return waitForDelay(rawMs, signal);
 };
 
 // ---------------------------------------------------------------------------
@@ -311,8 +352,7 @@ export const makeRestartable = <Args extends readonly unknown[], E, A>(
 			},
 			poll: ({ interval }: { interval: Duration; }) => (...args: Args) => {
 				void run(...args);
-				const pollTimer = setInterval(() => void run(...args), getMs(interval));
-				return () => clearInterval(pollTimer);
+				return schedulePollRepeat(interval, () => void run(...args));
 			},
 		},
 		id,
@@ -421,8 +461,7 @@ export const makeExclusive = <Args extends readonly unknown[], E, A>(
 			},
 			poll: ({ interval }: { interval: Duration; }) => (...args: Args) => {
 				void run(...args);
-				const pollTimer = setInterval(() => void run(...args), getMs(interval));
-				return () => clearInterval(pollTimer);
+				return schedulePollRepeat(interval, () => void run(...args));
 			},
 		},
 		id,
@@ -611,8 +650,7 @@ export const makeQueue = <Args extends readonly unknown[], E, A>(
 			},
 			poll: ({ interval }: { interval: Duration; }) => (...args: Args) => {
 				void run(...args);
-				const pollTimer = setInterval(() => void run(...args), getMs(interval));
-				return () => clearInterval(pollTimer);
+				return schedulePollRepeat(interval, () => void run(...args));
 			},
 		},
 		id,
@@ -734,8 +772,7 @@ export const makeBuffered = <Args extends readonly unknown[], E, A>(
 			},
 			poll: ({ interval }: { interval: Duration; }) => (...args: Args) => {
 				void run(...args);
-				const pollTimer = setInterval(() => void run(...args), getMs(interval));
-				return () => clearInterval(pollTimer);
+				return schedulePollRepeat(interval, () => void run(...args));
 			},
 		},
 		id,
@@ -941,8 +978,7 @@ export const makeDebounced = <Args extends readonly unknown[], E, A>(
 			},
 			poll: ({ interval }: { interval: Duration; }) => (...args: Args) => {
 				void run(...args);
-				const pollTimer = setInterval(() => void run(...args), getMs(interval));
-				return () => clearInterval(pollTimer);
+				return schedulePollRepeat(interval, () => void run(...args));
 			},
 		},
 		id,
@@ -1089,8 +1125,7 @@ export const makeThrottled = <Args extends readonly unknown[], E, A>(
 			},
 			poll: ({ interval }: { interval: Duration; }) => (...args: Args) => {
 				void run(...args);
-				const pollTimer = setInterval(() => void run(...args), getMs(interval));
-				return () => clearInterval(pollTimer);
+				return schedulePollRepeat(interval, () => void run(...args));
 			},
 		},
 		id,
@@ -1251,8 +1286,7 @@ export const makeConcurrent = <Args extends readonly unknown[], E, A>(
 			},
 			poll: ({ interval }: { interval: Duration; }) => (...args: Args) => {
 				void run(...args);
-				const pollTimer = setInterval(() => void run(...args), getMs(interval));
-				return () => clearInterval(pollTimer);
+				return schedulePollRepeat(interval, () => void run(...args));
 			},
 		},
 		id,
@@ -1376,8 +1410,7 @@ export const makeKeyed = <Args extends readonly unknown[], K, E, A>(
 			},
 			poll: ({ interval }: { interval: Duration; }) => (...args: Args) => {
 				void run(...args);
-				const pollTimer = setInterval(() => void run(...args), getMs(interval));
-				return () => clearInterval(pollTimer);
+				return schedulePollRepeat(interval, () => void run(...args));
 			},
 		},
 		id,
@@ -1466,8 +1499,7 @@ export const makeOnce = <Args extends readonly unknown[], E, A>(
 			},
 			poll: ({ interval }: { interval: Duration; }) => (...args: Args) => {
 				void run(...args);
-				const pollTimer = setInterval(() => void run(...args), getMs(interval));
-				return () => clearInterval(pollTimer);
+				return schedulePollRepeat(interval, () => void run(...args));
 			},
 		},
 		id,

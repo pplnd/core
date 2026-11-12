@@ -24,7 +24,18 @@ function formatBytes(bytes: number): string {
 function getMeasuredSizes(): Map<string, SizeItem> {
 	// Always rebuild: a stale dist would report sizes for code that is no longer in the tree.
 	execSync("pnpm build", { cwd: projectRoot, stdio: "pipe" });
-	const raw = execSync("npx size-limit --json", { cwd: projectRoot, encoding: "utf8" });
+	let raw: string;
+	try {
+		raw = execSync("npx size-limit --json", { cwd: projectRoot, encoding: "utf8" });
+	} catch (error) {
+		// size-limit exits non-zero when a budget fails; its stdout still carries the JSON report,
+		// so measure from it and let the assertions name the failing targets instead of crashing
+		// the whole file at module load.
+		raw = (error as { stdout?: string; }).stdout ?? "";
+		if (raw === "") {
+			throw error;
+		}
+	}
 	const items = JSON.parse(raw) as SizeItem[];
 	const map = new Map<string, SizeItem>();
 	for (const item of items) {

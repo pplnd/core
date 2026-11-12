@@ -11,9 +11,11 @@ const isBoolean = (value: unknown): value is boolean => typeof value === "boolea
 const isTrue = (value: unknown): value is true => value === true;
 const isFalse = (value: unknown): value is false => value === false;
 type Falsy = false | 0 | 0n | "" | null | undefined;
-type FalsyOf<A> = A extends number ? (number extends A ? number : A & Falsy) : A & Falsy;
 const isTruthy = <T>(value: T): value is Exclude<T, Falsy> => Boolean(value);
-const isFalsy = <A>(value: A): value is FalsyOf<A> => !value;
+// A plain boolean rather than a `value is` predicate: a branded number holding NaN made the old
+// narrowing claim `0 & Brand` while the guard returned true. Falsy narrowing that is sound lives
+// on the negative branch of `isTruthy`.
+const isFalsy = <A>(value: A): boolean => !value;
 
 const not = (condition: boolean): boolean => !condition;
 const and = (that: boolean) => (condition: boolean): boolean => condition && that;

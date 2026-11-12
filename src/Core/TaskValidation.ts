@@ -194,7 +194,7 @@ export const TaskValidation = {
 	 * ```
 	 */
 	apply:
-		<E2 = never, A = unknown>(arg: Task.Validation<E2, A>) =>
+		<E2 = never, A = never>(arg: Task.Validation<E2, A>) =>
 		<B, E1 = never>(task: Task.Validation<E1, (value: A) => B>): Task.Validation<E1 | E2, B> =>
 		(signal) =>
 			Deferred.from.Promise(

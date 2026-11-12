@@ -215,3 +215,28 @@ test("paginate: negative — a page must carry an items array", () => {
 		Task.Result.paginate((_cursor: string | undefined) => Task.from.sync(() => Result.make.ok({ next: "a" }))),
 	).toBeFunction();
 });
+
+test("retry: an annotated policy sees the task's exact error union", () => {
+	type LoadError = "offline" | "timeout";
+	const policy: RetryPolicy<LoadError> = {
+		attempts: 3,
+		getDelay: () => Duration.milliseconds(10),
+		when: (error) => {
+			expectTypeOf(error).toEqualTypeOf<LoadError>();
+			return error === "offline";
+		},
+	};
+	const task = Task.Result.tryCatch(() => Promise.resolve("data"), {
+		onError: () => (constTruthyBool() ? "offline" : "timeout"),
+	});
+	expectTypeOf(Task.Result.retry(policy)(task)).toBeFunction();
+});
+
+test("retry: a policy typed narrower than the task's union is rejected", () => {
+	const narrowPolicy: RetryPolicy<"offline"> = { attempts: 3, getDelay: () => Duration.milliseconds(10) };
+	const task = Task.Result.tryCatch(() => Promise.resolve("data"), {
+		onError: () => (constTruthyBool() ? "offline" : "timeout"),
+	});
+	// @ts-expect-error the policy must cover the task's whole error union
+	expectTypeOf(Task.Result.retry(narrowPolicy)(task)).toBeFunction();
+});

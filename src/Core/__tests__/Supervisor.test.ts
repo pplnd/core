@@ -226,3 +226,88 @@ test("subscribe: reports transitions and stops after unsubscribe", async () => {
 
 	expect(states).toStrictEqual(["SupervisorRunning", "SupervisorStopped"]);
 });
+
+test("run: aborting during the BackingOff notification never runs a zombie attempt", async () => {
+	await withFakeTimers(async () => {
+		let calls = 0;
+		const task = Task.from.sync(() => {
+			calls++;
+			return calls === 1 ? Result.make.err("boom") : Result.make.ok(undefined);
+		});
+		const supervisor = Supervisor.make(task, {
+			restart: CoreRetryPolicy.constant({ attempts: 2, delay: Duration.milliseconds(50) }),
+		});
+		supervisor.subscribe((state) => {
+			if (state.kind === "SupervisorBackingOff") {
+				supervisor.abort();
+			}
+		});
+
+		const lifetime = supervisor.run();
+		await vi.advanceTimersByTimeAsync(0);
+		await expect(lifetime).resolves.toStrictEqual(Result.make.ok({ kind: "SupervisorStopped", reason: "aborted" }));
+		expect(calls).toBe(1);
+		expect(supervisor.state()).toStrictEqual({ kind: "SupervisorStopped", reason: "aborted" });
+
+		await vi.advanceTimersByTimeAsync(200);
+		expect(calls).toBe(1);
+		expect(supervisor.state()).toStrictEqual({ kind: "SupervisorStopped", reason: "aborted" });
+		expect(vi.getTimerCount()).toBe(0);
+	});
+});
+
+test("run: aborting inside onRetry never publishes BackingOff after Stopped", async () => {
+	await withFakeTimers(async () => {
+		let calls = 0;
+		const supervisor = Supervisor.make(
+			Task.from.sync(() => {
+				calls++;
+				return calls === 1 ? Result.make.err("boom") : Result.make.ok(undefined);
+			}),
+			{
+				restart: CoreRetryPolicy.constant({
+					attempts: 2,
+					delay: Duration.milliseconds(50),
+					onRetry: () => supervisor.abort(),
+				}),
+			},
+		);
+		const kinds: string[] = [];
+		supervisor.subscribe((state) => kinds.push(state.kind));
+
+		const lifetime = supervisor.run();
+		await vi.advanceTimersByTimeAsync(0);
+		await expect(lifetime).resolves.toStrictEqual(Result.make.ok({ kind: "SupervisorStopped", reason: "aborted" }));
+		expect(calls).toBe(1);
+		expect(supervisor.state()).toStrictEqual({ kind: "SupervisorStopped", reason: "aborted" });
+		expect(kinds).not.toContain("SupervisorBackingOff");
+		await vi.advanceTimersByTimeAsync(200);
+		expect(calls).toBe(1);
+		expect(vi.getTimerCount()).toBe(0);
+	});
+});
+
+test("subscribe: a listener never receives a stale state after a newer one was delivered", async () => {
+	await withFakeTimers(async () => {
+		const supervisor = Supervisor.make(Task.from.sync(() => Result.make.ok(undefined)), {
+			restart: CoreRetryPolicy.constant({ attempts: 1, delay: Duration.milliseconds(10) }),
+		});
+		let restarted = false;
+		const second: string[] = [];
+		supervisor.subscribe((state) => {
+			if (!restarted && state.kind === "SupervisorStopped") {
+				restarted = true;
+				supervisor.run(); // re-enters during the Stopped notification
+			}
+		});
+		supervisor.subscribe((state) => second.push(state.kind));
+
+		await supervisor.run();
+		await vi.advanceTimersByTimeAsync(0);
+
+		// The re-entrant run() delivered Running to every listener; the outer notification
+		// must not follow it with the stale Stopped snapshot it started with.
+		expect(second.filter((kind) => kind === "SupervisorStopped")).toHaveLength(1);
+		expect(second[second.length - 1]).toBe("SupervisorStopped");
+	});
+});

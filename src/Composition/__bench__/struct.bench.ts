@@ -26,6 +26,8 @@ const previous = (row: Row) => {
 	return result;
 };
 
+// Benchmark state is intentionally shared across iterations, so it lives outside hooks.
+// oxlint-disable-next-line vitest/require-hook
 let cursor = 0;
 const nextRow = () => {
 	cursor = (cursor + 1) & 255;
