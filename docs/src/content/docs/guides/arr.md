@@ -5,7 +5,7 @@ description: Search, split, regroup, and validate readonly arrays with bounds-sa
 
 <!-- BUNDLE_SIZE:START -->
 
-> 6.57 kB minified + gzipped
+> 6.82 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -121,7 +121,7 @@ untyped data.
 | `Arr.prepend(item)` / `Arr.append(item)`              | Adds an item at the start or end.                     | `NonEmptyArr<A>`                  |
 | `Arr.intersperse(item)` / `Arr.concat(other)`         | Inserts a separator between items / joins two arrays. | An array                          |
 | `Arr.chunksOf(size)` / `Arr.windowed(size, { step })` | Splits into fixed chunks / sliding windows.           | Arrays; empty for an invalid size |
-| `Arr.chunkBy(keySelector)`                            | Groups consecutive items that share a key.            | Arrays of arrays                  |
+| `Arr.chunkBy(keyBy)`                                  | Groups consecutive items that share a key.            | Arrays of arrays                  |
 | `Arr.unfold(seed, step)`                              | Builds items until the callback returns `None`.       | An array                          |
 
 ### Reading and Searching
@@ -143,7 +143,7 @@ untyped data.
 | `Arr.filter(predicate)` / `Arr.filterMap(transform)`                                                                   | Keeps matching items / `Some` results.                       | A new array                                                          |
 | `Arr.compact(items)`                                                                                                   | Unwraps a `Maybe` array and drops `None`.                    | Array of values                                                      |
 | `Arr.partition(predicate)` / `Arr.partitionMap(transform)` / `Arr.partitionMaybe(transform)` / `Arr.separate(items)`   | Splits into two arrays.                                      | `partition` puts matches first; the others put failures first        |
-| `Arr.uniq` / `Arr.uniqBy(keySelector)` / `Arr.uniqWith(areEqual)` / `Arr.dedupeAdjacent()`                             | Removes duplicates.                                          | `uniq` uses same-value equality; `dedupeAdjacent` compares neighbors |
+| `Arr.uniq` / `Arr.uniqBy(keyBy)` / `Arr.uniqWith(areEqual)` / `Arr.dedupeAdjacent()`                                   | Removes duplicates.                                          | `uniq` uses same-value equality; `dedupeAdjacent` compares neighbors |
 | `Arr.sortBy(compare)` / `Arr.sortWith(ordering)` / `Arr.reverse`                                                       | Reorders items.                                              | A new sorted array                                                   |
 | `Arr.take(count)` / `Arr.drop(count)` / `Arr.takeWhile(predicate)` / `Arr.dropWhile(predicate)` / `Arr.splitAt(index)` | Selects a portion.                                           | An array or a pair of arrays                                         |
 | `Arr.insertAt(index, item)` / `Arr.removeAt(index)`                                                                    | Inserts or removes one item.                                 | A new array, or the input for an invalid index                       |
@@ -155,8 +155,8 @@ untyped data.
 | :------------------------------------------------------------------------------------------- | :--------------------------------------------- | :----------------------------------------------------- |
 | `Arr.zip(other)` / `Arr.zipWith(combine)(other)`                                             | Pairs items from two arrays.                   | Stops at the shorter array                             |
 | `Arr.flatten(items)` / `Arr.flatMap(transform)`                                              | Flattens one level / maps then flattens.       | A new array                                            |
-| `Arr.groupBy(keySelector)`                                                                   | Groups items under string keys.                | `Record<string, NonEmptyArr<A>>`                       |
-| `Arr.indexBy(keySelector)` / `Arr.frequencies(items)`                                        | Builds a map from items / counts each value.   | `ReadonlyMap`; `indexBy` keeps the last item per key   |
+| `Arr.groupBy(keyBy)`                                                                         | Groups items under string keys.                | `Record<string, NonEmptyArr<A>>`                       |
+| `Arr.indexBy(keyBy)` / `Arr.frequencies(items)`                                              | Builds a map from items / counts each value.   | `ReadonlyMap`; `indexBy` keeps the last item per key   |
 | `Arr.reduce(initial, reducer)`                                                               | Accumulates from an initial value.             | The final accumulator                                  |
 | `Arr.traverse.Maybe/Result/Validation(transform)` / `Arr.traverse.Task(transform, options?)` | Maps items into a container and combines them. | `Maybe`, `Result`, `Validation`, or `Task` of an array |
 | `Arr.sequence.Maybe/Result/Validation(items)` / `Arr.sequence.Task(items, options?)`         | Combines already-created containers.           | The same container around an array                     |

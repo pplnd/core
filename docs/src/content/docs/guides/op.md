@@ -5,7 +5,7 @@ description: Run asynchronous work through a manager that reports state and sett
 
 <!-- BUNDLE_SIZE:START -->
 
-> 6.39 kB minified + gzipped
+> 6.44 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -115,26 +115,26 @@ const guardedSearches = Op.interpret(
 );
 
 const outcome = await guardedSearches.run("park");
-// OpErr(CircuitBreaker.OpenError) with retryAfterMs while the breaker blocks calls
+// OpErr(CircuitBreaker.OpenError) with retryAfter while the breaker blocks calls
 ```
 
 While the breaker blocks, the run settles as `OpErr` carrying `CircuitBreaker.OpenError`, and
-`retryAfterMs` tells the view how long to wait. The [CircuitBreaker guide](/guides/circuit-breaker/)
+`retryAfter` tells the view how long to wait. The [CircuitBreaker guide](/guides/circuit-breaker/)
 covers thresholds and probe behavior.
 
 ## Core Operations
 
 ### Creating and Running
 
-| Signature                             | What it does                                              | Return type or behavior                     |
-| :------------------------------------ | :-------------------------------------------------------- | :------------------------------------------ |
-| `Op.make(taskFactory, { id })`        | Defines work from a factory that returns a `Task.Result`. | `Op<Args, E, A>`                            |
-| `Op.interpret(op, options)`           | Creates a manager with a strategy and optional controls.  | An `Op` manager                             |
-| `manager.run(...args)`                | Starts or schedules one invocation.                       | `Deferred` of that invocation's outcome     |
-| `manager.state` / `subscribe(fn)`     | Reads state / observes changes.                           | `subscribe` returns an unsubscribe function |
-| `manager.abort()` / `reset()`         | Aborts active work / returns the manager to idle.         | `reset` also aborts active work             |
-| `manager.poll({ interval })(...args)` | Runs once now, then again at every interval boundary.     | Returns a function that stops polling       |
-| `Op.wire(manager, sideEffect)`        | Calls the side effect for successful states.              | Returns an unsubscribe function             |
+| Signature                          | What it does                                              | Return type or behavior                     |
+| :--------------------------------- | :-------------------------------------------------------- | :------------------------------------------ |
+| `Op.make(taskFactory, { id })`     | Defines work from a factory that returns a `Task.Result`. | `Op<Args, E, A>`                            |
+| `Op.interpret(op, options)`        | Creates a manager with a strategy and optional controls.  | An `Op` manager                             |
+| `manager.run(...args)`             | Starts or schedules one invocation.                       | `Deferred` of that invocation's outcome     |
+| `manager.state` / `subscribe(fn)`  | Reads state / observes changes.                           | `subscribe` returns an unsubscribe function |
+| `manager.abort()` / `reset()`      | Aborts active work / returns the manager to idle.         | `reset` also aborts active work             |
+| `manager.poll({ every })(...args)` | Runs once now, then again on the `every` cadence.         | Returns a function that stops polling       |
+| `Op.wire(manager, sideEffect)`     | Calls the side effect for successful states.              | Returns an unsubscribe function             |
 
 A new subscriber receives the current state unless the manager is idle. For `keyed`, the snapshot
 arrives when the state map is not empty.
@@ -147,17 +147,17 @@ arrives when the state map is not empty.
 | `restartable` | Replaces the active call. `minInterval` delays the start of a new call.                           |
 | `exclusive`   | Drops calls while work is active or during `cooldown`.                                            |
 | `queue`       | Waits for a slot. Options: `maxSize`, `overflow`, `concurrency`, `dedupe`.                        |
-| `buffered`    | Runs one call and keeps up to `size` waiting; a full buffer evicts the oldest entry.              |
+| `buffered`    | Runs one call and keeps up to `maxSize` waiting; a full buffer evicts the oldest entry.           |
 | `debounced`   | Waits for a quiet `duration`; a newer call evicts the waiting one. Options: `leading`, `maxWait`. |
 | `throttled`   | Allows one call per `duration`; extras are dropped, or with `trailing` the newest waits.          |
 | `concurrent`  | Runs up to `concurrency` calls; `overflow` is `drop` or `queue`.                                  |
-| `keyed`       | Tracks a run per key. Options: `key`, `perKey`.                                                   |
+| `keyed`       | Tracks a run per key. Options: `keyBy`, `perKey`.                                                 |
 
 `queue` starts one call at a time and clamps a nonpositive or non-integer `concurrency` or `maxSize`
-to 1. `buffered` clamps `size` to 1. `concurrent` defaults to one call and drops the overflow unless
-`overflow` is `queue`. `keyed` uses the first argument as the key and `exclusive` per key unless
-configured otherwise. Retry is available for every strategy except `keyed`; timeout is available for
-all of them.
+to 1. `buffered` clamps `maxSize` to 1. `concurrent` defaults to one call and drops the overflow
+unless `overflow` is `queue`. `keyed` uses the first argument as the key and `exclusive` per key
+unless configured otherwise. Retry is available for every strategy except `keyed`; timeout is
+available for all of them.
 
 ### Reading and Transforming Outcomes
 
@@ -200,13 +200,13 @@ as a nil reason; [Aborted](/guides/aborted/) describes the cancellation value th
 `Transaction`, and `Batcher` carry in their error channels.
 
 Polling starts one run immediately and schedules the rest on absolute boundaries of a monotonic
-clock (`start + k * interval`), so timer jitter never accumulates across repeats. Every finite
-interval is honored at full length, including intervals longer than the platform's single-timer
-limit of about 24.8 days, which are delivered by chaining timers; the environment delivers each
-repeat at or after its boundary. A non-finite, sub-millisecond, zero, or negative interval schedules
-no repeat: the initial run still executes, and that once. Stopping the poll prevents future runs;
-the active run continues unless `abort` is called. For `keyed`, `abort()` aborts every key while
-`abort(undefined)` aborts only the key `undefined`.
+clock (`start + k * every`), so timer jitter never accumulates across repeats. Every finite `every`
+is honored at full length, including values longer than the platform's single-timer limit of about
+24.8 days, which are delivered by chaining timers; the environment delivers each repeat at or after
+its boundary. A non-finite, sub-millisecond, zero, or negative `every` schedules no repeat: the
+initial run still executes, and that once. Stopping the poll prevents future runs; the active run
+continues unless `abort` is called. For `keyed`, `abort()` aborts every key while `abort(undefined)`
+aborts only the key `undefined`.
 
 The retry predicate, `onRetry` callback, timeout handler, key function, and subscribers must not
 throw. Subscriber callbacks run inside the manager's state transition, so a throw can skip the rest

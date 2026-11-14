@@ -204,9 +204,9 @@ earlier in the sequence. The same earlier step can appear under multiple depende
 step IDs catch ordering errors in TypeScript; dynamic or broadly typed references are checked when
 the transaction is constructed. An `undefined` dependency entry is treated as absent, and its value
 is `undefined` in the step callback. Apply `Task.Result.retry(policy)` or
-`Task.Result.timeout({ duration, onTimeout })` to the task a step returns when the work needs
-retries or a deadline; a wrapper such as `Task.Result.timeout` can pass a derived signal to the
-work.
+`Task.Result.timeout(TimeoutPolicy.after({ duration, onTimeout }))` to the task a step returns when
+the work needs retries or a deadline; a wrapper such as `Task.Result.timeout` can pass a derived
+signal to the work.
 
 ## Failure Behavior and Edge Cases
 

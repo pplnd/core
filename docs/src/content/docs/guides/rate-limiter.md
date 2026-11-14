@@ -19,7 +19,7 @@ because every retry is another call against the same window.
 Every admitted call holds a permit until that window has passed.
 
 - `"wait"` (the default) queues the call and starts it when the oldest admitted call expires.
-- `"reject"` settles immediately with `RateLimiter.LimitError` carrying `retryAfterMs`.
+- `"reject"` settles immediately with `RateLimiter.LimitError` carrying `retryAfter`.
 - `maxWait` bounds the wait: a call whose estimate exceeds it settles with reason `"max-wait"`.
 - A caller's signal removes a queued call without spending a permit.
 
@@ -41,7 +41,7 @@ flowchart TD
   Free -->|No| Mode{"strategy"}
   Mode -->|wait| Queue["queue in arrival order"]
   Queue --> Expire["oldest permit expires"] --> Start
-  Mode -->|reject| Err["Err(RateLimitExceeded, retryAfterMs)"]
+  Mode -->|reject| Err["Err(RateLimitExceeded, retryAfter)"]
 ```
 
 ### Pacing the Requests
@@ -72,12 +72,12 @@ const fetchIssues = (repo: string): Task.Result<ApiError, readonly string[]> =>
   );
 
 const titles = await github.run(fetchIssues("vercel/next.js"));
-// Ok(titles) once a permit is free, or Err({ kind: "RateLimitExceeded", retryAfterMs })
+// Ok(titles) once a permit is free, or Err({ kind: "RateLimitExceeded", retryAfter })
 ```
 
 A fan-out of 200 panels now runs 60 immediately and queues the rest, in submission order. A queue
-call that waits longer than `maxWait` never starts, and its `retryAfterMs` is what the caller needs
-to schedule its own retry.
+call that waits longer than `maxWait` never starts, and its `retryAfter` is what the caller needs to
+schedule its own retry.
 
 ### Retrying Under the Quota
 
@@ -121,12 +121,12 @@ is how long each admitted call holds its permit. `strategy` chooses between queu
 
 ### Reading Outcomes
 
-| Signature                     | What it does                    | Result                   |
-| :---------------------------- | :------------------------------ | :----------------------- |
-| `limiter.run(task).then(...)` | Awaits the task or the refusal. | `Result`                 |
-| `RateLimiter.LimitError`      | A call that never started.      | `retryAfterMs`, `reason` |
+| Signature                     | What it does                    | Result                 |
+| :---------------------------- | :------------------------------ | :--------------------- |
+| `limiter.run(task).then(...)` | Awaits the task or the refusal. | `Result`               |
+| `RateLimiter.LimitError`      | A call that never started.      | `retryAfter`, `reason` |
 
-A refusal is `{ kind: "RateLimitExceeded", retryAfterMs, reason }`, with `"exhausted"` for the
+A refusal is `{ kind: "RateLimitExceeded", retryAfter, reason }`, with `"exhausted"` for the
 rejecting strategy and `"max-wait"` for a wait beyond `maxWait`. The task's own errors pass through
 unchanged.
 

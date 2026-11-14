@@ -157,5 +157,5 @@ instead of retrying into a dead service.
 
 If the API enforces a quota, wrap the task in a [`RateLimiter`](/guides/rate-limiter/) instead. Put
 the limiter inside the retry loop, so every attempt takes its own permit, and keep the retry
-predicate aware of the refusal: a call that settles with `RateLimitExceeded` carries `retryAfterMs`,
+predicate aware of the refusal: a call that settles with `RateLimitExceeded` carries `retryAfter`,
 which is the hint the screen needs to say when the submit can be tried again.

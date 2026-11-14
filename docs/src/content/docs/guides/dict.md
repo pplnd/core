@@ -127,7 +127,7 @@ identity ends at the conversion: the record has string keys only.
 | :-------------------------------------------------------------------------- | :------------------------------ | :-------------------------------------------------------- |
 | `Dict.union(other)` / `Dict.intersection(other)` / `Dict.difference(other)` | Combines maps or selects keys.  | `union` prefers `other`; the others keep the input values |
 | `Dict.mergeWith(combine)`                                                   | Merges values at matching keys. | Curried or uncurried; `combine` receives both values      |
-| `Dict.groupBy(keySelector)`                                                 | Groups array items by a key.    | `ReadonlyMap<K, NonEmptyArr<A>>` in input order           |
+| `Dict.groupBy(keyBy)`                                                       | Groups array items by a key.    | `ReadonlyMap<K, NonEmptyArr<A>>` in input order           |
 | `Dict.reduce(initial, reducer)` / `Dict.reduceWithKey(initial, reducer)`    | Accumulates values / entries.   | The final accumulator                                     |
 
 ### Working with Non-Empty Maps

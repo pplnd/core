@@ -5,7 +5,7 @@ description: Pause calls to a failing dependency and allow controlled recovery p
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.82 kB minified + gzipped
+> 2.83 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -81,7 +81,7 @@ const packageDescription = async (name: string): Promise<string> => {
       ok: (description) => description,
       err: (error) =>
         CircuitBreaker.is.openError(error)
-          ? `Registry cooling down; retry after ${error.retryAfterMs}ms`
+          ? `Registry cooling down; retry after ${Duration.to.milliseconds(error.retryAfter)}ms`
           : `Registry request failed: ${error}`,
     }),
   );
@@ -91,7 +91,7 @@ console.log(await packageDescription("parser"));
 ```
 
 A blocked call never reaches `readPackage`, so it resolves without a request. The `OpenError`
-carries the last failure and the remaining cooldown in `retryAfterMs`.
+carries the last failure and the remaining cooldown in `retryAfter`.
 
 ### Retrying Under a Manager
 
@@ -148,7 +148,7 @@ a success resets the count.
 | `CircuitBreaker.is.halfOpen(state)`  | Checks for trial recovery.     | Type guard                      |
 | `CircuitBreaker.is.openError(value)` | Checks for a fast-failed call. | Type guard                      |
 
-`Closed` reports the current failure count, `Open` reports `retryAfterMs` and the error that tripped
+`Closed` reports the current failure count, `Open` reports `retryAfter` and the error that tripped
 it, and `HalfOpen` reports whether a probe is in flight and how many probes have succeeded.
 
 ## Failure Behavior and Edge Cases
@@ -171,7 +171,7 @@ await lookupBreaker.run(Task.Result.make.err("package not found"));
 // The caller receives Err("package not found"); lookupBreaker.state().kind is "Closed".
 ```
 
-A concurrent call during an active probe receives `CircuitBreaker.OpenError` with `retryAfterMs` of
+A concurrent call during an active probe receives `CircuitBreaker.OpenError` with `retryAfter` of
 zero. `state()` can report `HalfOpen` after the cooldown even before a call starts a probe.
 
 `reset()` closes the circuit and clears its failure history. It does not cancel an in-flight probe:

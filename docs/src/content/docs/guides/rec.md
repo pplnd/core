@@ -127,7 +127,7 @@ keyed by a parsed descriptor needs.
 | :------------------------------------- | :-------------------------------------- | :------------------------------------------------------ |
 | `Rec.merge(other)`                     | Shallow merge; `other` wins collisions. | A new object                                            |
 | `Rec.mergeWith(combine)`               | Merges with a collision callback.       | Curried or uncurried; the callback receives both values |
-| `Rec.groupBy(keySelector)`             | Groups array items under string keys.   | `Record<string, readonly A[]>`                          |
+| `Rec.groupBy(keyBy)`                   | Groups array items under string keys.   | `Record<string, readonly A[]>`                          |
 | `Rec.traverse.Maybe/Result(transform)` | Maps each value into a container.       | Stops at the first `None` or `Err`                      |
 | `Rec.sequence.Maybe/Result(record)`    | Combines already-created containers.    | The container around an object                          |
 

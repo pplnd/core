@@ -105,7 +105,7 @@ const paymentManager = Op.interpret(submitPaymentOp, {
     attempts: 3,
     initial: Duration.milliseconds(500),
   }),
-  timeout: { duration: Duration.seconds(10), onTimeout: () => paymentTimedOut },
+  timeout: TimeoutPolicy.after({ duration: Duration.seconds(10), onTimeout: () => paymentTimedOut }),
 });
 ```
 

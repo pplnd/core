@@ -5,7 +5,7 @@ description: Describe asynchronous work now, run it on demand, and keep failures
 
 <!-- BUNDLE_SIZE:START -->
 
-> 4.55 kB minified + gzipped
+> 4.80 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -147,35 +147,36 @@ options.
 
 ### Combining Tasks
 
-| Signature                                 | What it does                                             | Behavior                                                                      |
-| :---------------------------------------- | :------------------------------------------------------- | :---------------------------------------------------------------------------- |
-| `Task.all(tasks, { concurrency })`        | Runs tasks in parallel and collects a tuple.             | Nonpositive or non-integer `concurrency` clamps to 1; omitted runs unbounded. |
-| `Task.race(tasks)`                        | Settles with the first task to resolve.                  | Aborts the other tasks' signals.                                              |
-| `Task.apply(argument)`                    | Applies a task-wrapped function to a task-wrapped value. | Both tasks run in parallel.                                                   |
-| `Task.Result.all(tasks, { concurrency })` | Runs fallible tasks in parallel.                         | The first `Err` cancels active work; a caller abort settles as `Aborted`.     |
-| `Task.Result.struct(fields)`              | Combines a record of fallible tasks.                     | Waits for every field; the first error in key order wins.                     |
-| `Task.Maybe.struct(fields)`               | Combines a record of optional tasks.                     | `None` when any field is missing.                                             |
-| `Task.Validation.struct(fields)`          | Combines a record of validations.                        | Collects every error in key order.                                            |
-| `Task.Result.allSettled(tasks)`           | Collects each outcome.                                   | Keeps successes and errors per position.                                      |
+| Signature                                 | What it does                                                   | Behavior                                                                                    |
+| :---------------------------------------- | :------------------------------------------------------------- | :------------------------------------------------------------------------------------------ |
+| `Task.all(tasks, { concurrency })`        | Runs tasks in parallel and collects a tuple.                   | Nonpositive or non-integer `concurrency` clamps to 1; omitted runs unbounded.               |
+| `Task.race(tasks)`                        | Settles with the first task to resolve.                        | Aborts the other tasks' signals.                                                            |
+| `Task.apply(argument)`                    | Applies a task-wrapped function to a task-wrapped value.       | Both tasks run in parallel.                                                                 |
+| `Task.Result.all(tasks, { concurrency })` | Runs fallible tasks in parallel.                               | The first `Err` cancels active work; a caller abort settles as `Aborted`.                   |
+| `Task.Result.any(tasks)`                  | Hedges fallible tasks in parallel and takes the first success. | Aborts the losers; every task failing settles with a frozen tuple of errors in input order. |
+| `Task.Result.struct(fields)`              | Combines a record of fallible tasks.                           | Waits for every field; the first error in key order wins.                                   |
+| `Task.Maybe.struct(fields)`               | Combines a record of optional tasks.                           | `None` when any field is missing.                                                           |
+| `Task.Validation.struct(fields)`          | Combines a record of validations.                              | Collects every error in key order.                                                          |
+| `Task.Result.allSettled(tasks)`           | Collects each outcome.                                         | Keeps successes and errors per position.                                                    |
 
 ### Running and Controlling
 
-| Signature                                                    | What it does                                          | Behavior                                                   |
-| :----------------------------------------------------------- | :---------------------------------------------------- | :--------------------------------------------------------- |
-| `task(signal)` / `Task.run(signal)`                          | Runs a task directly or at the end of a pipe.         | Returns `Deferred<A>`.                                     |
-| `Task.Result.run` / `Task.Maybe.run` / `Task.Validation.run` | Runs a specialized task.                              | Returns the deferred container.                            |
-| `Task.delay(duration)`                                       | Waits before running the task.                        | Aborting the wait starts the task with the aborted signal. |
-| `Task.timeout({ duration, onTimeout })`                      | Adds a deadline to an infallible task.                | Returns a `Task.Result`; `onTimeout` supplies the error.   |
-| `Task.Result.timeout({ duration, onTimeout })`               | Adds a deadline to a fallible task.                   | Appends the timeout error to the error union.              |
-| `Task.repeat({ times, delay })`                              | Runs the task a fixed number of times.                | Returns `Task` of a result array.                          |
-| `Task.poll({ until, delay, attempts })`                      | Runs the task until a predicate passes.               | Returns the last value at the attempt limit.               |
-| `Task.Result.poll({ until, delay, attempts })`               | Repeats fallible work until a predicate passes.       | The first `Err` ends the loop.                             |
-| `Task.Result.paginate(load)`                                 | Follows a loader's cursor until a page has no `next`. | The first `Err` ends the run; collected pages are dropped. |
-| `Task.memoize(task)`                                         | Shares the first execution and its result.            | Later calls reuse the same deferred value.                 |
-| `Task.abortable(factory)`                                    | Creates a task with an abort handle.                  | A new call aborts the previous one.                        |
-| `Task.withProgress(onProgress)`                              | Reports `0` before the work and `1` after it settles. | Returns a task that reports progress.                      |
-| `Task.withLabel(label)`                                      | Attaches a read-only label.                           | Returns a labeled task.                                    |
-| `Task.Result.retry(policy)`                                  | Repeats failed work according to a `RetryPolicy`.     | Stops on success, a filtered error, or exhausted attempts. |
+| Signature                                                           | What it does                                                           | Behavior                                                                        |
+| :------------------------------------------------------------------ | :--------------------------------------------------------------------- | :------------------------------------------------------------------------------ |
+| `task(signal)` / `Task.run(signal)`                                 | Runs a task directly or at the end of a pipe.                          | Returns `Deferred<A>`.                                                          |
+| `Task.Result.run` / `Task.Maybe.run` / `Task.Validation.run`        | Runs a specialized task.                                               | Returns the deferred container.                                                 |
+| `Task.delay(duration)`                                              | Waits before running the task.                                         | Aborting the wait starts the task with the aborted signal.                      |
+| `Task.timeout(TimeoutPolicy.after({ duration, onTimeout }))`        | Adds a deadline to an infallible task.                                 | Returns a `Task.Result`; `onTimeout` supplies the error.                        |
+| `Task.Result.timeout(TimeoutPolicy.after({ duration, onTimeout }))` | Adds a deadline to a fallible task.                                    | Appends the timeout error to the error union.                                   |
+| `Task.repeat({ times, every })`                                     | Runs the task a fixed number of times.                                 | Returns `Task` of a result array.                                               |
+| `Task.poll({ until, every, attempts })`                             | Runs the task until a predicate passes.                                | Returns the last value at the attempt limit.                                    |
+| `Task.Result.poll({ until, every, attempts })`                      | Repeats fallible work until a predicate passes.                        | The first `Err` ends the loop.                                                  |
+| `Task.Result.paginate(load)`                                        | Follows a loader's cursor until a page has no `next`.                  | The first `Err` ends the run; collected pages are dropped.                      |
+| `Task.memoize(task)`                                                | Shares the first execution and its result.                             | Later calls reuse the same deferred value.                                      |
+| `Task.abortable(factory)`                                           | Creates a task with an abort handle.                                   | A new call aborts the previous one.                                             |
+| `Task.withProgress(onProgress)`                                     | Reports `0` before the work and `1` after it settles.                  | Returns a task that reports progress.                                           |
+| `Task.withLabel(label)`                                             | Attaches a read-only label.                                            | Returns a labeled task.                                                         |
+| `Task.Result.retry(policy)`                                         | Repeats failed work according to a [`RetryPolicy`](/guides/policies/). | Stops on success, a filtered error, an exhausted budget, or exhausted attempts. |
 
 ## Failure Behavior and Edge Cases
 
@@ -196,6 +197,11 @@ const result = await Task.Result.struct({
 instead of returning one. `Task.Result.all` is stricter: it cancels the tasks that are still running
 and settles with the first `Err`, and aborting its caller settles as `Aborted` (see
 [Aborted](/guides/aborted/)).
+
+`Task.Result.any` is the hedge in the other direction: every task starts at once on its own linked
+signal, the first `Ok` settles the run and cancels the rest, and only when every task fails does it
+settle with a frozen tuple of all errors in input order. `Task.race` is the wrong tool here — it
+settles with the first task to *settle*, so a fast failure beats a slow success.
 
 `Task.Result.poll` repeats work that succeeded but is not ready yet, so a failed attempt ends the
 loop; `Task.Result.retry` repeats work that failed. Compose them when both apply: the retry sits

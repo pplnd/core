@@ -157,8 +157,8 @@ input contract, and `Graph.make` rejects it.
 
 `concurrency` limits how many nodes run at once and defaults to unbounded. A nonpositive or
 non-integer value clamps to 1. Apply `Task.Result.retry(policy)` or
-`Task.Result.timeout({ duration, onTimeout })` to the task a node returns when it needs retries or a
-deadline; the signal supplied to that task includes graph cancellation.
+`Task.Result.timeout(TimeoutPolicy.after({ duration, onTimeout }))` to the task a node returns when
+it needs retries or a deadline; the signal supplied to that task includes graph cancellation.
 
 ## Failure Behavior and Edge Cases
 

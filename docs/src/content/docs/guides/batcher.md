@@ -139,7 +139,7 @@ blocked batch settles every caller with `BatcherErr` carrying `CircuitBreaker.Op
 `maxBatchSize` limits the keys in one query and defaults to unbounded; a nonpositive or non-integer
 value clamps to 1. `concurrency` limits simultaneous chunk queries and clamps the same way. `window`
 adds a collection delay; without it, dispatch is scheduled as a microtask, and an explicit zero uses
-a timer. `serializeKey` groups structurally equal object keys.
+a timer. `keyBy` groups structurally equal object keys.
 
 ### Reading Outcomes
 
@@ -174,7 +174,7 @@ Reaching `maxBatchSize` flushes immediately, so a lookup made right after that p
 batch for the same key even while the previous fetch runs. The limit counts unique keys, not
 callers.
 
-`serializeKey` decides which keys share a slot, but the returned map is queried with the first
-original key in each group. For object keys, return map entries keyed by those original objects. A
-missing outcome also carries the first key in its group, which can be a different object from the
-one a later caller supplied.
+`keyBy` decides which keys share a slot, but the returned map is queried with the first original key
+in each group. For object keys, return map entries keyed by those original objects. A missing
+outcome also carries the first key in its group, which can be a different object from the one a
+later caller supplied.

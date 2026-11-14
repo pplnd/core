@@ -1,11 +1,11 @@
 ---
 title: Supervisor — Keeping a Worker Running
-description: Restart a long-running task under a retry policy and report its running state.
+description: Restart a long-running task under a retry policy, repeat it on a cadence, and report its running state.
 ---
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.58 kB minified + gzipped
+> 2.75 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -18,15 +18,18 @@ backlog is the first thing anyone notices.
 
 `Supervisor` runs one long-running task for the life of a process and restarts it when it fails.
 
-- One execution of the task is one attempt. `Ok` ends the lifetime as `Stopped("completed")`.
+- One execution of the task is one attempt. `Ok` ends the lifetime as `Stopped("completed")` —
+  unless a `repeat` policy keeps it open.
 - `Err` matching `restart.when` is restarted after `restart.getDelay(attempt)`, while attempts
   remain. Any other error ends the lifetime with that error and state `Failed`.
-- `abort()` stops the lifetime; it cancels a pending backoff immediately and waits for a running
-  attempt to settle before reporting `Stopped("aborted")`.
+- With a `repeat` policy, a successful attempt schedules the next one after the policy's delay
+  instead of ending the lifetime, and the restart counter resets after each success.
+- `abort()` stops the lifetime; it cancels a pending backoff or repeat delay immediately and waits
+  for a running attempt to settle before reporting `Stopped("aborted")`.
 - State is observable while the process runs, so a health endpoint can report it.
 
-The restart policy is a [`RetryPolicy`](/guides/op/), reused unchanged: `attempts`, backoff, jitter,
-`when`, and `onRetry` mean what they mean for a single call. Its nearest sibling is
+The restart policy is a [`RetryPolicy`](/guides/policies/), reused unchanged: `attempts`, backoff,
+jitter, `when`, and `onRetry` mean what they mean for a single call. Its nearest sibling is
 [`CircuitBreaker`](/guides/circuit-breaker/): both are live engines with `run`, `state`, and
 `subscribe`, but a breaker stops calling a dependency while a supervisor keeps the work alive. The
 [choosing guide](/basics/choosing/) places it next to the other execution modules, and
@@ -46,6 +49,7 @@ stateDiagram-v2
   Running --> BackingOff : attempt failed and restart applies
   BackingOff --> Running : delay elapsed
   Running --> Stopped : attempt succeeded
+  Running --> Running : repeat delay elapsed
   Running --> Stopped : abort and the attempt returns
   BackingOff --> Stopped : abort
   Running --> Failed : error not restarted
@@ -97,6 +101,38 @@ const outcome = await lifetime;
 `run` returns one deferred for the whole lifetime, and a second call while it is active returns that
 same deferred. `abort` does not settle it immediately: the running attempt receives an aborted
 signal, and the lifetime ends when that attempt returns, so `await lifetime` is the shutdown wait.
+
+### Repeating on a Cadence
+
+The loop above keeps running even when the outbox is empty. A bounded task — drain one batch, then
+return — lets the supervisor own the loop instead:
+
+```ts
+import { Duration, RepeatPolicy, Supervisor, Task } from "@pplnd/core";
+
+const drainOneBatch = (signal?: AbortSignal): Task.Result<OutboxError, void> =>
+  Task.Result.tryCatch(async (innerSignal) => {
+    const batch = await claimBatch(innerSignal);
+    if (batch.length > 0) {
+      await deliver(batch);
+    }
+  }, { onError: toOutboxError });
+
+const outbox = Supervisor.make(drainOneBatch, {
+  restart: RetryPolicy.exponential({ attempts: 5, initial: Duration.seconds(1), jitter: true }),
+  repeat: RepeatPolicy.spacing({ every: Duration.seconds(30), jitter: true }),
+});
+```
+
+A successful attempt now schedules the next one 30 seconds later, and the restart counter resets
+after each success, so an occasional failure does not exhaust the policy over a long lifetime.
+`abort()` clears the armed delay and shuts down after the in-flight batch, and `Running` reports
+`completed`, the number of successful attempts so far. `RepeatPolicy.cadence` is the alternative
+cadence: it aligns attempt starts to fixed multiples of `every` from the lifetime's start, and a
+tick missed during a long attempt fires once immediately instead of catching up in a burst.
+Hand-rolling this loop with `setInterval` and a busy flag re-solves overlap, drift, and timer
+cleanup at every call site; cooperative cancellation inside one attempt stays with
+[Aborted](/guides/aborted/).
 
 ### Reading the State
 
@@ -155,16 +191,18 @@ same window.
 
 ### Creating and Running
 
-| Signature                            | What it does                                     | Result                                  |
-| :----------------------------------- | :----------------------------------------------- | :-------------------------------------- |
-| `Supervisor.make(task, { restart })` | Creates a supervisor around a long-running task. | A supervisor instance                   |
-| `supervisor.run()`                   | Starts the lifetime.                             | `Deferred` that settles when it ends    |
-| `supervisor.run({ signal })`         | Starts it with caller cancellation.              | Same deferred, aborted by the signal    |
-| `supervisor.abort()`                 | Stops the lifetime.                              | `void`; await the lifetime for shutdown |
+| Signature                                     | What it does                                     | Result                                  |
+| :-------------------------------------------- | :----------------------------------------------- | :-------------------------------------- |
+| `Supervisor.make(task, { restart, repeat? })` | Creates a supervisor around a long-running task. | A supervisor instance                   |
+| `supervisor.run()`                            | Starts the lifetime.                             | `Deferred` that settles when it ends    |
+| `supervisor.run({ signal })`                  | Starts it with caller cancellation.              | Same deferred, aborted by the signal    |
+| `supervisor.abort()`                          | Stops the lifetime.                              | `void`; await the lifetime for shutdown |
 
 `restart` is a `RetryPolicy`: `attempts` counts every run, `getDelay` spaces them, `when` filters
 restarted errors, and `onRetry` observes each scheduled restart. A non-positive-integer `attempts`
-means one attempt, matching the rest of the library.
+means one attempt, matching the rest of the library. `repeat` is a
+[`RepeatPolicy`](/guides/policies/): `spacing` waits `every` after each settled attempt, `cadence`
+aligns to fixed grid multiples, and both accept `jitter`.
 
 ### Reading State
 
@@ -173,14 +211,20 @@ means one attempt, matching the rest of the library.
 | `supervisor.state()`             | Reads the lifecycle state. | `Idle`, `Running`, `BackingOff`, `Stopped`, or `Failed` |
 | `supervisor.subscribe(listener)` | Observes transitions.      | An unsubscribe function                                 |
 
-`Running` carries `restarts`, the number of attempts that already failed. `BackingOff` carries the
-failed `attempt`, the `delay` before the next one, and its `error`. `Stopped` carries the `reason`,
-either `"completed"` or `"aborted"`. `Failed` carries `attempts` and the final error.
+`Running` carries `restarts`, the attempts that failed since the last success, and `completed`, the
+successful attempts since the lifetime started. `BackingOff` carries the failed `attempt`, the
+`delay` before the next one, and its `error`. `Stopped` carries the `reason`, either `"completed"`
+or `"aborted"`. `Failed` carries `attempts` and the final error.
 
 ## Failure Behavior and Edge Cases
 
 An attempt that returns `Ok` ends the lifetime, so a task that swallows its failures will look
-healthy and stop the supervisor from restarting it. Report expected failures as `Err`.
+healthy and stop the supervisor from restarting it. Report expected failures as `Err`. Under a
+`repeat` policy the lifetime does not end on success at all — it ends on `abort()`, or as `Failed`
+when the restart policy is exhausted; `Stopped("completed")` is only reachable without `repeat`.
+
+An attempt that fails under `repeat` still routes into the restart policy, and a success resets the
+restart counter — an occasional failure never exhausts `attempts` over a long lifetime.
 
 Aborting during a backoff settles the lifetime immediately and clears the timer, and this includes
 aborting from a subscriber reacting to the `BackingOff` notification: the lifetime ends on the spot,
