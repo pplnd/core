@@ -79,7 +79,7 @@ const failOp = (msg = "fail", delayMs = 0): Op<[input: number], string, number> 
 test("cancellableWait: resolves immediately when ms <= 0", async () => {
 	let done = false;
 	const c = new AbortController();
-	cancellableWait(Duration.milliseconds(0), c.signal).then(() => {
+	void cancellableWait(Duration.milliseconds(0), c.signal).then(() => {
 		done = true;
 	});
 	await Promise.resolve(); // one microtask tick
@@ -106,7 +106,7 @@ test("cancellableWait: resolves immediately when signal is already aborted", asy
 	c.abort();
 	let done = false;
 	// ms <= 0 path: should resolve in next microtask
-	cancellableWait(Duration.milliseconds(0), c.signal).then(() => {
+	void cancellableWait(Duration.milliseconds(0), c.signal).then(() => {
 		done = true;
 	});
 	await Promise.resolve();
@@ -117,7 +117,7 @@ test("cancellableWait: resolves immediately when signal is already aborted even 
 	const c = new AbortController();
 	c.abort();
 	let done = false;
-	cancellableWait(Duration.milliseconds(5000), c.signal).then(() => {
+	void cancellableWait(Duration.milliseconds(5000), c.signal).then(() => {
 		done = true;
 	});
 	await Promise.resolve();

@@ -230,7 +230,7 @@ const makeRateLimiter = (options: RateLimiter.Options): RateLimiter => {
 
 				const admit = (): void => {
 					signal?.removeEventListener("abort", onAbort);
-					Deferred.to.Promise(task(signal)).then(settle);
+					void Deferred.to.Promise(task(signal)).then(settle);
 				};
 
 				signal?.addEventListener("abort", onAbort, { once: true });

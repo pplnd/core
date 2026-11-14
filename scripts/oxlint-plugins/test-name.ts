@@ -1,7 +1,7 @@
 function getModuleNames(filename: string): string[] {
-	const match = filename.match(/([^/]+)\.(?:prop\.)?test\.ts$/);
+	const match = filename.match(/(?<base>[^/]+)\.(?:prop\.)?test\.ts$/u);
 	if (!match) { return []; }
-	const base = match[1];
+	const [, base] = match;
 
 	// Handle compound names like TaskResult -> ["TaskResult", "Task.Result"]
 	if (base === "TaskResult") { return ["TaskResult", "Task.Result", "taskResult"]; }
@@ -17,7 +17,7 @@ export default {
 		"test-name": {
 			create(context: any) {
 				const filename = context.filename || "";
-				if (!/\.(?:prop\.)?test\.ts$/.test(filename)) {
+				if (!/\.(?:prop\.)?test\.ts$/u.test(filename)) {
 					return {};
 				}
 
@@ -25,25 +25,20 @@ export default {
 
 				return {
 					CallExpression(node: any) {
-						let callee = node.callee;
+						let { callee } = node;
 						// Handle test.skip, test.only, test.fails, test.todo, test.concurrent
 						if (callee.type === "MemberExpression" && callee.object.name === "test") {
 							callee = callee.object;
 						}
 
 						// Handle test.each(...)("...")
-						let firstArg = node.arguments[0];
-						if (
-							node.callee.type === "CallExpression"
+						const isEachCall = node.callee.type === "CallExpression"
 							&& node.callee.callee.type === "MemberExpression"
 							&& node.callee.callee.object.name === "test"
-							&& node.callee.callee.property.name === "each"
-						) {
-							firstArg = node.arguments[0];
-						} else if (callee.name !== "test") {
-							return;
-						}
+							&& node.callee.callee.property.name === "each";
+						if (!isEachCall && callee.name !== "test") { return; }
 
+						const [firstArg] = node.arguments;
 						if (!firstArg) { return; }
 
 						let title: string | null = null;
@@ -53,10 +48,12 @@ export default {
 							title = firstArg.quasis.map((q: any) => q.value.raw).join("");
 						}
 
-						if (title === null) {return;}
+						if (title === null) {
+							return;
+						}
 
 						// 1. Enforce "<target>: <behavior>" format
-						const match = title.match(/^([\w.-]+):\s+(.+)$/);
+						const match = title.match(/^(?<target>[\w.-]+):\s+(?<behavior>.+)$/u);
 						if (!match) {
 							context.report({
 								node: firstArg,

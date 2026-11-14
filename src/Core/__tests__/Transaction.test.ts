@@ -53,7 +53,7 @@ test("step: throws Error on duplicate step id", () => {
 	const id = (): string => "stepA";
 	const first = Transaction.step(id(), () => Task.Result.make.ok(1));
 	const second = Transaction.step(id(), () => Task.Result.make.ok(2));
-	expect(() => Transaction.make(first, second)).toThrow(/Duplicate step id 'stepA'/);
+	expect(() => Transaction.make(first, second)).toThrow(/Duplicate step id 'stepA'/u);
 });
 
 test("make: rejects missing, later, and different steps with the same id", () => {
@@ -64,9 +64,9 @@ test("make: rejects missing, later, and different steps with the same id", () =>
 	const later: Transaction.AnyStep<void>[] = [index, upload];
 	const different: Transaction.AnyStep<void>[] = [anotherUpload, index];
 
-	expect(() => Transaction.make(...missing)).toThrow(/Dependency 'upload' must precede step 'index'/);
-	expect(() => Transaction.make(...later)).toThrow(/Dependency 'upload' must precede step 'index'/);
-	expect(() => Transaction.make(...different)).toThrow(/Dependency 'upload' must precede step 'index'/);
+	expect(() => Transaction.make(...missing)).toThrow(/Dependency 'upload' must precede step 'index'/u);
+	expect(() => Transaction.make(...later)).toThrow(/Dependency 'upload' must precede step 'index'/u);
+	expect(() => Transaction.make(...different)).toThrow(/Dependency 'upload' must precede step 'index'/u);
 });
 
 test("make: validates the identity of a broadly typed dependency", async () => {
@@ -88,7 +88,7 @@ test("make: validates the identity of a broadly typed dependency", async () => {
 
 	const result = await Transaction.run({ sku: "book" })(build(reserve));
 	expect(result).toStrictEqual(Result.make.ok({ reserve: "book", dependent: { dependency: "book", sku: "book" } }));
-	expect(() => build(other)).toThrow(/Dependency 'other' must precede step 'dependent'/);
+	expect(() => build(other)).toThrow(/Dependency 'other' must precede step 'dependent'/u);
 });
 
 test("make: supports conditional and absent dependencies without skipping validation", async () => {
@@ -105,7 +105,7 @@ test("make: supports conditional and absent dependencies without skipping valida
 	};
 	const result = await Transaction.run()(build(true));
 	expect(result).toStrictEqual(Result.make.ok({ first: "one", dependent: "one" }));
-	expect(() => build(false)).toThrow(/Dependency 'other' must precede step 'dependent'/);
+	expect(() => build(false)).toThrow(/Dependency 'other' must precede step 'dependent'/u);
 
 	const optional = Transaction.step(
 		"optional",

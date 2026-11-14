@@ -1,7 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type * as Api from "../src/index.ts";
 
 type RuntimeApi = typeof import("../src/index.ts");
 
@@ -37,7 +36,7 @@ const leavesOf = (moduleName: BenchmarkedModule): string[] => {
 	return leaves;
 };
 
-const referenced = (leaf: string): boolean => new RegExp(`\\b${leaf.replaceAll(".", "\\.")}\\b`).test(sources);
+const referenced = (leaf: string): boolean => new RegExp(`\\b${leaf.replaceAll(".", "\\.")}\\b`, "u").test(sources);
 
 type Manifest = { note: string; outOfScope: string[]; };
 

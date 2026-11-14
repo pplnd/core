@@ -257,7 +257,7 @@ export const Str = {
 	 * Str.lines("a\r\nb");         // ["a", "b"]
 	 * ```
 	 */
-	lines: (text: string): readonly string[] => text.split(/\r?\n|\r/),
+	lines: (text: string): readonly string[] => text.split(/\r?\n|\r/u),
 
 	/**
 	 * Splits a string into words on any whitespace boundary, filtering out empty strings.
@@ -267,7 +267,7 @@ export const Str = {
 	 * Str.words("  hello   world  "); // ["hello", "world"]
 	 * ```
 	 */
-	words: (text: string): readonly string[] => text.match(/\S+/g) ?? [],
+	words: (text: string): readonly string[] => text.match(/\S+/gu) ?? [],
 
 	/**
 	 * Returns the UTF-16 code-unit length of the string.

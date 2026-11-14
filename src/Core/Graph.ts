@@ -394,7 +394,6 @@ function runGraph<Input>(input?: Input, runOptions?: Graph.RunOptions) {
 				let inFlight = 0;
 				let isSettled = false;
 
-				// oxlint-disable-next-line prefer-const
 				let onCallerAbort: () => void;
 
 				const settle = (result: Result<E | Aborted, Out>): void => {

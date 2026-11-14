@@ -144,7 +144,8 @@ const refIntersperse = <A>(separator: A) => (items: readonly A[]): readonly A[] 
 	const n = items.length;
 	if (n <= 1) { return items; }
 	const result = new Array<A>(2 * n - 1);
-	result[0] = items[0];
+	const [first] = items;
+	result[0] = first;
 	for (let i = 1; i < n; i++) {
 		result[2 * i - 1] = separator;
 		result[2 * i] = items[i];
@@ -169,10 +170,10 @@ const refDictEntries = <A>(dict: ReadonlyMap<string, A>): readonly (readonly [st
 	return result;
 };
 
-const refWords = (text: string): readonly string[] => text.match(/\S+/g) ?? [];
+const refWords = (text: string): readonly string[] => text.match(/\S+/gu) ?? [];
 
 const refNonEmptyReduce = <A>(reducer: (accumulator: A, item: A) => A) => (items: readonly A[]): A => {
-	let accumulator = items[0];
+	let [accumulator] = items;
 	for (let i = 1; i < items.length; i++) {
 		accumulator = reducer(accumulator, items[i]);
 	}

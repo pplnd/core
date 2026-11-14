@@ -59,7 +59,7 @@ test("make: throws Error on duplicate node ids", () => {
 	const dep2 = Graph.node("sharedId", () => Task.Result.make.ok("b"));
 	const target = Graph.node("target", { dep1, dep2 }, () => Task.Result.make.ok(1));
 
-	expect(() => Graph.make(target)).toThrow(/Duplicate node id 'sharedId'/);
+	expect(() => Graph.make(target)).toThrow(/Duplicate node id 'sharedId'/u);
 });
 
 test("make: throws Error on cyclic dependency graph", () => {
@@ -74,7 +74,7 @@ test("make: throws Error on cyclic dependency graph", () => {
 	const nodeB = Graph.node("B", { a: nodeA }, () => Task.Result.make.ok(2));
 	Reflect.set(internalA, "deps", { b: nodeB });
 
-	expect(() => Graph.make(nodeB)).toThrow(/Cycle detected in Graph/);
+	expect(() => Graph.make(nodeB)).toThrow(/Cycle detected in Graph/u);
 });
 
 // -----------------------------------------------------------------------------

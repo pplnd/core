@@ -37,8 +37,8 @@ describe("Str type-level tests", () => {
 	});
 
 	it("inspects regex combinators", () => {
-		expectTypeOf(pipe("hello", Str.match(/l+/))).toEqualTypeOf<Maybe<RegExpMatchArray>>();
-		expectTypeOf(pipe("hello", Str.test(/l+/))).toEqualTypeOf<boolean>();
+		expectTypeOf(pipe("hello", Str.match(/l+/u))).toEqualTypeOf<Maybe<RegExpMatchArray>>();
+		expectTypeOf(pipe("hello", Str.test(/l+/u))).toEqualTypeOf<boolean>();
 		expectTypeOf(Str.NonEmpty.from.string("hello")).toEqualTypeOf<Maybe<Str.NonEmpty>>();
 	});
 

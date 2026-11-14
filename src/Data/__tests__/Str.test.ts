@@ -12,7 +12,7 @@ test("split: splits string by separator", () => {
 });
 
 test("split: splits string by regex", () => {
-	expect(pipe("a1b2c", Str.split(/\d/))).toStrictEqual(["a", "b", "c"]);
+	expect(pipe("a1b2c", Str.split(/\d/u))).toStrictEqual(["a", "b", "c"]);
 });
 
 test("split: returns single-element array on missing separator", () => {
@@ -172,7 +172,7 @@ test("replace: replaces first occurrence of substring", () => {
 });
 
 test("replace: replaces matching RegExp pattern", () => {
-	expect(pipe("Hello World", Str.replace(/world/i, "Earth"))).toBe("Hello Earth");
+	expect(pipe("Hello World", Str.replace(/world/iu, "Earth"))).toBe("Hello Earth");
 });
 
 test("replace: returns string unchanged when pattern not found", () => {
@@ -188,7 +188,7 @@ test("replaceAll: replaces all occurrences of substring", () => {
 });
 
 test("replaceAll: replaces all matches with global RegExp", () => {
-	expect(pipe("aAbBaA", Str.replaceAll(/a/gi, "x"))).toBe("xxbBxx");
+	expect(pipe("aAbBaA", Str.replaceAll(/a/giu, "x"))).toBe("xxbBxx");
 });
 
 test("replaceAll: returns string unchanged when pattern not found", () => {
@@ -335,18 +335,18 @@ test("pipe: composes trim split and toUpperCase transformations", () => {
 // ---------------------------------------------------------------------------
 
 test("match: returns Some with match array when regex matches", () => {
-	const result = pipe("hello 42 world", Str.match(/\d+/));
+	const result = pipe("hello 42 world", Str.match(/\d+/u));
 	expect(pipe(result, Maybe.map((m) => m[0]))).toStrictEqual(Maybe.make.some("42"));
 	expect(pipe(result, Maybe.map((m) => m.index))).toStrictEqual(Maybe.make.some(6));
 });
 
 test("match: returns None when regex does not match", () => {
-	const result = pipe("hello world", Str.match(/\d+/));
+	const result = pipe("hello world", Str.match(/\d+/u));
 	expect(result).toStrictEqual(Maybe.make.none());
 });
 
 test("match: remains pure against stateful global RegExp", () => {
-	const regex = /abc/g;
+	const regex = /abc/gu;
 	const first = Str.match(regex)("abc");
 	const second = Str.match(regex)("abc");
 	expect(Maybe.is.some(first)).toBe(true);
@@ -354,32 +354,32 @@ test("match: remains pure against stateful global RegExp", () => {
 });
 
 test("match: preserves the caller's lastIndex and accepts frozen global regexes", () => {
-	const regex = /abc/g;
+	const regex = /abc/gu;
 	regex.lastIndex = 3;
 
 	expect(Maybe.is.some(Str.match(regex)("abc"))).toBe(true);
 	expect(regex.lastIndex).toBe(3);
-	expect(Str.test(Object.freeze(/abc/g))("abc")).toBe(true);
+	expect(Str.test(Object.freeze(/abc/gu))("abc")).toBe(true);
 });
 
 test("test: returns true for matching regex", () => {
-	const result = pipe("user@example.com", Str.test(/^[^@]+@[^@]+$/));
+	const result = pipe("user@example.com", Str.test(/^[^@]+@[^@]+$/u));
 	expect(result).toBe(true);
 });
 
 test("test: returns false for non-matching regex", () => {
-	const result = pipe("invalid-email", Str.test(/^[^@]+@[^@]+$/));
+	const result = pipe("invalid-email", Str.test(/^[^@]+@[^@]+$/u));
 	expect(result).toBe(false);
 });
 
 test("test: remains pure against stateful global RegExp", () => {
-	const regex = /pattern/g;
+	const regex = /pattern/gu;
 	expect(Str.test(regex)("pattern")).toBe(true);
 	expect(Str.test(regex)("pattern")).toBe(true);
 });
 
 test("test: preserves the caller's lastIndex", () => {
-	const regex = /pattern/g;
+	const regex = /pattern/gu;
 	regex.lastIndex = 2;
 
 	expect(Str.test(regex)("pattern")).toBe(true);
@@ -451,18 +451,18 @@ test("truncate: never splits a surrogate pair", () => {
 });
 
 test("replaceAll: treats a non-global RegExp as global", () => {
-	expect(pipe("aAbBaA", Str.replaceAll(/a/i, "x"))).toBe("xxbBxx");
+	expect(pipe("aAbBaA", Str.replaceAll(/a/iu, "x"))).toBe("xxbBxx");
 });
 
 test("replace: does not disturb a global regex's lastIndex", () => {
-	const pattern = /a/g;
+	const pattern = /a/gu;
 	pattern.lastIndex = 2;
 	pipe("a-a-a", Str.replace(pattern, "b"));
 	expect(pattern.lastIndex).toBe(2);
 });
 
 test("replace: accepts a frozen RegExp", () => {
-	expect(pipe("a-a", Str.replace(Object.freeze(/a/g), "b"))).toBe("b-b");
+	expect(pipe("a-a", Str.replace(Object.freeze(/a/gu), "b"))).toBe("b-b");
 });
 
 test("padStart: leaves the text unchanged for targets beyond the engine's string limit", () => {

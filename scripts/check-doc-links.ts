@@ -9,8 +9,8 @@ export interface BrokenLink {
 	readonly target: string;
 }
 
-const EXTERNAL = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
-const FENCE = /^\s*(`{3,}|~{3,})/;
+const EXTERNAL = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/iu;
+const FENCE = /^\s*(?<fence>`{3,}|~{3,})/u;
 
 function isFile(filePath: string): boolean {
 	try {
@@ -21,10 +21,10 @@ function isFile(filePath: string): boolean {
 }
 
 function candidatePaths(target: string): string[] {
-	const clean = target.replace(/[\\/]+$/, "");
+	const clean = target.replace(/[\\/]+$/u, "");
 	const candidates = [clean];
-	if (!/\.(?:md|mdx)$/i.test(clean)) {
-		candidates.push(clean + ".md", clean + ".mdx");
+	if (!/\.(?:md|mdx)$/iu.test(clean)) {
+		candidates.push(`${clean}.md`, `${clean}.mdx`);
 	}
 	candidates.push(path.join(clean, "index.md"), path.join(clean, "index.mdx"));
 	return [...new Set(candidates)];
@@ -41,7 +41,7 @@ export function scanMarkdown(text: string, fromFile: string, docsRoot: string): 
 	const broken: BrokenLink[] = [];
 	let fence: string | null = null;
 
-	for (const [index, line] of text.split(/\r?\n/).entries()) {
+	for (const [index, line] of text.split(/\r?\n/u).entries()) {
 		const fenceMatch = line.match(FENCE);
 		if (fenceMatch) {
 			if (fence === null) {
@@ -55,14 +55,14 @@ export function scanMarkdown(text: string, fromFile: string, docsRoot: string): 
 			continue;
 		}
 
-		const cleaned = line.replace(/`[^`]*`/g, "");
+		const cleaned = line.replace(/`[^`]*`/gu, "");
 		const targets = [
-			...cleaned.matchAll(/(?<!!)\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g),
-			...cleaned.matchAll(/\bhref="([^"]+)"/g),
+			...cleaned.matchAll(/(?<!!)\[[^\]]*\]\((?<target>[^)\s]+)(?:\s+"[^"]*")?\)/gu),
+			...cleaned.matchAll(/\bhref="(?<href>[^"]+)"/gu),
 		].map((match) => match[1]).filter((target): target is string => Boolean(target));
 
 		for (const rawTarget of targets) {
-			const target = rawTarget.trim().replace(/^<|>$/g, "");
+			const target = rawTarget.trim().replace(/^<|>$/gu, "");
 			if (!target || target.startsWith("#") || EXTERNAL.test(target)) {
 				continue;
 			}
@@ -97,7 +97,7 @@ function collectMarkdown(directory: string, files: string[]): void {
 		const entryPath = path.join(directory, entry.name);
 		if (entry.isDirectory()) {
 			collectMarkdown(entryPath, files);
-		} else if (/\.(?:md|mdx)$/i.test(entry.name)) {
+		} else if (/\.(?:md|mdx)$/iu.test(entry.name)) {
 			files.push(entryPath);
 		}
 	}
@@ -128,9 +128,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 		console.log("Doc links: 0 broken.");
 	} else {
 		for (const link of broken) {
-			console.error(path.relative(process.cwd(), link.file) + ":" + link.line + " -> " + link.target);
+			console.error(`${path.relative(process.cwd(), link.file)}:${link.line} -> ${link.target}`);
 		}
-		console.error("Doc links: " + broken.length + " broken.");
+		console.error(`Doc links: ${broken.length} broken.`);
 		process.exitCode = 1;
 	}
 }

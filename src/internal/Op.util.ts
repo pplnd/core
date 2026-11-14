@@ -305,7 +305,7 @@ export const makeRestartable = <Args extends readonly unknown[], E, A>(
 				if (gap > 0) {
 					waitController = new AbortController();
 					const wc = waitController;
-					cancellableWait(Duration.milliseconds(gap), wc.signal).then(() => {
+					void cancellableWait(Duration.milliseconds(gap), wc.signal).then(() => {
 						if (waitController === wc) { waitController = undefined; }
 						startExecution();
 					});

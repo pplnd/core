@@ -28,7 +28,6 @@ export function unless<A, B = A>(
 	onFalse: (value: A) => B,
 ): <V extends A>(value: V) => V | B;
 // The overloads narrow the true branch to B; the implementation only sees a boolean predicate.
-// oxlint-disable-next-line no-explicit-any
 export function unless(...args: readonly any[]): any {
 	const [predicate, onFalse] = args as [(value: unknown) => boolean, (value: unknown) => unknown];
 	return (value: unknown): unknown => (predicate(value) ? value : onFalse(value));

@@ -972,8 +972,12 @@ test("subscribe: schema-wide reduce accumulates state across all events", () => 
 				return count + msg.value.value;
 			case "B":
 				return count + msg.value.text.length;
-			default:
+			case "C":
 				return count + 1;
+			case "ResetEvent":
+				return count + 1;
+			default:
+				return count;
 		}
 	}, 0);
 

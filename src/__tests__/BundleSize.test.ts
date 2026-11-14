@@ -45,7 +45,7 @@ function getMeasuredSizes(): Map<string, SizeItem> {
 }
 
 function guideFiles(): string[] {
-	return fs.readdirSync(guidesDir).filter((file) => /\.(?:md|mdx)$/i.test(file)).sort();
+	return fs.readdirSync(guidesDir).filter((file) => /\.(?:md|mdx)$/iu.test(file)).sort();
 }
 
 const sizeMap = getMeasuredSizes();
@@ -70,7 +70,7 @@ function budgetedGuideProblems(): string[] {
 			const content = fs.readFileSync(path.join(guidesDir, filename), "utf8");
 			const isMdx = filename.endsWith(".mdx");
 			const startTag = isMdx ? "{/* BUNDLE_SIZE:START */}" : "<!-- BUNDLE_SIZE:START -->";
-			const occurrences = (content.match(/BUNDLE_SIZE:START/g) || []).length;
+			const occurrences = (content.match(/BUNDLE_SIZE:START/gu) || []).length;
 			if (!content.includes(startTag)) {
 				problems.push(`${filename}: missing bundle badge`);
 			}
@@ -154,7 +154,7 @@ test("BundleSize: budgeted guides have exactly one current badge", () => {
 test("BundleSize: every guide file is in the docs sidebar", () => {
 	const config = fs.readFileSync(path.join(projectRoot, "docs/astro.config.mjs"), "utf8");
 	for (const file of guideFiles()) {
-		const base = file.replace(/\.(?:md|mdx)$/i, "");
+		const base = file.replace(/\.(?:md|mdx)$/iu, "");
 		expect(config).toContain(`slug: "guides/${base}"`);
 	}
 });

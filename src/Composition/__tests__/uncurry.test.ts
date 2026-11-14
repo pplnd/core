@@ -25,7 +25,7 @@ test("uncurry: rejects an unsupported explicit arity", () => {
 	const arity: number = 5;
 
 	// @ts-expect-error unsupported arity is outside the public overloads
-	expect(() => uncurry(curried, arity)).toThrow(/arity/i);
+	expect(() => uncurry(curried, arity)).toThrow(/arity/iu);
 });
 
 // --- uncurry: full (a) => (b) => C ---
