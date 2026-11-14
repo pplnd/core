@@ -12,8 +12,7 @@ slightly different answers.
 
 ## Core Behavior
 
-The `Types` subpath models those three questions as immutable policy data, and the engines own the
-clock:
+The library models those three questions as immutable policy data, and the engines own the clock:
 
 - **`TimeoutPolicy`** bounds one attempt. `TimeoutPolicy.after({ duration, onTimeout })` settles the
   attempt with the error `onTimeout` produces when the duration elapses.

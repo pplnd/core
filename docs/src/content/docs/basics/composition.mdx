@@ -5,7 +5,7 @@ description: A comprehensive reference for currying, caching, branching, paralle
 
 import { Aside } from '@astrojs/starlight/components'
 
-The `Composition` module is the engine room of this library. Beyond `pipe` and `flow`, it provides a collection of small, focused utilities to shape, branch, cache, and adapt functions before they enter a pipeline.
+The composition utilities are the engine room of this library. Beyond `pipe` and `flow`, they provide a collection of small, focused utilities to shape, branch, cache, and adapt functions before they enter a pipeline.
 
 This guide acts as a comprehensive reference for these tools. If you are new to the concepts of piping and flow, start with [Thinking in pipelines](/basics/pipelines) first.
 
@@ -20,7 +20,7 @@ ten-step limit and how to split a long chain into named phases.
 
 ## Conditional execution: when and unless
 
-Piping raw values through standard functions works well for clean, linear logic. However, real-world applications frequently require optional branches. Rather than forcing you to write noisy inline arrow functions with ternary expressions, `Composition` provides declarative branching combinators that slot into `pipe` and `flow`.
+Piping raw values through standard functions works well for clean, linear logic. However, real-world applications frequently require optional branches. Rather than forcing you to write noisy inline arrow functions with ternary expressions, the composition utilities provide declarative branching combinators that slot into `pipe` and `flow`.
 
 `when` executes a transformation only when a predicate evaluates to `true`, whereas `unless` executes the transformation only when the predicate evaluates to `false`, returning the original input value unchanged otherwise:
 
