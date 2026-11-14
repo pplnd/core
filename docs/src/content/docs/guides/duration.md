@@ -24,10 +24,9 @@ reading them. The units survive in variable names rather than in the type.
 - Conversions do not clamp: negative and non-finite inputs are stored as given.
 
 Reach for `Duration` when a time quantity crosses a boundary and its unit must survive the trip.
-When the quantity configures retry attempts and backoff, a [`RetryPolicy`](/guides/op/) consumes
-durations and `Op` applies that policy to a running operation. The
-[choosing guide](/basics/choosing/) maps value containers; duration is the primitive those timing
-options accept.
+When the quantity configures retry attempts and backoff, a [`RetryPolicy`](/guides/policies/)
+consumes it. The [choosing guide](/basics/choosing/) maps value containers; duration is the
+primitive those timing options accept.
 
 ## Example: Report Cache Expiration
 
@@ -63,8 +62,9 @@ that accepts a number of milliseconds.
 
 ### The same durations in a retry policy
 
-The cache refreshes from a report service that can fail transiently. A [`RetryPolicy`](/guides/op/)
-stores the backoff delays as durations, and `Op` applies the policy to the call:
+The cache refreshes from a report service that can fail transiently. A
+[`RetryPolicy`](/guides/policies/) stores the backoff delays as durations, and [`Op`](/guides/op/)
+applies the policy to the call:
 
 ```ts
 import { Duration, Op, RetryPolicy, Task } from "@pplnd/core";
@@ -87,7 +87,8 @@ const outcome = await manager.run("quarterly");
 ```
 
 The policy caps each delay at `maxDelay` and turns `attempts` into the number of tries; the
-operation owns cancellation and overlapping calls.
+[operation](/guides/op/) owns cancellation and overlapping calls, and [Aborted](/guides/aborted/)
+covers stopping one call inside it.
 
 ## Core Operations
 

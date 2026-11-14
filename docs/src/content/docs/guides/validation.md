@@ -171,7 +171,7 @@ const validateRegistrationAsync = (
 ): Task.Validation<AsyncFieldError, RegistrationInput> =>
   pipe(
     Task.Validation.from.Validation(validateRegistration(input)),
-    Task.Validation.map((registration) => (_username: string) => registration),
+    Task.Validation.map((registration) => () => registration),
     Task.Validation.apply(checkUsernameAvailable(input.username)),
   );
 ```

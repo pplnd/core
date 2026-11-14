@@ -86,6 +86,8 @@ The dashboard sends the counts under string keys. `Dict.mapKeys` flattens each d
 `Dict.to.record` produces the object that `JSON.stringify` expects:
 
 ```ts
+import { Dict, pipe } from "@pplnd/core";
+
 const report = pipe(
   counted,
   Dict.mapKeys((endpoint: Endpoint) => `${endpoint.method} ${endpoint.path}`),

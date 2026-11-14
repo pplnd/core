@@ -61,7 +61,7 @@ import { Duration, RetryPolicy, TimeoutPolicy, Task } from "@pplnd/core";
 
 type FeedError = "feed_unavailable" | "deadline" | "aborted";
 
-const fetchFeed = (signal?: AbortSignal): Task.Result<FeedError, PriceFeed> =>
+const fetchFeed = (): Task.Result<FeedError, PriceFeed> =>
   Task.Result.tryCatch((innerSignal) => fetchPrices(innerSignal), {
     onError: () => "feed_unavailable" as const,
   });

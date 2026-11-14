@@ -89,6 +89,7 @@ const exportReport = async (controller: AbortController): Promise<string> => {
   return summary;
 };
 
+const controller = new AbortController();
 controller.abort("operator closed the dashboard");
 console.log(await exportReport(controller));
 // Export cancelled: operator closed the dashboard

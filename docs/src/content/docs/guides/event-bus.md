@@ -91,7 +91,7 @@ actor to every kind the bus carries; kinds the machine does not declare leave th
 unchanged:
 
 ```ts
-import { Machine } from "@pplnd/core";
+import { EventBus, Machine } from "@pplnd/core";
 
 type ParcelState =
   | Machine.State<"waiting", void, "moving">
@@ -108,6 +108,10 @@ const actor = Machine.interpret(parcelMachine, {
   initial: Machine.state("waiting"),
   bus: parcels,
 });
+
+EventBus.emit(parcels, { kind: "received", value: { trackingId: "parcel-42" } });
+// the actor moves to "moving"; the machine declares no handler for "scanned"
+EventBus.emit(parcels, { kind: "scanned", value: { location: "north depot" } });
 ```
 
 The actor reads `received` and `dispatched` from the bus and ignores `scanned`. See

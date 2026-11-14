@@ -164,9 +164,10 @@ const response = await loadRemoteConfig("/etc/server.json")();
 // Ok(config) or Err("PUBLIC_PRIVILEGED_PORT")
 ```
 
-`Task.Result` keeps the error channel and threads an `AbortSignal`, so the same typed errors cross
-the network boundary. When the request needs retries, timeouts, or overlapping calls, wrap the task
-in [`Op`](/guides/op/).
+[`Task.Result`](/guides/task/) keeps the error channel and threads an `AbortSignal` —
+[Aborted](/guides/aborted/) covers what that signal does — so the same typed errors cross the
+network boundary. When the request needs retries, timeouts, or overlapping calls, wrap the task in
+[`Op`](/guides/op/).
 
 ## Core Operations
 

@@ -56,14 +56,11 @@ awaitable type:
 ```ts
 import { Deferred } from "@pplnd/core";
 
+declare const requestText: (url: string) => Promise<string>;
+
 const readStatus = (url: string): Deferred<string> =>
   Deferred.from.Promise(
-    fetch(url)
-      .then((response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return response.text();
-      })
-      .catch(() => "unavailable"),
+    requestText(url).catch(() => "unavailable"),
   );
 
 const report = async (): Promise<string> => {
@@ -154,6 +151,7 @@ and the rejection is unhandled. Handle the failure before wrapping, as `readStat
 `Deferred.race([])` stays pending because no value can resolve it. A race does not cancel its other
 inputs after one resolves; cancelling the work is the producer's job, through the `AbortSignal`
 given to the [`Task`](/guides/task/) or [`Op`](/guides/op/) that started it.
+[Aborted](/guides/aborted/) covers what that signal does to work that observes it.
 
 Callbacks passed to `map`, `chain`, and `tap` must not throw. A throw rejects the internal promise,
 which has no rejection handler, so the returned value stays pending instead of surfacing an error.

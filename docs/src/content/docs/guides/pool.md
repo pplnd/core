@@ -33,9 +33,7 @@ return, with broken ones destroyed instead of reused.
 The destroy task is infallible by contract, like [`Resource`](/guides/resource/) release: expected
 close failures are handled inside it. `Resource` is the nearest sibling — a single acquisition
 bracket whose item lives for exactly one operation — while a pool's items outlive any one caller.
-The [choosing guide](/basics/choosing/) places both next to the other lifecycle engines, and
-[`Cache`](/guides/cache/) is the shared-value counterpart: a cache hands the same value to every
-reader, while a pool grants one item to exactly one holder at a time.
+The [choosing guide](/basics/choosing/) places both next to the other lifecycle engines.
 
 ## Example: Checkout Under Load
 

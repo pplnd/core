@@ -51,11 +51,17 @@ flowchart TD
 
 ### Managing an Upload
 
-The upload state starts a request on entry. The actor passes the signal to `fetch`, and a response
-sends either `COMPLETE` or `FAIL`. `CANCEL` returns to idle while the request is pending:
+The upload state starts a request on entry. The actor passes its signal to the upload, and the
+result sends either `COMPLETE` or `FAIL`. `CANCEL` returns to idle while the request is pending:
 
 ```ts
 import { Machine } from "@pplnd/core";
+
+declare const uploadFile: (
+  fileName: string,
+  contents: string,
+  signal: AbortSignal,
+) => Promise<string>;
 
 type UploadState =
   | Machine.State<"idle", void, "uploading">
@@ -76,15 +82,7 @@ const uploadMachine = Machine.make<UploadState, UploadEvents>({
   },
   uploading: {
     entry: (state, { send, signal }) => {
-      void fetch(`/api/uploads/${encodeURIComponent(state.value.fileName)}`, {
-        method: "POST",
-        body: state.value.contents,
-        signal,
-      })
-        .then((response) => {
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          return response.text();
-        })
+      void uploadFile(state.value.fileName, state.value.contents, signal)
         .then((location) => send({ kind: "COMPLETE", value: { location } }))
         .catch((error: unknown) => {
           if (!signal.aborted) send({ kind: "FAIL", value: { message: String(error) } });
@@ -146,6 +144,7 @@ const uploadActor = Machine.interpret(uploadMachine, {
 const stop = EventBus.subscribe(uploadCommands, ["START", "CANCEL"]).tap((message) => {
   uploadActor.send(message);
 });
+stop();
 ```
 
 `Machine.interpret` also accepts the bus directly as `bus`, which forwards every kind and lets

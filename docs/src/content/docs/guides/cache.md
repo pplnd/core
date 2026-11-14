@@ -154,6 +154,9 @@ const batchedPrices = Cache.make({
   load: (sku: string) => pipe(batched.load(sku), Deferred.map(toPriceResult)),
   ttl: Duration.minutes(5),
 });
+
+const price = await batchedPrices.load("SKU-1042");
+// Ok(price) from the shared batch, or Err({ kind: "Unavailable" }) for a missing key
 ```
 
 A cache hit answers without touching the batcher, and a miss is queued with the other keys loaded in
@@ -177,6 +180,9 @@ const guardedPrices = Cache.make({
   load: (sku: string) => priceBreaker.run(loadPrice(sku)),
   ttl: Duration.minutes(5),
 });
+
+const price = await guardedPrices.load("SKU-2087");
+// Ok(price) while the breaker is closed; Err(CircuitBreaker.OpenError) while it is tripped
 ```
 
 A tripped breaker settles the load with `CircuitBreaker.OpenError`. The cache stores only `Ok`, so

@@ -106,7 +106,7 @@ wraps the same bulk task, so a failing batch counts against the source and a blo
 without querying it:
 
 ```ts
-import { CircuitBreaker, Duration, Task } from "@pplnd/core";
+import { Batcher, CircuitBreaker, Duration, Task } from "@pplnd/core";
 
 const catalogBreaker = CircuitBreaker.make<string>({
   failureThreshold: 3,
@@ -119,6 +119,9 @@ const guardedCatalog = (
   (signal) => catalogBreaker.run(readCatalog(ids), { signal });
 
 const guardedItems = Batcher.make(guardedCatalog);
+
+const outcomes = await guardedItems.loadMany(["pencil", "notebook"]);
+// one breaker call per dispatched batch, not one per key
 ```
 
 Each dispatched batch becomes one breaker call, so a failed batch counts as one failure and a

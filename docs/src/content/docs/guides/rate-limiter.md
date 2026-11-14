@@ -24,10 +24,10 @@ Every admitted call holds a permit until that window has passed.
 - A caller's signal removes a queued call without spending a permit.
 
 The window is a sliding log rather than a token bucket, so "60 per minute" is never 120 between two
-adjacent windows. Use the limiter when the constraint is an external quota; use
-[`CircuitBreaker`](/guides/circuit-breaker/) when the constraint is a dependency that is failing,
-and [`RetryPolicy`](/guides/op/) when one call should be repeated. The
-[choosing guide](/basics/choosing/) places it next to the other execution modules.
+adjacent windows. Use the limiter when the constraint is an external quota;
+[`CircuitBreaker`](/guides/circuit-breaker/) is the nearest sibling, for a dependency that is
+failing rather than one that is merely capped. The [choosing guide](/basics/choosing/) places it
+next to the other execution modules.
 
 ## Example: Dashboard Fan-Out
 
@@ -100,7 +100,8 @@ const titles = await pipe(attempt("vercel/next.js"), Task.Result.retry(policy))(
 ```
 
 Each retry takes a new permit, and a call rejected by the quota is not retried into the same window.
-The [CircuitBreaker guide](/guides/circuit-breaker/) covers the complementary case, where repeated
+The [policies guide](/guides/policies/) covers how the retry knobs compose. The
+[CircuitBreaker guide](/guides/circuit-breaker/) covers the complementary case, where repeated
 failures should stop calls instead of spacing them.
 
 ## Core Operations
@@ -121,10 +122,9 @@ is how long each admitted call holds its permit. `strategy` chooses between queu
 
 ### Reading Outcomes
 
-| Signature                     | What it does                    | Result                 |
-| :---------------------------- | :------------------------------ | :--------------------- |
-| `limiter.run(task).then(...)` | Awaits the task or the refusal. | `Result`               |
-| `RateLimiter.LimitError`      | A call that never started.      | `retryAfter`, `reason` |
+| Signature                | What it does               | Result                 |
+| :----------------------- | :------------------------- | :--------------------- |
+| `RateLimiter.LimitError` | A call that never started. | `retryAfter`, `reason` |
 
 A refusal is `{ kind: "RateLimitExceeded", retryAfter, reason }`, with `"exhausted"` for the
 rejecting strategy and `"max-wait"` for a wait beyond `maxWait`. The task's own errors pass through
