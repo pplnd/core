@@ -882,7 +882,7 @@ export const TaskResult = {
 					for (let i = 0; i < len; i++) {
 						const controller = new AbortController();
 						controllers[i] = controller;
-						Deferred.to.Promise(tasks[i](controller.signal)).then(onSettled(i));
+						void Deferred.to.Promise(tasks[i](controller.signal)).then(onSettled(i));
 					}
 				}),
 			),

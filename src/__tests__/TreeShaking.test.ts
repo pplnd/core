@@ -135,7 +135,7 @@ test("composition: bundles cleanly for browser platform without node builtins", 
 		console.log(res);
 	`;
 	const output = await bundleCode(code, false, "browser");
-	expect(output).not.toMatch(/from\s+["']node:util["']/);
-	expect(output).not.toMatch(/require\(["']node:util["']\)/);
+	expect(output).not.toMatch(/from\s+["']node:util["']/u);
+	expect(output).not.toMatch(/require\(["']node:util["']\)/u);
 	expect(output).toContain("getBuiltinModule");
 });

@@ -33,9 +33,9 @@ const nativeSplit = (text: string) => text.split(",");
 const currentTrim = (text: string) => pipeFn(text, strTrim);
 const nativeTrim = (text: string) => text.trim();
 const currentLines = (text: string) => strLines(text);
-const nativeLines = (text: string) => text.split(/\r?\n|\r/);
+const nativeLines = (text: string) => text.split(/\r?\n|\r/u);
 const currentWords = (text: string) => strWords(text);
-const nativeWords = (text: string) => text.trim().split(/\s+/).filter(Boolean);
+const nativeWords = (text: string) => text.trim().split(/\s+/u).filter(Boolean);
 const nativeGraphemeCount = (text: string) => {
 	let count = 0;
 	for (const _ of segmenter.segment(text)) {

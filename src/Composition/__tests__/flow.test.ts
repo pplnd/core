@@ -46,7 +46,7 @@ test("flow: allows reusability of created function", () => {
 	const process = flow(
 		(s: string) => s.trim(),
 		(s: string) => s.toLowerCase(),
-		(s: string) => s.replaceAll(/\s+/g, "-"),
+		(s: string) => s.replaceAll(/\s+/gu, "-"),
 	);
 
 	expect(process("  Hello World  ")).toBe("hello-world");

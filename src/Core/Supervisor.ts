@@ -184,7 +184,7 @@ const makeSupervisor = <E>(
 		state = { kind: "SupervisorRunning", restarts: attempt - 1, completed };
 		notify();
 
-		Deferred.to.Promise(task(controller.signal)).then((result) => {
+		void Deferred.to.Promise(task(controller.signal)).then((result) => {
 			current.controller = undefined;
 
 			if (current.aborting) {

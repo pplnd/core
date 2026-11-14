@@ -64,7 +64,7 @@
 		"typecheck": "tsc --noEmit",
 		"typecheck:dev": "tsc --noEmit --watch",
 		"typecheck:min": "node node_modules/typescript-5.5/bin/tsc -p tsconfig.lib.json --noEmit --skipLibCheck",
-		"lint": "oxlint src/",
+		"lint": "oxlint .",
 		"format": "dprint fmt && dprint fmt --config dprint.md.json",
 		"format:check": "dprint check && dprint check --config dprint.md.json",
 		"docs:dev": "pnpm --filter pipelined-docs dev",
@@ -80,17 +80,18 @@
 		"@size-limit/esbuild": "14.3.0",
 		"@size-limit/file": "14.3.0",
 		"@types/node": "26.6.6",
-		"@vitest/coverage-v8": "5.0.5",
+		"@vitest/coverage-v8": "5.1.0",
 		"dprint": "0.64.3",
 		"esbuild": "0.28.2",
 		"fast-check": "4.10.2",
-		"oxlint": "1.90.0",
+		"oxlint": "1.93.0",
+		"oxlint-tsgolint": "7.0.2007",
 		"publint": "0.3.25",
 		"size-limit": "14.3.0",
-		"tsdown": "0.23.4",
-		"typescript": "6.0.3",
+		"tsdown": "0.23.7",
+		"typescript": "7.0.2",
 		"typescript-5.5": "npm:typescript@5.5",
-		"vitest": "5.0.5"
+		"vitest": "5.1.0"
 	},
 	"size-limit": [
 		{

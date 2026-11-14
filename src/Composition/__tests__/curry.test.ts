@@ -122,5 +122,5 @@ test("curry: supports default parameters with explicit arity", () => {
 
 test("curry: rejects ambiguous arity instead of invoking early", () => {
 	const variadic = (...values: number[]) => values.length;
-	expect(() => curry(variadic)).toThrow(/arity/i);
+	expect(() => curry(variadic)).toThrow(/arity/iu);
 });

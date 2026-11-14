@@ -52,7 +52,7 @@ test("rollback: executes in strict LIFO order for any failure index", async () =
 test("run: preserves all-or-nothing conservation law", async () => {
 	await fc.assert(
 		fc.asyncProperty(
-			fc.array(fc.record({ id: fc.stringMatching(/^[a-z]{3,8}$/), val: fc.integer() }), { minLength: 1, maxLength: 6 }),
+			fc.array(fc.record({ id: fc.stringMatching(/^[a-z]{3,8}$/u), val: fc.integer() }), { minLength: 1, maxLength: 6 }),
 			async (stepDefs) => {
 				const seen = new Set<string>();
 				const uniqueSteps: Array<{ id: string; val: number; }> = [];
