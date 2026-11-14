@@ -1,0 +1,15 @@
+{
+	"linkset": [
+		{
+			"anchor": "https://pplnd.dev/",
+			"service-desc": {
+				"href": "https://pplnd.dev/typedoc.json",
+				"type": "application/json"
+			},
+			"service-doc": {
+				"href": "https://pplnd.dev/api/",
+				"type": "text/html"
+			}
+		}
+	]
+}

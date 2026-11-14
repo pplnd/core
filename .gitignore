@@ -11,6 +11,8 @@ dist/
 
 api/
 
+docs/public/typedoc.json
+
 .env
 .env.production
 
