@@ -155,7 +155,7 @@ test("interpret: infers strategy-specific state unions and manager run return ty
 		Deferred<Op.Ok<number> | Op.Err<string> | Op.AbortedNil | Op.DroppedNil | Op.EvictedNil>
 	>();
 
-	const bufferedManager = Op.interpret(delayedOp, { strategy: "buffered", size: 3 });
+	const bufferedManager = Op.interpret(delayedOp, { strategy: "buffered", maxSize: 3 });
 	expectTypeOf(bufferedManager.state).toEqualTypeOf<Op.BufferedState<string, number>>();
 	expectTypeOf(bufferedManager.run).returns.toEqualTypeOf<
 		Deferred<Op.Ok<number> | Op.Err<string> | Op.AbortedNil | Op.EvictedNil>
@@ -233,7 +233,7 @@ test("interpret: infers strategy-specific state unions and manager run return ty
 });
 
 test("interpret options: widens state union with Retrying and widens error with timeout", () => {
-	const typedRetry: Op.RetryOptions<string> = RetryPolicy.constant({
+	const typedRetry: RetryPolicy<string> = RetryPolicy.constant({
 		attempts: 2,
 		delay: Duration.milliseconds(50),
 		when: (e) => e.length > 0,
@@ -243,7 +243,7 @@ test("interpret options: widens state union with Retrying and widens error with 
 			expectTypeOf(event.delay).toEqualTypeOf<Duration>();
 		},
 	});
-	expectTypeOf(typedRetry).toEqualTypeOf<Op.RetryOptions<string>>();
+	expectTypeOf(typedRetry).toEqualTypeOf<RetryPolicy<string>>();
 
 	const typedTimeout = TimeoutPolicy.after<Error>({
 		duration: Duration.milliseconds(500),

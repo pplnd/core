@@ -108,9 +108,9 @@ export type Cache<K, E, V> = {
 
 export namespace Cache {
 	/**
-	 * Configuration for `Cache.make`.
+	 * Configuration options for `Cache.make`.
 	 */
-	export type Config<K, E, V, SerializedKey = K> = {
+	export type Options<K, E, V, SerializedKey = K> = {
 		/**
 		 * Starts loading a key. Called once per flight, and never for a fresh or stale hit.
 		 *
@@ -188,11 +188,11 @@ const normalizeMaxSize = (maxSize: number | undefined): number => {
 	return Number.isFinite(maxSize) ? Math.max(0, Math.floor(maxSize)) : Number.POSITIVE_INFINITY;
 };
 
-const makeCache = <K, E, V, SerializedKey = K>(config: Cache.Config<K, E, V, SerializedKey>): Cache<K, E, V> => {
-	const keyBy = config.keyBy ?? ((key: K): SerializedKey => key as unknown as SerializedKey);
-	const ttlMs = normalizeTtl(config.ttl);
-	const staleMs = normalizeStale(config.staleWhileRevalidate);
-	const maxSize = normalizeMaxSize(config.maxSize);
+const makeCache = <K, E, V, SerializedKey = K>(options: Cache.Options<K, E, V, SerializedKey>): Cache<K, E, V> => {
+	const keyBy = options.keyBy ?? ((key: K): SerializedKey => key as unknown as SerializedKey);
+	const ttlMs = normalizeTtl(options.ttl);
+	const staleMs = normalizeStale(options.staleWhileRevalidate);
+	const maxSize = normalizeMaxSize(options.maxSize);
 	const storageEnabled = ttlMs > 0 && maxSize > 0;
 
 	const store = new Map<SerializedKey, Entry<V>>();
@@ -206,7 +206,7 @@ const makeCache = <K, E, V, SerializedKey = K>(config: Cache.Config<K, E, V, Ser
 	};
 
 	const startFlight = (serializedKey: SerializedKey, key: K): Deferred<Result<E, V>> => {
-		const deferred = config.load(key);
+		const deferred = options.load(key);
 		const flight: Flight<E, V> = { deferred, active: true };
 		flights.set(serializedKey, flight);
 		deferred.then((result) => {

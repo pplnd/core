@@ -181,12 +181,12 @@ export const tapAsync = <A>(fn: (a: A) => Thenable<unknown>, options?: tapAsync.
  * );
  * ```
  */
-export const tapTime = <A>(fn: (a: A) => unknown, config: tapTime.Config) => {
+export const tapTime = <A>(fn: (a: A) => unknown, options: tapTime.Options) => {
 	const triggerFinish = (duration: Duration) => {
-		if (config.label !== undefined) {
-			console.log(`[${config.label}]: ${Duration.to.milliseconds(duration)}ms`);
+		if (options.label !== undefined) {
+			console.log(`[${options.label}]: ${Duration.to.milliseconds(duration)}ms`);
 		} else {
-			config.onFinish(duration);
+			options.onFinish(duration);
 		}
 	};
 
@@ -280,5 +280,8 @@ export namespace tapTime {
 	 * between console logging and custom handlers. A custom `onFinish` handler must not throw:
 	 * on the async path a throwing handler surfaces as an unhandled rejection.
 	 */
-	export type Config = { label: string; onFinish?: never; } | { onFinish: (duration: Duration) => void; label?: never; };
+	export type Options = { label: string; onFinish?: never; } | {
+		onFinish: (duration: Duration) => void;
+		label?: never;
+	};
 }

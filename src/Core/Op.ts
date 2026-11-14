@@ -6,7 +6,6 @@ import {
 	type WithId,
 	type WithKind,
 	type WithMinInterval,
-	type WithSize,
 	type WithValue,
 } from "../internal/InternalTypes.ts";
 import {
@@ -34,23 +33,19 @@ declare const _opBrand: unique symbol;
 
 type NormalizeArgs<T> = [T] extends [void] ? [] : T extends readonly unknown[] ? T : [T];
 
-type RetryOptionsInternal<E = unknown> = RetryPolicy<E>;
-
 // Union of all valid option shapes — exposed as a single type so the TS language service
 // can show all strategy literals in autocomplete (overload aggregation is unreliable).
 type AllInterpretOptions<Args extends readonly unknown[], E> =
 	& (
-		| ({ strategy: "once"; retry?: RetryOptionsInternal<E>; } & { readonly timeout?: TimeoutPolicy<unknown>; })
-		| ({ strategy: "restartable"; retry?: RetryOptionsInternal<E>; } & WithMinInterval & {
+		| ({ strategy: "once"; retry?: RetryPolicy<E>; } & { readonly timeout?: TimeoutPolicy<unknown>; })
+		| ({ strategy: "restartable"; retry?: RetryPolicy<E>; } & WithMinInterval & {
 			readonly timeout?: TimeoutPolicy<unknown>;
 		})
-		| ({ strategy: "exclusive"; retry?: RetryOptionsInternal<E>; } & WithCooldown & {
-			readonly timeout?: TimeoutPolicy<unknown>;
-		})
+		| ({ strategy: "exclusive"; retry?: RetryPolicy<E>; } & WithCooldown & { readonly timeout?: TimeoutPolicy<unknown>; })
 		| (
 			& {
 				strategy: "queue";
-				retry?: RetryOptionsInternal<E>;
+				retry?: RetryPolicy<E>;
 				maxSize?: number;
 				overflow?: "drop" | "replace-last";
 				dedupe?: Equality<Args>;
@@ -58,18 +53,16 @@ type AllInterpretOptions<Args extends readonly unknown[], E> =
 			& WithConcurrency
 			& { readonly timeout?: TimeoutPolicy<unknown>; }
 		)
-		| ({ strategy: "buffered"; retry?: RetryOptionsInternal<E>; } & WithSize & {
+		| ({ strategy: "buffered"; retry?: RetryPolicy<E>; } & { readonly maxSize?: number; } & {
 			readonly timeout?: TimeoutPolicy<unknown>;
 		})
-		| (
-			& { strategy: "debounced"; retry?: RetryOptionsInternal<E>; leading?: boolean; maxWait?: Duration; }
-			& WithDuration
-			& { readonly timeout?: TimeoutPolicy<unknown>; }
-		)
-		| ({ strategy: "throttled"; retry?: RetryOptionsInternal<E>; trailing?: boolean; } & WithDuration & {
+		| ({ strategy: "debounced"; retry?: RetryPolicy<E>; leading?: boolean; maxWait?: Duration; } & WithDuration & {
 			readonly timeout?: TimeoutPolicy<unknown>;
 		})
-		| ({ strategy: "concurrent"; retry?: RetryOptionsInternal<E>; overflow?: "queue" | "drop"; concurrency?: number; } & {
+		| ({ strategy: "throttled"; retry?: RetryPolicy<E>; trailing?: boolean; } & WithDuration & {
+			readonly timeout?: TimeoutPolicy<unknown>;
+		})
+		| ({ strategy: "concurrent"; retry?: RetryPolicy<E>; overflow?: "queue" | "drop"; concurrency?: number; } & {
 			readonly timeout?: TimeoutPolicy<unknown>;
 		})
 		| ({ strategy: "keyed"; perKey?: "exclusive" | "restartable"; keyBy?: (...args: Args) => unknown; } & {
@@ -166,24 +159,24 @@ export namespace Op {
 		 */
 		run: (...args: Args) => Deferred<Exclude<S, Idle | Pending | Queued | Retrying<E>>>;
 		abort: () => void;
-		subscribe: (cb: (state: S) => void) => () => void;
+		subscribe: (listener: (state: S) => void) => () => void;
 		reset: () => void;
 		/**
 		 * Runs the operation immediately, then re-runs it on a repeating schedule until the
 		 * returned stop function is called.
 		 *
 		 * Repeat boundaries are absolute positions on a monotonic clock, so timer jitter never
-		 * accumulates, and any finite interval is honored at full length. A non-finite,
-		 * sub-millisecond, zero, or negative interval schedules no repeat — the initial run
+		 * accumulates, and any finite `every` is honored at full length. A non-finite,
+		 * sub-millisecond, zero, or negative `every` schedules no repeat — the initial run
 		 * still executes. The environment delivers each repeat at or after its boundary.
 		 *
 		 * @example
 		 * ```ts
-		 * const stopPolling = manager.poll({ interval: Duration.seconds(30) })("user_123");
+		 * const stopPolling = manager.poll({ every: Duration.seconds(30) })("user_123");
 		 * stopPolling();
 		 * ```
 		 */
-		poll: (options: { interval: Duration; }) => (...args: Args) => () => void;
+		poll: (options: { every: Duration; }) => (...args: Args) => () => void;
 	};
 	export type KeyedManager<Args extends readonly unknown[], K, E, PerKeyS> = {
 		/**
@@ -208,24 +201,24 @@ export namespace Op {
 		 */
 		run: (...args: Args) => Deferred<Exclude<PerKeyS, Pending | Retrying<E>>>;
 		abort: (key?: K) => void;
-		subscribe: (cb: (state: ReadonlyMap<K, PerKeyS>) => void) => () => void;
+		subscribe: (listener: (state: ReadonlyMap<K, PerKeyS>) => void) => () => void;
 		reset: () => void;
 		/**
 		 * Runs the operation immediately for the given key, then re-runs it on a repeating
 		 * schedule until the returned stop function is called.
 		 *
 		 * Repeat boundaries are absolute positions on a monotonic clock, so timer jitter never
-		 * accumulates, and any finite interval is honored at full length. A non-finite,
-		 * sub-millisecond, zero, or negative interval schedules no repeat — the initial run
+		 * accumulates, and any finite `every` is honored at full length. A non-finite,
+		 * sub-millisecond, zero, or negative `every` schedules no repeat — the initial run
 		 * still executes. The environment delivers each repeat at or after its boundary.
 		 *
 		 * @example
 		 * ```ts
-		 * const stopPolling = keyedManager.poll({ interval: Duration.seconds(30) })("item_1");
+		 * const stopPolling = keyedManager.poll({ every: Duration.seconds(30) })("item_1");
 		 * stopPolling();
 		 * ```
 		 */
-		poll: (options: { interval: Duration; }) => (...args: Args) => () => void;
+		poll: (options: { every: Duration; }) => (...args: Args) => () => void;
 	};
 	export type OnceState<E, A> = Idle | Pending | Ok<A> | Err<E> | AbortedNil | DroppedNil;
 	export type RetryableOnceState<E, A> = Idle | Pending | Retrying<E> | Ok<A> | Err<E> | AbortedNil | DroppedNil;
@@ -336,24 +329,6 @@ export namespace Op {
 	export type PerKey = "exclusive" | "restartable";
 
 	/**
-	 * Configuration options for operation retry policies in `Op.interpret`.
-	 * Represents a `RetryPolicy` specifying retry attempts, backoff delay generation,
-	 * error-filtering predicates (`when`), and retry telemetry callbacks (`onRetry`).
-	 *
-	 * @example
-	 * ```ts
-	 * const retry: Op.RetryOptions = RetryPolicy.constant({
-	 *   attempts: 3,
-	 *   delay: Duration.seconds(1),
-	 *   onRetry: ({ attempt, error, delay }) => {
-	 *     console.warn(`Retry attempt ${attempt}: ${error}`);
-	 *   },
-	 * });
-	 * ```
-	 */
-	export type RetryOptions<E = unknown> = RetryOptionsInternal<E>;
-
-	/**
 	 * Union of all valid option shapes accepted by `Op.interpret`.
 	 */
 	export type InterpretOptions<Args extends readonly unknown[] = readonly unknown[], E = unknown> = AllInterpretOptions<
@@ -368,7 +343,7 @@ export namespace Op {
 
 // `Retrying<E>` is only added to the state union when retry options are present.
 type MaybeRetry<E, O> = O extends { retry?: infer R; }
-	? ([NonNullable<R>] extends [never] ? never : NonNullable<R> extends RetryOptionsInternal<E> ? Op.Retrying<E> : never)
+	? ([NonNullable<R>] extends [never] ? never : NonNullable<R> extends RetryPolicy<E> ? Op.Retrying<E> : never)
 	: never;
 
 type TimeoutErrorOf<O> = O extends { timeout?: infer T; }
@@ -482,10 +457,9 @@ function interpretFn<Args extends readonly unknown[], E, A>(
 		perKey?: "exclusive" | "restartable";
 		maxSize?: number;
 		dedupe?: Equality<Args>;
-		size?: number;
 		cooldown?: Duration;
 		minInterval?: Duration;
-		retry?: RetryOptionsInternal<E>;
+		retry?: RetryPolicy<E>;
 		timeout?: TimeoutPolicy<any>;
 	},
 ): unknown {
@@ -513,7 +487,7 @@ function interpretFn<Args extends readonly unknown[], E, A>(
 			);
 		}
 		case "buffered": {
-			return makeBuffered(op, options.size, retryOptions, timeoutOptions, id);
+			return makeBuffered(op, options.maxSize, retryOptions, timeoutOptions, id);
 		}
 		case "debounced": {
 			return makeDebounced(

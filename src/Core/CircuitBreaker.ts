@@ -88,10 +88,10 @@ export namespace CircuitBreaker {
 		readonly lastError: E;
 
 		/**
-		 * Estimated remaining cooldown in milliseconds before the next trial probe is permitted.
-		 * Evaluates to `0` during `HalfOpen` probe execution.
+		 * How long until the next trial probe is permitted, as a `Duration`. Evaluates to a zero
+		 * duration during `HalfOpen` probe execution.
 		 */
-		readonly retryAfterMs: number;
+		readonly retryAfter: Duration;
 	};
 
 	/**
@@ -114,9 +114,9 @@ export namespace CircuitBreaker {
 		readonly openedAt: number;
 
 		/**
-		 * Estimated remaining cooldown in milliseconds before the circuit permits trial probes.
+		 * How long until the circuit permits trial probes, as a `Duration`.
 		 */
-		readonly retryAfterMs: number;
+		readonly retryAfter: Duration;
 
 		/**
 		 * The error that caused the circuit to trip open.
@@ -147,7 +147,7 @@ export namespace CircuitBreaker {
 	/**
 	 * Configuration options for initializing a CircuitBreaker.
 	 */
-	export type Config<E = unknown> = {
+	export type Options<E = unknown> = {
 		/**
 		 * The number of failures that must occur before the circuit trips to `Open`.
 		 * Must be an integer greater than or equal to 1.
@@ -155,7 +155,10 @@ export namespace CircuitBreaker {
 		readonly failureThreshold: number;
 
 		/**
-		 * The cooldown duration the circuit remains `Open` before allowing trial probes in `HalfOpen`.
+		 * How long the circuit remains `Open` before allowing trial probes in `HalfOpen`.
+		 *
+		 * Deliberately not named `cooldown` (the `Op` exclusive strategy's word): this gates
+		 * recovery time after a trip, not minimum spacing between runs.
 		 */
 		readonly resetTimeout: Duration;
 
@@ -195,24 +198,24 @@ const isOpenState = <E = unknown>(state: CircuitBreaker.State<E>): state is Circ
 const isHalfOpenState = (state: CircuitBreaker.State<unknown>): state is CircuitBreaker.HalfOpenState =>
 	state.kind === "HalfOpen";
 
-const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): CircuitBreaker<E> => {
-	const failureThreshold = Number.isFinite(config.failureThreshold)
-		? Math.max(1, Math.floor(config.failureThreshold))
+const makeCircuitBreaker = <E = unknown>(options: CircuitBreaker.Options<E>): CircuitBreaker<E> => {
+	const failureThreshold = Number.isFinite(options.failureThreshold)
+		? Math.max(1, Math.floor(options.failureThreshold))
 		: 1;
-	const rawResetMs = Duration.to.milliseconds(config.resetTimeout);
+	const rawResetMs = Duration.to.milliseconds(options.resetTimeout);
 	const resetTimeoutMs = Number.isNaN(rawResetMs)
 		? 0
 		: Number.isFinite(rawResetMs)
 		? Math.max(0, Math.floor(rawResetMs))
 		: Number.POSITIVE_INFINITY;
-	const successThreshold = config.successThreshold !== undefined && Number.isFinite(config.successThreshold)
-		? Math.max(1, Math.floor(config.successThreshold))
+	const successThreshold = options.successThreshold !== undefined && Number.isFinite(options.successThreshold)
+		? Math.max(1, Math.floor(options.successThreshold))
 		: 1;
-	const rawWindowMs = config.failureWindow !== undefined ? Duration.to.milliseconds(config.failureWindow) : undefined;
+	const rawWindowMs = options.failureWindow !== undefined ? Duration.to.milliseconds(options.failureWindow) : undefined;
 	const windowMs = rawWindowMs !== undefined && Number.isFinite(rawWindowMs)
 		? Math.max(0, Math.floor(rawWindowMs))
 		: undefined;
-	const shouldTrip = config.shouldTrip ?? (() => true);
+	const shouldTrip = options.shouldTrip ?? (() => true);
 
 	type InternalKind = "Closed" | "Open" | "HalfOpen";
 
@@ -260,7 +263,12 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 			if (elapsed >= resetTimeoutMs) {
 				return { kind: "HalfOpen", probeInFlight: false, consecutiveSuccesses: 0 };
 			}
-			return { kind: "Open", openedAt, retryAfterMs: Math.max(0, resetTimeoutMs - elapsed), lastError: lastError as E };
+			return {
+				kind: "Open",
+				openedAt,
+				retryAfter: Duration.milliseconds(Math.max(0, resetTimeoutMs - elapsed)),
+				lastError: lastError as E,
+			};
 		}
 
 		return { kind: "HalfOpen", probeInFlight: activeProbe !== undefined, consecutiveSuccesses };
@@ -418,9 +426,9 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 
 	const run = <EIn extends E = E, A = unknown>(
 		task: Task.Result<EIn, A>,
-		options?: { readonly signal?: AbortSignal; },
+		callerOptions?: { readonly signal?: AbortSignal; },
 	): Deferred<Result<EIn | CircuitBreaker.OpenError<E>, A>> => {
-		const signal = options?.signal;
+		const signal = callerOptions?.signal;
 		const now = Date.now();
 
 		if (currentKind === "Closed") {
@@ -430,8 +438,8 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 		if (currentKind === "Open") {
 			const elapsed = now - openedAt;
 			if (elapsed < resetTimeoutMs) {
-				const retryAfterMs = Math.max(0, resetTimeoutMs - elapsed);
-				const openErr: CircuitBreaker.OpenError<E> = { kind: "CircuitOpenError", lastError: lastError as E, retryAfterMs };
+				const retryAfter = Duration.milliseconds(Math.max(0, resetTimeoutMs - elapsed));
+				const openErr: CircuitBreaker.OpenError<E> = { kind: "CircuitOpenError", lastError: lastError as E, retryAfter };
 				return Deferred.from.Promise(Promise.resolve(Result.make.err(openErr)));
 			}
 
@@ -449,7 +457,7 @@ const makeCircuitBreaker = <E = unknown>(config: CircuitBreaker.Config<E>): Circ
 			const openErr: CircuitBreaker.OpenError<E> = {
 				kind: "CircuitOpenError",
 				lastError: lastError as E,
-				retryAfterMs: 0,
+				retryAfter: Duration.milliseconds(0),
 			};
 			return Deferred.from.Promise(Promise.resolve(Result.make.err(openErr)));
 		}
@@ -515,7 +523,7 @@ export const CircuitBreaker = {
 		 * @example
 		 * ```ts
 		 * if (CircuitBreaker.is.openError(error)) {
-		 *   console.warn(`Circuit is open. Retry after ${error.retryAfterMs}ms`);
+		 *   console.warn(`Circuit is open. Retry after ${Duration.to.milliseconds(error.retryAfter)}ms`);
 		 * }
 		 * ```
 		 */

@@ -1542,11 +1542,11 @@ test("poll: stops at the first error without running again", async () => {
 	expect(calls).toBe(2);
 });
 
-test("poll: waits the delay between attempts", async () => {
+test("poll: waits the configured period between attempts", async () => {
 	let calls = 0;
 	const task = Task.from.sync(() => Result.make.ok(++calls));
 	const started = Date.now();
-	await pipe(task, Task.Result.poll({ until: (n) => n >= 2, delay: Duration.milliseconds(25) }))();
+	await pipe(task, Task.Result.poll({ until: (n) => n >= 2, every: Duration.milliseconds(25) }))();
 	expect(Date.now() - started).toBeGreaterThanOrEqual(20);
 	expect(calls).toBe(2);
 });
@@ -1566,11 +1566,11 @@ test("poll: stops when the signal aborts during a run", async () => {
 	expect(calls).toBe(2);
 });
 
-test("poll: resolves with the last value when aborted during the delay", async () => {
+test("poll: resolves with the last value when aborted during the wait", async () => {
 	const controller = new AbortController();
 	let calls = 0;
 	const task = Task.from.sync(() => Result.make.ok(++calls));
-	const polled = pipe(task, Task.Result.poll({ until: (n) => n === 5, delay: Duration.milliseconds(50) }));
+	const polled = pipe(task, Task.Result.poll({ until: (n) => n === 5, every: Duration.milliseconds(50) }));
 
 	setTimeout(() => controller.abort(), 75);
 

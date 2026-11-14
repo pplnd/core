@@ -352,7 +352,7 @@ export const Task = {
 
 	/**
 	 * Runs a Task a fixed number of times sequentially, collecting all results into an array.
-	 * An optional delay duration can be inserted between runs.
+	 * An optional `every` duration can be inserted between runs.
 	 *
 	 * @see {@link Task.poll} to repeatedly run a Task until a predicate is satisfied.
 	 *
@@ -360,17 +360,17 @@ export const Task = {
 	 * ```ts
 	 * pipe(
 	 *   pollSensor,
-	 *   Task.repeat({ times: 5, delay: Duration.seconds(1) })
+	 *   Task.repeat({ times: 5, every: Duration.seconds(1) })
 	 * )(); // Task<Reading[]> — 5 readings, one per second
 	 * ```
 	 */
-	repeat: (options: { times: number; delay?: Duration; }) => <A>(task: Task<A>): Task<readonly A[]> =>
+	repeat: (options: { times: number; every?: Duration; }) => <A>(task: Task<A>): Task<readonly A[]> =>
 		fromPromise((signal) => {
-			const { delay: delayDuration } = options;
+			const { every: everyDuration } = options;
 			const times = Number.isFinite(options.times) ? Math.floor(options.times) : 0;
 			if (times <= 0) { return Promise.resolve([]); }
 			const results: A[] = [];
-			const wait = (): Promise<void> => waitForDelay(delayDuration ? getMs(delayDuration) : 0, signal);
+			const wait = (): Promise<void> => waitForDelay(everyDuration ? getMs(everyDuration) : 0, signal);
 			const run = (left: number): Promise<A[]> => {
 				if (signal?.aborted) {
 					return Promise.resolve(results);
@@ -388,7 +388,7 @@ export const Task = {
 	 * Polls a Task repeatedly until the result satisfies a predicate, returning that result.
 	 *
 	 * @see {@link Predicate} to build reusable predicates from combinators.
-	 * An optional delay duration can be inserted between polling runs.
+	 * An optional `every` duration can be inserted between polling runs.
 	 * An optional `attempts` cap of N calls stops the loop after N calls — the last value is
 	 * returned regardless of whether the predicate was satisfied. `attempts` is a positive integer.
 	 *
@@ -398,15 +398,15 @@ export const Task = {
 	 * ```ts
 	 * pipe(
 	 *   checkStatus,
-	 *   Task.poll({ until: (s) => s === "ready", delay: Duration.milliseconds(500) })
+	 *   Task.poll({ until: (s) => s === "ready", every: Duration.milliseconds(500) })
 	 * )(); // polls every 500ms until status is "ready"
 	 * ```
 	 */
-	poll: <A>(options: { until: Predicate<A>; delay?: Duration; attempts?: number; }) => (task: Task<A>): Task<A> =>
+	poll: <A>(options: { until: Predicate<A>; every?: Duration; attempts?: number; }) => (task: Task<A>): Task<A> =>
 		fromPromise((signal) => {
-			const { until: predicate, delay: delayDuration } = options;
+			const { until: predicate, every: everyDuration } = options;
 			const attempts = options.attempts === undefined ? undefined : (toPositiveInteger(options.attempts) ?? 1);
-			const wait = (): Promise<void> => waitForDelay(delayDuration ? getMs(delayDuration) : 0, signal);
+			const wait = (): Promise<void> => waitForDelay(everyDuration ? getMs(everyDuration) : 0, signal);
 			const run = (attempt: number): Promise<A> =>
 				toPromise(task, signal).then((a) => {
 					if (predicate(a)) { return a; }

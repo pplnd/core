@@ -752,9 +752,9 @@ test("makeExclusive: handles Duration.milliseconds(0) cooldown without setting t
 	expect(outcome2).toStrictEqual({ kind: "OpOk", value: 4 });
 });
 
-test("poll: executes periodic interval ticks across all strategy factories", async () => {
+test("poll: executes periodic ticks across all strategy factories", async () => {
 	const countOp = Op.make((n: number) => Task.Result.tryCatch(() => Promise.resolve(n), { onError: String }));
-	const interval = Duration.milliseconds(5);
+	const every = Duration.milliseconds(5);
 
 	const factories = [
 		() => makeRestartable(countOp),
@@ -770,7 +770,7 @@ test("poll: executes periodic interval ticks across all strategy factories", asy
 
 	for (const createManager of factories) {
 		const manager = createManager();
-		const stop = manager.poll({ interval })(42);
+		const stop = manager.poll({ every })(42);
 		await new Promise((r) => setTimeout(r, 20));
 		stop();
 		expect(manager.state).toBeDefined();

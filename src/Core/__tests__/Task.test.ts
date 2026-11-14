@@ -492,7 +492,7 @@ test("repeat: collects results in order", async () => {
 
 test("repeat: inserts delay between runs but not after last", async () => {
 	const start = Date.now();
-	await pipe(Task.make(1), Task.repeat({ times: 3, delay: Duration.milliseconds(30) }))();
+	await pipe(Task.make(1), Task.repeat({ times: 3, every: Duration.milliseconds(30) }))();
 	const elapsed = Date.now() - start;
 	// 3 runs = 2 delays = ~60ms; allow generous bounds
 	expect(elapsed).toBeGreaterThanOrEqual(50);
@@ -533,14 +533,14 @@ test("poll: returns value that satisfied predicate", async () => {
 	expect(result).toBe("stop");
 });
 
-test("poll: inserts delay between runs", async () => {
+test("poll: inserts a wait between runs", async () => {
 	let calls = 0;
 	const task = fromPromise(() => {
 		calls++;
 		return Promise.resolve(calls);
 	});
 	const start = Date.now();
-	await pipe(task, Task.poll({ until: (n) => n === 3, delay: Duration.milliseconds(30) }))();
+	await pipe(task, Task.poll({ until: (n) => n === 3, every: Duration.milliseconds(30) }))();
 	const elapsed = Date.now() - start;
 	// 3 runs = 2 delays = ~60ms
 	expect(elapsed).toBeGreaterThanOrEqual(50);
@@ -916,7 +916,7 @@ test("repeat: resolves early with accumulated results if aborted", async () => {
 		return Promise.resolve(count);
 	});
 
-	const repeated = pipe(task, Task.repeat({ times: 5, delay: Duration.milliseconds(50) }));
+	const repeated = pipe(task, Task.repeat({ times: 5, every: Duration.milliseconds(50) }));
 
 	setTimeout(() => controller.abort(), 75);
 
@@ -932,7 +932,7 @@ test("poll: resolves early with last value if aborted", async () => {
 		return Promise.resolve(count);
 	});
 
-	const repeated = pipe(task, Task.poll({ until: (n) => n === 5, delay: Duration.milliseconds(50) }));
+	const repeated = pipe(task, Task.poll({ until: (n) => n === 5, every: Duration.milliseconds(50) }));
 
 	setTimeout(() => controller.abort(), 75);
 
@@ -1098,14 +1098,14 @@ test("all: forwards signal to queued tasks even when abort happens during execut
 test("repeat: exits wait immediately if signal is already aborted", async () => {
 	const controller = new AbortController();
 	controller.abort();
-	const result = await pipe(Task.make(1), Task.repeat({ times: 3, delay: Duration.seconds(10) }))(controller.signal);
+	const result = await pipe(Task.make(1), Task.repeat({ times: 3, every: Duration.seconds(10) }))(controller.signal);
 	expect(result).toStrictEqual([]);
 });
 
 test("poll: exits wait immediately if signal is already aborted", async () => {
 	const controller = new AbortController();
 	controller.abort();
-	const result = await pipe(Task.make(1), Task.poll({ until: (n) => n === 10, delay: Duration.seconds(10) }))(
+	const result = await pipe(Task.make(1), Task.poll({ until: (n) => n === 10, every: Duration.seconds(10) }))(
 		controller.signal,
 	);
 	expect(result).toBe(1);
@@ -1177,7 +1177,7 @@ test("abortable: removes outerSignal listener on completion and clears finished 
 	expect(capturedSignal?.aborted).toBe(false);
 });
 
-test("poll: respects signal aborted during delay even when task resolves to undefined", async () => {
+test("poll: respects signal aborted during the wait even when task resolves to undefined", async () => {
 	const controller = new AbortController();
 	let calls = 0;
 	const undefinedTask: Task<undefined> = fromPromise(() => {
@@ -1190,7 +1190,7 @@ test("poll: respects signal aborted during delay even when task resolves to unde
 
 	const result = await pipe(
 		undefinedTask,
-		Task.poll({ until: () => false, delay: Duration.milliseconds(20), attempts: 5 }),
+		Task.poll({ until: () => false, every: Duration.milliseconds(20), attempts: 5 }),
 	)(controller.signal);
 
 	expect(result).toBeUndefined();

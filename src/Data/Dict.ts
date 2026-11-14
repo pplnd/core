@@ -125,7 +125,7 @@ const DictTo = {
 };
 
 /**
- * Groups elements of an array into a dictionary using a key selector function.
+ * Groups elements of an array into a dictionary keyed by the result of `keyBy`.
  * Each key maps to a non-empty array of items that produced it.
  *
  * @example
@@ -134,10 +134,10 @@ const DictTo = {
  * // ReadonlyMap { "a" => ["apple", "avocado"], "b" => ["banana"] }
  * ```
  */
-const groupBy = <A, K>(keySelector: (item: A) => K) => (items: readonly A[]): ReadonlyMap<K, NonEmptyArr<A>> => {
+const groupBy = <A, K>(keyBy: (item: A) => K) => (items: readonly A[]): ReadonlyMap<K, NonEmptyArr<A>> => {
 	const result = new globalThis.Map<K, A[]>();
 	for (const item of items) {
-		const k = keySelector(item);
+		const k = keyBy(item);
 		const existing = result.get(k);
 		if (existing !== undefined) {
 			existing.push(item);

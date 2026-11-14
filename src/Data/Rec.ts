@@ -311,7 +311,7 @@ const RecFrom = {
 };
 
 /**
- * Groups elements of an array into a record keyed by the result of `keySelector`. Each key maps to
+ * Groups elements of an array into a record keyed by the result of `keyBy`. Each key maps to
  * the array of elements that produced it, in insertion order.
  *
  * Unlike `Dict.groupBy`, keys are always strings. Use `Dict.groupBy` when you need non-string
@@ -325,24 +325,23 @@ const RecFrom = {
  * ); // { a: ["apple", "avocado"], b: ["banana", "blueberry"] }
  * ```
  */
-const groupBy =
-	<A>(keySelector: (item: A) => string) => (items: readonly A[]): Readonly<Record<string, readonly A[]>> => {
-		const result: Record<string, A[]> = {};
-		const n = items.length;
-		for (let i = 0; i < n; i++) {
-			const item = items[i];
-			const key = keySelector(item);
-			const group = result[key];
-			if (Array.isArray(group)) {
-				group.push(item);
-			} else if (key === "__proto__") {
-				Object.defineProperty(result, key, { value: [item], writable: true, enumerable: true, configurable: true });
-			} else {
-				result[key] = [item];
-			}
+const groupBy = <A>(keyBy: (item: A) => string) => (items: readonly A[]): Readonly<Record<string, readonly A[]>> => {
+	const result: Record<string, A[]> = {};
+	const n = items.length;
+	for (let i = 0; i < n; i++) {
+		const item = items[i];
+		const key = keyBy(item);
+		const group = result[key];
+		if (Array.isArray(group)) {
+			group.push(item);
+		} else if (key === "__proto__") {
+			Object.defineProperty(result, key, { value: [item], writable: true, enumerable: true, configurable: true });
+		} else {
+			result[key] = [item];
 		}
-		return result;
-	};
+	}
+	return result;
+};
 
 /**
  * Picks specific keys from a record.

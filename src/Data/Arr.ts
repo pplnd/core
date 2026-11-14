@@ -442,7 +442,7 @@ const partitionMap =
 	};
 
 /**
- * Groups elements by a key function.
+ * Groups elements by the key `keyBy` produces for each item.
  *
  * @see {@link indexBy} for indexing elements into a Map.
  *
@@ -454,12 +454,12 @@ const partitionMap =
  * ); // { a: ["apple", "avocado"], b: ["banana"] }
  * ```
  */
-const groupBy = <A>(keySelector: (item: A) => string) => (items: readonly A[]): Record<string, NonEmptyArr<A>> => {
+const groupBy = <A>(keyBy: (item: A) => string) => (items: readonly A[]): Record<string, NonEmptyArr<A>> => {
 	const result: Record<string, A[]> = {};
 	const n = items.length;
 	for (let i = 0; i < n; i++) {
 		const item = items[i];
-		const key = keySelector(item);
+		const key = keyBy(item);
 		const group = result[key];
 		if (Array.isArray(group)) {
 			group.push(item);
@@ -499,11 +499,11 @@ const uniq = <A>(items: readonly A[]): readonly A[] => (items.length <= 1 ? item
  * ); // [{id: 1, name: "a"}, {id: 2, name: "c"}]
  * ```
  */
-const uniqBy = <A, B>(keySelector: (item: A) => B) => (items: readonly A[]): readonly A[] => {
+const uniqBy = <A, B>(keyBy: (item: A) => B) => (items: readonly A[]): readonly A[] => {
 	const seen = new Set<B>();
 	const result: A[] = [];
 	for (const item of items) {
-		const key = keySelector(item);
+		const key = keyBy(item);
 		if (!seen.has(key)) {
 			seen.add(key);
 			result.push(item);
@@ -1044,7 +1044,8 @@ const findMap = <A, B>(transform: (item: A) => CoreMaybe<B>) => (items: readonly
 };
 
 /**
- * Indexes elements of an array into a `ReadonlyMap<K, A>` using a key extraction function.
+ * Indexes elements of an array into a `ReadonlyMap<K, A>` using the key `keyBy` produces for
+ * each item.
  *
  * @see {@link groupBy} for grouping multiple items per key into arrays.
  *
@@ -1056,10 +1057,10 @@ const findMap = <A, B>(transform: (item: A) => CoreMaybe<B>) => (items: readonly
  * ); // ReadonlyMap { 1 => { id: 1, name: "Alice" }, 2 => { id: 2, name: "Bob" } }
  * ```
  */
-const indexBy = <A, K>(keySelector: (item: A) => K) => (items: readonly A[]): ReadonlyMap<K, A> => {
+const indexBy = <A, K>(keyBy: (item: A) => K) => (items: readonly A[]): ReadonlyMap<K, A> => {
 	const resultMap = new globalThis.Map<K, A>();
 	for (let i = 0; i < items.length; i++) {
-		resultMap.set(keySelector(items[i]), items[i]);
+		resultMap.set(keyBy(items[i]), items[i]);
 	}
 	return resultMap;
 };
@@ -1083,7 +1084,7 @@ const frequencies = <A>(items: readonly A[]): ReadonlyMap<A, number> => {
 };
 
 /**
- * Groups consecutive elements that share the same key returned by `keySelector`.
+ * Groups consecutive elements that share the same key `keyBy` produces.
  *
  * @see {@link chunksOf} for fixed-size chunking.
  *
@@ -1095,17 +1096,17 @@ const frequencies = <A>(items: readonly A[]): ReadonlyMap<A, number> => {
  * ); // [[1, 1], [2], [3, 3], [1]]
  * ```
  */
-const chunkBy = <A, K>(keySelector: (item: A) => K) => (items: readonly A[]): readonly (readonly A[])[] => {
+const chunkBy = <A, K>(keyBy: (item: A) => K) => (items: readonly A[]): readonly (readonly A[])[] => {
 	if (items.length === 0) {
 		return [];
 	}
 	const result: A[][] = [];
 	let currentChunk: A[] = [items[0]];
-	let currentKey = keySelector(items[0]);
+	let currentKey = keyBy(items[0]);
 
 	for (let i = 1; i < items.length; i++) {
 		const item = items[i];
-		const key = keySelector(item);
+		const key = keyBy(item);
 		if (Object.is(key, currentKey)) {
 			currentChunk.push(item);
 		} else {

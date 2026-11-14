@@ -1831,7 +1831,7 @@ test("interpret: exclusive abort inside success subscriber clears cooldown", asy
 // --- Op.interpret — buffered size ---
 
 test("interpret: buffered with capacity holds waiting calls and evicts oldest when full", async () => {
-	const manager = Op.interpret(delayedOp(30), { strategy: "buffered", size: 2 });
+	const manager = Op.interpret(delayedOp(30), { strategy: "buffered", maxSize: 2 });
 
 	const p1 = manager.run(1); // starts immediately
 	const p2 = manager.run(2); // buffered at position 0
@@ -1852,7 +1852,7 @@ test("interpret: buffered processes buffer in FIFO order", async () => {
 			return Promise.resolve(input);
 		}, { onError: String })
 	);
-	const manager = Op.interpret(op, { strategy: "buffered", size: 2 });
+	const manager = Op.interpret(op, { strategy: "buffered", maxSize: 2 });
 
 	const p1 = manager.run(1); // starts immediately
 	const p2 = manager.run(2); // buffer[0]
@@ -2402,7 +2402,7 @@ test("reset: does nothing when already Idle", () => {
 
 test("poll: runs immediately on first call", async () => {
 	const manager = Op.interpret(delayedOp(), { strategy: "restartable" });
-	const stop = manager.poll({ interval: Duration.milliseconds(10_000) })(1);
+	const stop = manager.poll({ every: Duration.milliseconds(10_000) })(1);
 	// Wait for the immediate run to complete
 	await new Promise<void>((resolve) => {
 		const unsub = manager.subscribe((s) => {
@@ -2422,12 +2422,12 @@ test("poll: stop handle cancels future runs", async () => {
 	manager.subscribe((s) => {
 		if (Op.Outcome.is.ok(s)) { runCount++; }
 	});
-	const stop = manager.poll({ interval: Duration.milliseconds(50) })(1);
+	const stop = manager.poll({ every: Duration.milliseconds(50) })(1);
 	// Wait for first run
 	await new Promise((r) => setTimeout(r, 20));
 	stop();
 	const countAfterStop = runCount;
-	// Wait long enough for what would have been 2+ more intervals
+	// Wait long enough for what would have been 2+ more repeats
 	await new Promise((r) => setTimeout(r, 150));
 	expect(runCount).toBe(countAfterStop);
 });
@@ -2435,7 +2435,7 @@ test("poll: stop handle cancels future runs", async () => {
 test("poll: supports reusable poller handle and zero-arg ops", async () => {
 	const zeroOp = Op.make(() => Task.Result.tryCatch(() => Promise.resolve(99), { onError: String }));
 	const zeroManager = Op.interpret(zeroOp, { strategy: "once" });
-	const poller = zeroManager.poll({ interval: Duration.milliseconds(10_000) });
+	const poller = zeroManager.poll({ every: Duration.milliseconds(10_000) });
 	const stop = poller();
 	await new Promise<void>((resolve) => {
 		const unsub = zeroManager.subscribe((s) => {
@@ -2501,7 +2501,7 @@ test("reset: resets once strategy to Idle", async () => {
 
 test("poll: works for exclusive strategy", async () => {
 	const manager = Op.interpret(delayedOp(), { strategy: "exclusive" });
-	const stop = manager.poll({ interval: Duration.milliseconds(10_000) })(1);
+	const stop = manager.poll({ every: Duration.milliseconds(10_000) })(1);
 	await new Promise<void>((resolve) => {
 		const unsub = manager.subscribe((s) => {
 			if (Op.Outcome.is.ok(s)) {
@@ -2516,7 +2516,7 @@ test("poll: works for exclusive strategy", async () => {
 
 test("poll: works for once strategy", async () => {
 	const manager = Op.interpret(delayedOp(), { strategy: "once" });
-	const stop = manager.poll({ interval: Duration.milliseconds(10_000) })(1);
+	const stop = manager.poll({ every: Duration.milliseconds(10_000) })(1);
 	await new Promise<void>((resolve) => {
 		const unsub = manager.subscribe((s) => {
 			if (Op.Outcome.is.ok(s)) {
@@ -2531,7 +2531,7 @@ test("poll: works for once strategy", async () => {
 
 test("poll: works for queue strategy", async () => {
 	const manager = Op.interpret(delayedOp(), { strategy: "queue" });
-	const stop = manager.poll({ interval: Duration.milliseconds(10_000) })(1);
+	const stop = manager.poll({ every: Duration.milliseconds(10_000) })(1);
 	await new Promise<void>((resolve) => {
 		const unsub = manager.subscribe((s) => {
 			if (Op.Outcome.is.ok(s)) {
@@ -2546,7 +2546,7 @@ test("poll: works for queue strategy", async () => {
 
 test("poll: works for buffered strategy", async () => {
 	const manager = Op.interpret(delayedOp(), { strategy: "buffered" });
-	const stop = manager.poll({ interval: Duration.milliseconds(10_000) })(1);
+	const stop = manager.poll({ every: Duration.milliseconds(10_000) })(1);
 	await new Promise<void>((resolve) => {
 		const unsub = manager.subscribe((s) => {
 			if (Op.Outcome.is.ok(s)) {
@@ -2561,7 +2561,7 @@ test("poll: works for buffered strategy", async () => {
 
 test("poll: works for debounced strategy", async () => {
 	const manager = Op.interpret(delayedOp(), { strategy: "debounced", duration: Duration.milliseconds(0) });
-	const stop = manager.poll({ interval: Duration.milliseconds(10_000) })(1);
+	const stop = manager.poll({ every: Duration.milliseconds(10_000) })(1);
 	await new Promise<void>((resolve) => {
 		const unsub = manager.subscribe((s) => {
 			if (Op.Outcome.is.ok(s)) {
@@ -2576,7 +2576,7 @@ test("poll: works for debounced strategy", async () => {
 
 test("poll: works for concurrent strategy", async () => {
 	const manager = Op.interpret(delayedOp(), { strategy: "concurrent", concurrency: 2 });
-	const stop = manager.poll({ interval: Duration.milliseconds(10_000) })(1);
+	const stop = manager.poll({ every: Duration.milliseconds(10_000) })(1);
 	await new Promise<void>((resolve) => {
 		const unsub = manager.subscribe((s) => {
 			if (Op.Outcome.is.ok(s)) {
@@ -2591,7 +2591,7 @@ test("poll: works for concurrent strategy", async () => {
 
 test("poll: works for throttled strategy", async () => {
 	const manager = Op.interpret(delayedOp(), { strategy: "throttled", duration: Duration.milliseconds(10_000) });
-	const stop = manager.poll({ interval: Duration.milliseconds(10_000) })(1);
+	const stop = manager.poll({ every: Duration.milliseconds(10_000) })(1);
 	await new Promise<void>((resolve) => {
 		const unsub = manager.subscribe((s) => {
 			if (Op.Outcome.is.ok(s)) {
@@ -2615,7 +2615,7 @@ test("reset: clears all keyed per-key state", async () => {
 
 test("poll: runs immediately on keyed manager and can be stopped", async () => {
 	const manager = Op.interpret(delayedOp(), { strategy: "keyed", keyBy: (n: number) => n });
-	const stop = manager.poll({ interval: Duration.milliseconds(10_000) })(1);
+	const stop = manager.poll({ every: Duration.milliseconds(10_000) })(1);
 	await new Promise<void>((resolve) => {
 		// oxlint-disable-next-line prefer-const -- TDZ: subscribe fires immediately, const would crash
 		let unsub: () => void;
@@ -2739,9 +2739,9 @@ test("interpret: timeout policy with Duration", async () => {
 	expect(outcome).toStrictEqual(Op.Outcome.make.err("timeout"));
 });
 
-test("poll: works with Duration interval", async () => {
+test("poll: works with a Duration every", async () => {
 	const manager = Op.interpret(delayedOp(), { strategy: "once" });
-	const stop = manager.poll({ interval: Duration.milliseconds(10_000) })(1);
+	const stop = manager.poll({ every: Duration.milliseconds(10_000) })(1);
 	await new Promise<void>((resolve) => {
 		const unsub = manager.subscribe((s) => {
 			if (Op.Outcome.is.ok(s)) {
@@ -2773,13 +2773,13 @@ test("pipe: composes outcome with mapError and to.Result", () => {
 	expect(res).toStrictEqual(Result.make.err("error: fail"));
 });
 
-// --- Op.RetryOptions & TimeoutPolicy type and runtime tests ---
+// --- RetryPolicy & TimeoutPolicy type and runtime tests ---
 
-test("RetryOptions: supports default unknown error type and typed error predicate", () => {
-	const defaultRetry: Op.RetryOptions = RetryPolicy.constant({ attempts: 3, delay: Duration.seconds(1) });
+test("retry: supports default unknown error type and typed error predicate", () => {
+	const defaultRetry: RetryPolicy = RetryPolicy.constant({ attempts: 3, delay: Duration.seconds(1) });
 	expect(defaultRetry.attempts).toBe(3);
 
-	const typedRetry: Op.RetryOptions<string> = RetryPolicy.constant({
+	const typedRetry: RetryPolicy<string> = RetryPolicy.constant({
 		attempts: 2,
 		delay: Duration.milliseconds(50),
 		when: (e) => e.length > 0,
@@ -2977,7 +2977,7 @@ test("reset: aborts in-flight and queued items on queue manager", async () => {
 });
 
 test("reset: aborts in-flight and buffered items on buffered manager", async () => {
-	const manager = Op.interpret(delayedOp(40), { strategy: "buffered", size: 2 });
+	const manager = Op.interpret(delayedOp(40), { strategy: "buffered", maxSize: 2 });
 	const p1 = manager.run(1);
 	const p2 = manager.run(2);
 	await new Promise((r) => setTimeout(r, 10));
@@ -3273,7 +3273,7 @@ test("interpret: concurrent queue preserves FIFO order when subscriber calls run
 });
 
 test("interpret: buffered does not evict waiting item when subscriber calls run re-entrantly on outcome", async () => {
-	const manager = Op.interpret(delayedOp(10), { strategy: "buffered", size: 1 });
+	const manager = Op.interpret(delayedOp(10), { strategy: "buffered", maxSize: 1 });
 	let p3: Deferred<Op.Outcome<string, number>> | undefined;
 
 	manager.subscribe((state) => {
@@ -3291,7 +3291,7 @@ test("interpret: buffered does not evict waiting item when subscriber calls run 
 });
 
 test("interpret: buffered abort settles an item reserved during outcome notification", async () => {
-	const manager = Op.interpret(delayedOp(10), { strategy: "buffered", size: 1 });
+	const manager = Op.interpret(delayedOp(10), { strategy: "buffered", maxSize: 1 });
 	manager.subscribe((state) => {
 		if (Op.Outcome.is.ok(state)) { manager.abort(); }
 	});
@@ -3320,7 +3320,7 @@ test("interpret: aborting from a pending subscriber settles each strategy's call
 
 test("reset: settles in-flight caller promise before notifying Idle subscribers in buffered and once", async () => {
 	const bufferedEvents: string[] = [];
-	const bufferedManager = Op.interpret(delayedOp(50), { strategy: "buffered", size: 1 });
+	const bufferedManager = Op.interpret(delayedOp(50), { strategy: "buffered", maxSize: 1 });
 	const bp = bufferedManager.run(1);
 	void bp.then(() => {
 		bufferedEvents.push("caller-settled");
@@ -3375,8 +3375,8 @@ test("interpret: queue clamps non-positive maxSize to 1 so replace-last never re
 	await expect(p3).resolves.toStrictEqual({ kind: "OpOk", value: 3 });
 });
 
-test("poll: non-finite, zero, and negative intervals run once and never reschedule", async () => {
-	for (const interval of [Duration.milliseconds(0), Duration.milliseconds(Number.NaN), Duration.milliseconds(-5)]) {
+test("poll: non-finite, zero, and negative durations run once and never reschedule", async () => {
+	for (const every of [Duration.milliseconds(0), Duration.milliseconds(Number.NaN), Duration.milliseconds(-5)]) {
 		let calls = 0;
 		const op = Op.make(() =>
 			Task.Result.tryCatch(() => {
@@ -3385,14 +3385,14 @@ test("poll: non-finite, zero, and negative intervals run once and never reschedu
 			}, { onError: (e) => String(e) })
 		);
 		const manager = Op.interpret(op, { strategy: "restartable" });
-		const stop = manager.poll({ interval })();
+		const stop = manager.poll({ every })();
 		await new Promise((resolve) => setTimeout(resolve, 40));
 		expect(calls).toBe(1);
 		stop();
 	}
 });
 
-test("poll: a positive interval keeps repeating until stopped", async () => {
+test("poll: a positive duration keeps repeating until stopped", async () => {
 	let calls = 0;
 	const op = Op.make(() =>
 		Task.Result.tryCatch(() => {
@@ -3401,7 +3401,7 @@ test("poll: a positive interval keeps repeating until stopped", async () => {
 		}, { onError: (e) => String(e) })
 	);
 	const manager = Op.interpret(op, { strategy: "restartable" });
-	const stop = manager.poll({ interval: Duration.milliseconds(10) })();
+	const stop = manager.poll({ every: Duration.milliseconds(10) })();
 	await new Promise((resolve) => setTimeout(resolve, 70));
 	const afterRepeats = calls;
 	expect(afterRepeats).toBeGreaterThanOrEqual(2);

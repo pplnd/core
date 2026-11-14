@@ -104,7 +104,7 @@ test("run: increments failures on tripping errors until failureThreshold is reac
 	expect(CircuitBreaker.is.open(state)).toBe(true);
 	assert(state.kind === "Open");
 	expect(state.lastError).toBe("err_2");
-	expect(state.retryAfterMs).toBeGreaterThan(0);
+	expect(state.retryAfter).toBeGreaterThan(0);
 });
 
 test("run: consecutive failures reset to 0 upon a successful execution", async () => {
@@ -169,7 +169,7 @@ test("run: fast-fails immediately in 0ms with CircuitOpenError when Open", async
 	assert(CircuitBreaker.is.openError(res.error));
 	expect(res.error.kind).toBe("CircuitOpenError");
 	expect(res.error.lastError).toBe("upstream_failure");
-	expect(res.error.retryAfterMs).toBeGreaterThan(0);
+	expect(res.error.retryAfter).toBeGreaterThan(0);
 });
 
 // -----------------------------------------------------------------------------
@@ -218,7 +218,7 @@ test("run: fast-fails concurrent calls while trial probe is in flight during Hal
 	assert(concurrentResult.kind === "Err");
 	assert(CircuitBreaker.is.openError(concurrentResult.error));
 	expect(concurrentResult.error.lastError).toBe("err");
-	expect(concurrentResult.error.retryAfterMs).toBe(0);
+	expect(concurrentResult.error.retryAfter).toBe(0);
 
 	const probeResult = await probePromise;
 	expect(probeResult).toStrictEqual(Result.make.ok("probe_ok"));
@@ -559,7 +559,7 @@ test("reset: a stale probe cannot replace the active probe after a second outage
 	});
 	expect(called).toBe(false);
 	expect(blocked).toStrictEqual(
-		Result.make.err({ kind: "CircuitOpenError", lastError: "second outage", retryAfterMs: 0 }),
+		Result.make.err({ kind: "CircuitOpenError", lastError: "second outage", retryAfter: 0 }),
 	);
 
 	current.resolve(Result.make.ok("recovered"));
@@ -766,7 +766,7 @@ test("run: in HalfOpen state with probe in flight, pre-aborted signal fast-fails
 	expect(concurrentCalled).toBe(false);
 	assert(concurrentRes.kind === "Err");
 	assert(CircuitBreaker.is.openError(concurrentRes.error));
-	expect(concurrentRes.error.retryAfterMs).toBe(0);
+	expect(concurrentRes.error.retryAfter).toBe(0);
 
 	await probePromise;
 });

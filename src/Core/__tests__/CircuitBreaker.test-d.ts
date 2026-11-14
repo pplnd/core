@@ -44,7 +44,7 @@ test("state: returns discriminated union and supports narrowing", () => {
 	} else if (CircuitBreaker.is.open(state)) {
 		expectTypeOf(state).toEqualTypeOf<CircuitBreaker.OpenState<CustomError>>();
 		expectTypeOf(state.lastError).toEqualTypeOf<CustomError>();
-		expectTypeOf(state.retryAfterMs).toEqualTypeOf<number>();
+		expectTypeOf(state.retryAfter).toEqualTypeOf<Duration>();
 		expectTypeOf(state.openedAt).toEqualTypeOf<number>();
 	} else if (CircuitBreaker.is.halfOpen(state)) {
 		expectTypeOf(state).toEqualTypeOf<CircuitBreaker.HalfOpenState>();
@@ -107,7 +107,7 @@ test("is: type guards correctly narrow types", () => {
 	if (CircuitBreaker.is.openError<string>(errCandidate)) {
 		expectTypeOf(errCandidate).toEqualTypeOf<CircuitBreaker.OpenError<string>>();
 		expectTypeOf(errCandidate.lastError).toEqualTypeOf<string>();
-		expectTypeOf(errCandidate.retryAfterMs).toEqualTypeOf<number>();
+		expectTypeOf(errCandidate.retryAfter).toEqualTypeOf<Duration>();
 	}
 });
 

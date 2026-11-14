@@ -54,20 +54,16 @@ const getMs = (duration: Duration): number => Duration.to.milliseconds(duration)
 const noop = (): void => {};
 
 /**
- * Schedules `fire` to repeat every `interval` until the returned cancel function runs.
+ * Schedules `fire` to repeat on the `every` cadence until the returned cancel function runs.
  *
- * Repeat boundaries are absolute positions on the monotonic clock (`start + k * interval`):
- * timer jitter never accumulates across cycles, and a finite interval longer than the
+ * Repeat boundaries are absolute positions on the monotonic clock (`start + k * every`):
+ * timer jitter never accumulates across cycles, and a finite cadence longer than the
  * platform's single-timer maximum is honored at full length by chaining timers instead of
- * clamping the request. A non-finite, sub-millisecond, zero, or negative interval schedules
+ * clamping the request. A non-finite, sub-millisecond, zero, or negative `every` schedules
  * no repeat — the initial run is the caller's.
  */
-export const schedulePollRepeat = (
-	interval: Duration,
-	fire: () => void,
-	stepCap: number = MAX_TIMER_MS,
-): () => void => {
-	const total = Math.floor(getMs(interval));
+export const schedulePollRepeat = (every: Duration, fire: () => void, stepCap: number = MAX_TIMER_MS): () => void => {
+	const total = Math.floor(getMs(every));
 	if (!Number.isFinite(total) || total < 1) {
 		return noop;
 	}
@@ -201,7 +197,7 @@ export const execute = <Args extends readonly unknown[], E, A>(
 	op: Op<Args, E, A>,
 	args: Args,
 	controller: AbortController,
-	retryOptions?: Op.RetryOptions<E>,
+	retryOptions?: RetryPolicy<E>,
 	timeoutOptions?: TimeoutPolicy<any>,
 	onRetrying?: (state: Op.Retrying<E>) => void,
 ): Deferred<Op.Outcome<E, A>> => {
@@ -251,7 +247,7 @@ export const execute = <Args extends readonly unknown[], E, A>(
 export const makeRestartable = <Args extends readonly unknown[], E, A>(
 	op: Op<Args, E, A>,
 	minInterval?: Duration,
-	retryOptions?: Op.RetryOptions<E>,
+	retryOptions?: RetryPolicy<E>,
 	timeoutOptions?: TimeoutPolicy<any>,
 	id?: string,
 ): Op.Manager<Args, E, A, Op.State<E, A>> => {
@@ -355,9 +351,9 @@ export const makeRestartable = <Args extends readonly unknown[], E, A>(
 				r?.(_abortedNil);
 				emit(_idle);
 			},
-			poll: ({ interval }: { interval: Duration; }) => (...args: Args) => {
+			poll: ({ every }: { every: Duration; }) => (...args: Args) => {
 				void run(...args);
-				return schedulePollRepeat(interval, () => void run(...args));
+				return schedulePollRepeat(every, () => void run(...args));
 			},
 		},
 		id,
@@ -368,7 +364,7 @@ export const makeRestartable = <Args extends readonly unknown[], E, A>(
 export const makeExclusive = <Args extends readonly unknown[], E, A>(
 	op: Op<Args, E, A>,
 	cooldown?: Duration,
-	retryOptions?: Op.RetryOptions<E>,
+	retryOptions?: RetryPolicy<E>,
 	timeoutOptions?: TimeoutPolicy<any>,
 	id?: string,
 ): Op.Manager<Args, E, A, Op.State<E, A>> => {
@@ -464,9 +460,9 @@ export const makeExclusive = <Args extends readonly unknown[], E, A>(
 				r?.(_abortedNil);
 				emit(_idle);
 			},
-			poll: ({ interval }: { interval: Duration; }) => (...args: Args) => {
+			poll: ({ every }: { every: Duration; }) => (...args: Args) => {
 				void run(...args);
-				return schedulePollRepeat(interval, () => void run(...args));
+				return schedulePollRepeat(every, () => void run(...args));
 			},
 		},
 		id,
@@ -480,7 +476,7 @@ export const makeQueue = <Args extends readonly unknown[], E, A>(
 	overflow?: "drop" | "replace-last",
 	concurrency?: number,
 	dedupe?: (a: Args, b: Args) => boolean,
-	retryOptions?: Op.RetryOptions<E>,
+	retryOptions?: RetryPolicy<E>,
 	timeoutOptions?: TimeoutPolicy<any>,
 	id?: string,
 ): Op.Manager<Args, E, A, Op.State<E, A>> => {
@@ -653,9 +649,9 @@ export const makeQueue = <Args extends readonly unknown[], E, A>(
 				inFlight = 0;
 				emit(_idle);
 			},
-			poll: ({ interval }: { interval: Duration; }) => (...args: Args) => {
+			poll: ({ every }: { every: Duration; }) => (...args: Args) => {
 				void run(...args);
-				return schedulePollRepeat(interval, () => void run(...args));
+				return schedulePollRepeat(every, () => void run(...args));
 			},
 		},
 		id,
@@ -665,12 +661,12 @@ export const makeQueue = <Args extends readonly unknown[], E, A>(
 
 export const makeBuffered = <Args extends readonly unknown[], E, A>(
 	op: Op<Args, E, A>,
-	size?: number,
-	retryOptions?: Op.RetryOptions<E>,
+	maxSize?: number,
+	retryOptions?: RetryPolicy<E>,
 	timeoutOptions?: TimeoutPolicy<any>,
 	id?: string,
 ): Op.Manager<Args, E, A, Op.State<E, A>> => {
-	const bufferSize = size !== undefined && Number.isInteger(size) && size > 0 ? size : 1;
+	const bufferSize = maxSize !== undefined && Number.isInteger(maxSize) && maxSize > 0 ? maxSize : 1;
 	let currentState: Op.State<E, A> = _idle;
 	let currentController: AbortController | undefined;
 	let currentResolve: ((o: Op.Outcome<E, A>) => void) | undefined;
@@ -775,9 +771,9 @@ export const makeBuffered = <Args extends readonly unknown[], E, A>(
 				cr?.(_abortedNil);
 				emit(_idle);
 			},
-			poll: ({ interval }: { interval: Duration; }) => (...args: Args) => {
+			poll: ({ every }: { every: Duration; }) => (...args: Args) => {
 				void run(...args);
-				return schedulePollRepeat(interval, () => void run(...args));
+				return schedulePollRepeat(every, () => void run(...args));
 			},
 		},
 		id,
@@ -790,7 +786,7 @@ export const makeDebounced = <Args extends readonly unknown[], E, A>(
 	duration: Duration,
 	leading: boolean,
 	maxWait?: Duration,
-	retryOptions?: Op.RetryOptions<E>,
+	retryOptions?: RetryPolicy<E>,
 	timeoutOptions?: TimeoutPolicy<any>,
 	id?: string,
 ): Op.Manager<Args, E, A, Op.State<E, A>> => {
@@ -981,9 +977,9 @@ export const makeDebounced = <Args extends readonly unknown[], E, A>(
 				lr?.(_abortedNil);
 				emit(_idle);
 			},
-			poll: ({ interval }: { interval: Duration; }) => (...args: Args) => {
+			poll: ({ every }: { every: Duration; }) => (...args: Args) => {
 				void run(...args);
-				return schedulePollRepeat(interval, () => void run(...args));
+				return schedulePollRepeat(every, () => void run(...args));
 			},
 		},
 		id,
@@ -995,7 +991,7 @@ export const makeThrottled = <Args extends readonly unknown[], E, A>(
 	op: Op<Args, E, A>,
 	duration: Duration,
 	trailing: boolean,
-	retryOptions?: Op.RetryOptions<E>,
+	retryOptions?: RetryPolicy<E>,
 	timeoutOptions?: TimeoutPolicy<any>,
 	id?: string,
 ): Op.Manager<Args, E, A, Op.State<E, A>> => {
@@ -1128,9 +1124,9 @@ export const makeThrottled = <Args extends readonly unknown[], E, A>(
 				pr?.(_abortedNil);
 				emit(_idle);
 			},
-			poll: ({ interval }: { interval: Duration; }) => (...args: Args) => {
+			poll: ({ every }: { every: Duration; }) => (...args: Args) => {
 				void run(...args);
-				return schedulePollRepeat(interval, () => void run(...args));
+				return schedulePollRepeat(every, () => void run(...args));
 			},
 		},
 		id,
@@ -1142,7 +1138,7 @@ export const makeConcurrent = <Args extends readonly unknown[], E, A>(
 	op: Op<Args, E, A>,
 	n: number,
 	overflow: "queue" | "drop",
-	retryOptions?: Op.RetryOptions<E>,
+	retryOptions?: RetryPolicy<E>,
 	timeoutOptions?: TimeoutPolicy<any>,
 	id?: string,
 ): Op.Manager<Args, E, A, Op.State<E, A>> => {
@@ -1289,9 +1285,9 @@ export const makeConcurrent = <Args extends readonly unknown[], E, A>(
 				inflight = 0;
 				emit(_idle);
 			},
-			poll: ({ interval }: { interval: Duration; }) => (...args: Args) => {
+			poll: ({ every }: { every: Duration; }) => (...args: Args) => {
 				void run(...args);
-				return schedulePollRepeat(interval, () => void run(...args));
+				return schedulePollRepeat(every, () => void run(...args));
 			},
 		},
 		id,
@@ -1413,9 +1409,9 @@ export const makeKeyed = <Args extends readonly unknown[], K, E, A>(
 				stateMap.clear();
 				emitSnapshot();
 			},
-			poll: ({ interval }: { interval: Duration; }) => (...args: Args) => {
+			poll: ({ every }: { every: Duration; }) => (...args: Args) => {
 				void run(...args);
-				return schedulePollRepeat(interval, () => void run(...args));
+				return schedulePollRepeat(every, () => void run(...args));
 			},
 		},
 		id,
@@ -1425,7 +1421,7 @@ export const makeKeyed = <Args extends readonly unknown[], K, E, A>(
 
 export const makeOnce = <Args extends readonly unknown[], E, A>(
 	op: Op<Args, E, A>,
-	retryOptions?: Op.RetryOptions<E>,
+	retryOptions?: RetryPolicy<E>,
 	timeoutOptions?: TimeoutPolicy<any>,
 	id?: string,
 ): Op.Manager<Args, E, A, Op.State<E, A>> => {
@@ -1502,9 +1498,9 @@ export const makeOnce = <Args extends readonly unknown[], E, A>(
 				r?.(_abortedNil);
 				emit(_idle);
 			},
-			poll: ({ interval }: { interval: Duration; }) => (...args: Args) => {
+			poll: ({ every }: { every: Duration; }) => (...args: Args) => {
 				void run(...args);
-				return schedulePollRepeat(interval, () => void run(...args));
+				return schedulePollRepeat(every, () => void run(...args));
 			},
 		},
 		id,

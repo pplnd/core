@@ -560,7 +560,7 @@ export const TaskResult = {
 	 *
 	 * @see {@link Predicate} to build reusable predicates from combinators.
 	 *
-	 * `until`, `delay`, and `attempts` behave exactly as they do in `Task.poll`: `attempts` is a
+	 * `until`, `every`, and `attempts` behave exactly as they do in `Task.poll`: `attempts` is a
 	 * positive integer, and the last value is returned when it runs out. The difference is the error
 	 * channel: the first `Err` ends the loop, because retrying a failed attempt belongs to
 	 * `Task.Result.retry`.
@@ -572,19 +572,19 @@ export const TaskResult = {
 	 * ```ts
 	 * const waitForExport = pipe(
 	 *   fetchExportJob,
-	 *   Task.Result.poll({ until: (job) => job.status !== "pending", delay: Duration.seconds(2) }),
+	 *   Task.Result.poll({ until: (job) => job.status !== "pending", every: Duration.seconds(2) }),
 	 * );
 	 * ```
 	 */
 	poll:
-		<A>(options: { readonly until: Predicate<A>; readonly delay?: Duration; readonly attempts?: number; }) =>
+		<A>(options: { readonly until: Predicate<A>; readonly every?: Duration; readonly attempts?: number; }) =>
 		<E = never>(task: Task.Result<E, A>): Task.Result<E, A> =>
 		(signal) =>
 			Deferred.from.Promise((() => {
-				const { until: predicate, delay: delayDuration } = options;
+				const { until: predicate, every: everyDuration } = options;
 				const attempts = options.attempts === undefined ? undefined : (toPositiveInteger(options.attempts) ?? 1);
 
-				const wait = (): Promise<void> => waitForDelay(delayDuration ? Duration.to.milliseconds(delayDuration) : 0, signal);
+				const wait = (): Promise<void> => waitForDelay(everyDuration ? Duration.to.milliseconds(everyDuration) : 0, signal);
 
 				const executeAttempt = (attempt: number): Promise<Result<E, A>> =>
 					Deferred.to.Promise(task(signal)).then((res) => {

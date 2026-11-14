@@ -85,9 +85,7 @@ test("run: rejects immediately with the remaining wait under the reject strategy
 		});
 		await limiter.run(task);
 		const rejected = await limiter.run(task);
-		expect(rejected).toStrictEqual(
-			Result.make.err({ kind: "RateLimitExceeded", retryAfterMs: 100, reason: "exhausted" }),
-		);
+		expect(rejected).toStrictEqual(Result.make.err({ kind: "RateLimitExceeded", retryAfter: 100, reason: "exhausted" }));
 		expect(runs).toBe(1);
 		expect(vi.getTimerCount()).toBe(0);
 	});
@@ -99,7 +97,7 @@ test("run: rejects with max-wait when the estimate exceeds maxWait", async () =>
 		await limiter.run(Task.Result.make.ok(1));
 		const rejected = await limiter.run(Task.Result.make.ok(2));
 		expect(rejected).toStrictEqual(
-			Result.make.err({ kind: "RateLimitExceeded", retryAfterMs: 10_000, reason: "max-wait" }),
+			Result.make.err({ kind: "RateLimitExceeded", retryAfter: 10_000, reason: "max-wait" }),
 		);
 	});
 });
@@ -199,6 +197,6 @@ test("make: treats a non-finite maxWait as zero", async () => {
 		});
 		await limiter.run(Task.Result.make.ok(1));
 		const rejected = await limiter.run(Task.Result.make.ok(2));
-		expect(rejected).toStrictEqual(Result.make.err({ kind: "RateLimitExceeded", retryAfterMs: 100, reason: "max-wait" }));
+		expect(rejected).toStrictEqual(Result.make.err({ kind: "RateLimitExceeded", retryAfter: 100, reason: "max-wait" }));
 	});
 });

@@ -1,6 +1,5 @@
 import type { Deferred } from "../Core/Deferred";
 import type { Duration } from "../Types/Duration.ts";
-import type { RetryPolicy } from "../Types/RetryPolicy.ts";
 
 /**
  * Represents a promise-like object or a deferred value that can be resolved with `.then()`.
@@ -41,48 +40,16 @@ export type WithLog<T> = { readonly log: ReadonlyArray<T>; };
 export type WithId = { readonly id?: string; };
 
 // ---------------------------------------------------------------------------
-// Op option types — moved from Op namespace and shared across strategies
+// Op option fragments shared across strategies
 // ---------------------------------------------------------------------------
-
-/** Retry policy for `Op.interpret`. */
-export type RetryOptions<E = unknown> = RetryPolicy<E>;
-
-/** Timeout policy for `Op.interpret`. Wraps the entire retry sequence. */
-
-// Cross-cutting option wrappers
-
-export type WithRetry<E = unknown> = { readonly retry: RetryOptions<E>; };
 
 // Throttled / debounced options
 
 export type WithDuration = { readonly duration: Duration; };
-/** For `throttled`: also fire on the trailing edge after the cooldown. */
-export type WithTrailing = { readonly trailing: true; };
-/** For `debounced`: also fire on the leading edge (first call). */
-export type WithLeading = { readonly leading: true; };
-/** For `debounced`: maximum ms before the trailing call fires regardless of continued activity. */
-export type WithMaxWait = { readonly maxWait: Duration; };
-
-// Concurrent options
-
-export type WithN = { readonly n: number; };
-/**
- * `O` is a string literal (or union of literals) representing the overflow value.
- * The generic lets overload signatures discriminate on the specific value:
- *   `WithOverflow<"drop">` → `{ overflow: "drop" }`
- *   `WithOverflow<"replace-last">` → `{ overflow: "replace-last" }`
- * Used by both `concurrent` (`"drop" | "queue"`) and `queue` (`"drop" | "replace-last"`).
- * `extends string` prevents `WithOverflow<42>` from being valid.
- */
-export type WithOverflow<O extends string> = { readonly overflow: O; };
 
 // Queue options
 
-export type WithMaxSize = { readonly maxSize: number; };
 export type WithConcurrency = { readonly concurrency?: number; };
-// Buffered options
-
-export type WithSize = { readonly size?: number; };
 
 // Exclusive options
 
@@ -91,10 +58,5 @@ export type WithCooldown = { readonly cooldown?: Duration; };
 // Restartable options
 
 export type WithMinInterval = { readonly minInterval?: Duration; };
-
-// Keyed options (formalising existing inline fields)
-
-export type WithKey<I, K> = { readonly key: (input: I) => K; };
-export type WithPerKey<S extends string> = { readonly perKey: S; };
 
 export type NonEmpty<T extends string> = `NonEmpty${T}`;

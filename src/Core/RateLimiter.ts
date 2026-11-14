@@ -12,7 +12,7 @@ import type { Task } from "./Task.ts";
  *
  * A call is admitted while fewer than `limit` calls have started in the last `window`. Beyond that,
  * the default `"wait"` strategy queues the call and starts it when the oldest admitted call expires;
- * `"reject"` settles immediately with `RateLimiter.LimitError` carrying `retryAfterMs`.
+ * `"reject"` settles immediately with `RateLimiter.LimitError` carrying `retryAfter`.
  *
  * @example
  * ```ts
@@ -63,9 +63,9 @@ export namespace RateLimiter {
 	 */
 	export type LimitError = WithKind<"RateLimitExceeded"> & {
 		/**
-		 * Milliseconds until the oldest admitted call expires, rounded up to whole milliseconds.
+		 * How long until the oldest admitted call expires, rounded up to whole milliseconds.
 		 */
-		readonly retryAfterMs: number;
+		readonly retryAfter: Duration;
 
 		/**
 		 * `"exhausted"` when the `"reject"` strategy refused the call, `"max-wait"` when the wait
@@ -75,9 +75,9 @@ export namespace RateLimiter {
 	};
 
 	/**
-	 * Configuration for `RateLimiter.make`.
+	 * Configuration options for `RateLimiter.make`.
 	 */
-	export type Config = {
+	export type Options = {
 		/**
 		 * Maximum number of calls that may start inside one window. A positive integer; `1` allows
 		 * one call per window.
@@ -92,6 +92,8 @@ export namespace RateLimiter {
 
 		/**
 		 * What to do when no permit is free. Defaults to `"wait"`; `"reject"` settles immediately.
+		 *
+		 * Governs admission before a call starts, not work already inside the engine.
 		 */
 		readonly strategy?: "wait" | "reject";
 
@@ -108,11 +110,11 @@ const normalizeMs = (duration: Duration): number => {
 	return Number.isFinite(milliseconds) ? Math.max(0, Math.floor(milliseconds)) : 0;
 };
 
-const makeRateLimiter = (config: RateLimiter.Config): RateLimiter => {
-	const limit = toPositiveInteger(config.limit) ?? 1;
-	const windowMs = normalizeMs(config.window);
-	const strategy = config.strategy === "reject" ? "reject" : "wait";
-	const maxWaitMs = config.maxWait === undefined ? undefined : normalizeMs(config.maxWait);
+const makeRateLimiter = (options: RateLimiter.Options): RateLimiter => {
+	const limit = toPositiveInteger(options.limit) ?? 1;
+	const windowMs = normalizeMs(options.window);
+	const strategy = options.strategy === "reject" ? "reject" : "wait";
+	const maxWaitMs = options.maxWait === undefined ? undefined : normalizeMs(options.maxWait);
 
 	const admitted: number[] = [];
 	const queue = new Map<object, () => void>();
@@ -181,9 +183,9 @@ const makeRateLimiter = (config: RateLimiter.Config): RateLimiter => {
 
 	const run = <E, A>(
 		task: Task.Result<E, A>,
-		options?: { readonly signal?: AbortSignal; },
+		callerOptions?: { readonly signal?: AbortSignal; },
 	): Deferred<Result<E | RateLimiter.LimitError | Aborted, A>> => {
-		const signal = options?.signal;
+		const signal = callerOptions?.signal;
 
 		if (signal?.aborted) {
 			return Deferred.from.Promise(
@@ -201,12 +203,12 @@ const makeRateLimiter = (config: RateLimiter.Config): RateLimiter => {
 			return task(signal);
 		}
 
-		const retryAfterMs = Math.max(0, admitted[0] + windowMs - now);
+		const waitMs = Math.max(0, admitted[0] + windowMs - now);
 
-		if (strategy === "reject" || (maxWaitMs !== undefined && retryAfterMs > maxWaitMs)) {
+		if (strategy === "reject" || (maxWaitMs !== undefined && waitMs > maxWaitMs)) {
 			const error: RateLimiter.LimitError = {
 				kind: "RateLimitExceeded",
-				retryAfterMs,
+				retryAfter: Duration.milliseconds(waitMs),
 				reason: strategy === "reject" ? "exhausted" : "max-wait",
 			};
 			return Deferred.from.Promise(

@@ -56,7 +56,7 @@ test("make: keyBy infers a serialized key without changing the cache's key chann
 });
 
 test("Config: accepts explicit channels and defaults the serialized key to the key", () => {
-	const config: Cache.Config<string, LookupError, User> = {
+	const config: Cache.Options<string, LookupError, User> = {
 		load: (id) => Task.Result.make.ok({ id, name: "Ada" })(),
 		ttl: Duration.seconds(30),
 	};

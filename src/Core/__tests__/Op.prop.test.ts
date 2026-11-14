@@ -310,15 +310,15 @@ test("interpret: restartable with zero minInterval burst produces 1 Ok and N-1 R
 });
 
 // ---------------------------------------------------------------------------
-// Strategy invariants — buffered size
+// Strategy invariants — buffered maxSize
 // ---------------------------------------------------------------------------
 
-test("interpret: buffered size burst exceeding capacity produces EvictedNil", async () => {
+test("interpret: buffered maxSize burst exceeding capacity produces EvictedNil", async () => {
 	await fc.assert(
 		fc.asyncProperty(
 			fc.integer({ min: 1, max: 4 }).chain((k) => fc.integer({ min: k + 2, max: k + 8 }).map((n) => ({ k, n }))),
 			async ({ k, n }) => {
-				const manager = Op.interpret(immediateOp, { strategy: "buffered", size: k });
+				const manager = Op.interpret(immediateOp, { strategy: "buffered", maxSize: k });
 				const deferreds = Array.from({ length: n }, (_, i) => manager.run(i));
 				const outcomes = (await Promise.all(deferreds.map(Deferred.to.Promise))) as Op.Outcome<string, number>[];
 				expect(outcomes.filter(Op.Outcome.is.ok)).toHaveLength(k + 1);
@@ -328,12 +328,12 @@ test("interpret: buffered size burst exceeding capacity produces EvictedNil", as
 	);
 });
 
-test("interpret: buffered size burst within capacity all resolve to Ok", async () => {
+test("interpret: buffered maxSize burst within capacity all resolve to Ok", async () => {
 	await fc.assert(
 		fc.asyncProperty(
 			fc.integer({ min: 1, max: 5 }).chain((k) => fc.integer({ min: 1, max: k + 1 }).map((n) => ({ k, n }))),
 			async ({ k, n }) => {
-				const manager = Op.interpret(immediateOp, { strategy: "buffered", size: k });
+				const manager = Op.interpret(immediateOp, { strategy: "buffered", maxSize: k });
 				const deferreds = Array.from({ length: n }, (_, i) => manager.run(i));
 				const outcomes = (await Promise.all(deferreds.map(Deferred.to.Promise))) as Op.Outcome<string, number>[];
 				expect(outcomes.every(Op.Outcome.is.ok)).toBe(true);

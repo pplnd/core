@@ -22,7 +22,7 @@ test("run: widens the error channel only when a signal is passed", () => {
 });
 
 test("LimitError: carries the retry hint and the two refusal reasons", () => {
-	expectTypeOf<RateLimiter.LimitError["retryAfterMs"]>().toEqualTypeOf<number>();
+	expectTypeOf<RateLimiter.LimitError["retryAfter"]>().toEqualTypeOf<Duration>();
 	expectTypeOf<RateLimiter.LimitError["reason"]>().toEqualTypeOf<"exhausted" | "max-wait">();
 });
 
