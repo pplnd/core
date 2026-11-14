@@ -102,7 +102,7 @@ export namespace Batcher {
 		 * Serializer used to index and deduplicate composite or structural object keys.
 		 * Unnecessary for primitive keys (`string`, `number`).
 		 */
-		readonly serializeKey?: (key: K) => string | number;
+		readonly keyBy?: (key: K) => string | number;
 
 		/**
 		 * Maximum number of keys dispatched per batch query. Defaults to unbounded. A provided
@@ -206,7 +206,7 @@ const makeBatcher = <K, E, V>(
 	type ActiveBatch = { readonly controller: AbortController; activeCallers: number; };
 	type PendingKeySlot = { readonly key: K; readonly callers: CallerEntry[]; batch?: ActiveBatch; };
 
-	const serialize = options.serializeKey ?? defaultSerialize;
+	const serialize = options.keyBy ?? defaultSerialize;
 	const maxBatchSize = options.maxBatchSize === undefined
 		? Infinity
 		: Number.isInteger(options.maxBatchSize) && options.maxBatchSize > 0

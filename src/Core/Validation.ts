@@ -9,6 +9,8 @@ import {
 	type WithValue,
 } from "../internal/InternalTypes";
 import { type Maybe, Maybe as CoreMaybe } from "./Maybe.ts";
+import type { Predicate } from "./Predicate.ts";
+import type { Refinement } from "./Refinement.ts";
 import { type Result, Result as CoreResult } from "./Result.ts";
 
 // =============================================================================
@@ -225,14 +227,10 @@ export const Validation = {
 		 * ```
 		 */
 		Predicate:
-			(<A, B extends A, const E>(predicate: (value: A) => boolean, onFalse: (value: A) => E) =>
-			(value: A): Validation<E, B> =>
+			(<A, B extends A, const E>(predicate: Predicate<A>, onFalse: (value: A) => E) => (value: A): Validation<E, B> =>
 				predicate(value) ? makePassed(value as unknown as B) : makeFailed(onFalse(value))) as {
-					<A, B extends A, const E>(
-						refinement: (value: A) => value is B,
-						onFalse: (value: A) => E,
-					): (value: A) => Validation<E, B>;
-					<A, const E>(predicate: (value: A) => boolean, onFalse: (value: A) => E): (value: A) => Validation<E, A>;
+					<A, B extends A, const E>(refinement: Refinement<A, B>, onFalse: (value: A) => E): (value: A) => Validation<E, B>;
+					<A, const E>(predicate: Predicate<A>, onFalse: (value: A) => E): (value: A) => Validation<E, A>;
 				},
 
 		/**
@@ -432,6 +430,8 @@ export const Validation = {
 
 	/**
 	 * Recovers from a Failed state unless `isBlocked` returns true for any of the accumulated errors.
+	 *
+	 * @see {@link Predicate} to build reusable error tests from combinators.
 	 * The fallback can produce a different success type, widening the result to `Validation<E1 | E2, A | B>`.
 	 *
 	 * @see {@link Validation.recover} for unconditional error recovery.
@@ -445,7 +445,7 @@ export const Validation = {
 	 * ```
 	 */
 	recoverUnless:
-		<E1, B, E2 = never>(isBlocked: (error: E1) => boolean, fallback: (errors: NonEmptyArr<E1>) => Validation<E2, B>) =>
+		<E1, B, E2 = never>(isBlocked: Predicate<E1>, fallback: (errors: NonEmptyArr<E1>) => Validation<E2, B>) =>
 		<A = never>(validation: Validation<E1, A>): Validation<E1 | E2, A | B> => {
 			if (isFailed(validation)) {
 				const { errors } = validation;

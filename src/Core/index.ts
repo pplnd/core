@@ -15,6 +15,7 @@ export * from "./Op";
 export * from "./Optional";
 export * from "./Ordering";
 export * from "./Pair";
+export * from "./Pool";
 export * from "./Predicate";
 export * from "./RateLimiter";
 export * from "./Reader";

@@ -1,5 +1,6 @@
 import { expect, test, vi } from "vitest";
 import { Duration } from "../../Types/Duration.ts";
+import { RepeatPolicy } from "../../Types/RepeatPolicy.ts";
 import { type RetryPolicy, RetryPolicy as CoreRetryPolicy } from "../../Types/RetryPolicy.ts";
 import { Deferred } from "../Deferred.ts";
 import { Result } from "../Result.ts";
@@ -35,7 +36,7 @@ test("run: settles with a completed lifetime when the task succeeds", async () =
 	});
 	expect(supervisor.state()).toStrictEqual({ kind: "SupervisorIdle" });
 	const lifetime = supervisor.run();
-	expect(supervisor.state()).toStrictEqual({ kind: "SupervisorRunning", restarts: 0 });
+	expect(supervisor.state()).toStrictEqual({ kind: "SupervisorRunning", restarts: 0, completed: 0 });
 	await expect(lifetime).resolves.toStrictEqual(Result.make.ok({ kind: "SupervisorStopped", reason: "completed" }));
 	expect(supervisor.state()).toStrictEqual({ kind: "SupervisorStopped", reason: "completed" });
 });
@@ -91,6 +92,88 @@ test("run: settles with the error when the policy rejects it", async () => {
 	});
 	await expect(supervisor.run()).resolves.toStrictEqual(Result.make.err("fatal"));
 	expect(supervisor.state()).toStrictEqual({ kind: "SupervisorFailed", attempts: 1, error: "fatal" });
+});
+
+test("run: settles with the error when the restart budget is exhausted", async () => {
+	const supervisor = Supervisor.make(Task.from.sync(() => Result.make.err("boom")), {
+		restart: CoreRetryPolicy.constant({
+			attempts: 5,
+			delay: Duration.milliseconds(100),
+			budget: Duration.milliseconds(0),
+		}),
+	});
+	await expect(supervisor.run()).resolves.toStrictEqual(Result.make.err("boom"));
+	expect(supervisor.state()).toStrictEqual({ kind: "SupervisorFailed", attempts: 1, error: "boom" });
+});
+
+test("run: repeats after success when a repeat policy is set", async () => {
+	await withFakeTimers(async () => {
+		let calls = 0;
+		const task = Task.from.sync(() => {
+			calls++;
+			return Result.make.ok(undefined);
+		});
+		const supervisor = Supervisor.make(task, {
+			restart: CoreRetryPolicy.constant({ attempts: 3, delay: Duration.milliseconds(10) }),
+			repeat: RepeatPolicy.spacing({ every: Duration.milliseconds(100) }),
+		});
+
+		const lifetime = supervisor.run();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(calls).toBe(1);
+		expect(supervisor.state()).toStrictEqual({ kind: "SupervisorRunning", restarts: 0, completed: 1 });
+		await vi.advanceTimersByTimeAsync(100);
+		expect(calls).toBe(2);
+		expect(supervisor.state()).toStrictEqual({ kind: "SupervisorRunning", restarts: 0, completed: 2 });
+		supervisor.abort();
+		await expect(lifetime).resolves.toStrictEqual(Result.make.ok({ kind: "SupervisorStopped", reason: "aborted" }));
+	});
+});
+
+test("run: resets the restart counter after a successful attempt under repeat", async () => {
+	await withFakeTimers(async () => {
+		let calls = 0;
+		const task = Task.from.sync(() => {
+			calls++;
+			return calls === 1 ? Result.make.err("boom") : Result.make.ok(undefined);
+		});
+		const supervisor = Supervisor.make(task, {
+			restart: CoreRetryPolicy.constant({ attempts: 3, delay: Duration.milliseconds(10) }),
+			repeat: RepeatPolicy.spacing({ every: Duration.milliseconds(20) }),
+		});
+
+		const lifetime = supervisor.run();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(supervisor.state().kind).toBe("SupervisorBackingOff");
+		await vi.advanceTimersByTimeAsync(10);
+		await vi.advanceTimersByTimeAsync(20);
+		expect(calls).toBe(3);
+		expect(supervisor.state()).toStrictEqual({ kind: "SupervisorRunning", restarts: 0, completed: 2 });
+		supervisor.abort();
+		await expect(lifetime).resolves.toStrictEqual(Result.make.ok({ kind: "SupervisorStopped", reason: "aborted" }));
+	});
+});
+
+test("abort: clears the armed repeat timer and settles as aborted", async () => {
+	await withFakeTimers(async () => {
+		let calls = 0;
+		const task = Task.from.sync(() => {
+			calls++;
+			return Result.make.ok(undefined);
+		});
+		const supervisor = Supervisor.make(task, {
+			restart: CoreRetryPolicy.constant({ attempts: 1, delay: Duration.milliseconds(0) }),
+			repeat: RepeatPolicy.spacing({ every: Duration.milliseconds(50) }),
+		});
+
+		const lifetime = supervisor.run();
+		await vi.advanceTimersByTimeAsync(0);
+		supervisor.abort();
+		await expect(lifetime).resolves.toStrictEqual(Result.make.ok({ kind: "SupervisorStopped", reason: "aborted" }));
+		await vi.advanceTimersByTimeAsync(100);
+		expect(calls).toBe(1);
+		expect(vi.getTimerCount()).toBe(0);
+	});
 });
 
 test("run: treats a non-integer attempt limit as one attempt", async () => {

@@ -1,7 +1,9 @@
 import type { WithKind } from "../internal/InternalTypes";
 import { toPositiveInteger } from "../internal/Numbers";
+import { isBudgetExhausted, normalizeBudgetMs } from "../internal/RetryBudget.ts";
 import { clampTimerDelay } from "../internal/timers.ts";
 import { Duration } from "../Types/Duration.ts";
+import type { RepeatPolicy } from "../Types/RepeatPolicy.ts";
 import type { RetryPolicy } from "../Types/RetryPolicy.ts";
 import { Deferred } from "./Deferred.ts";
 import { Result } from "./Result.ts";
@@ -11,14 +13,17 @@ import type { Task } from "./Task.ts";
  * Keeps a fallible task running for the life of a process, restarting it under a retry policy.
  *
  * One `run` of the task is one attempt. A successful attempt ends the lifetime as
- * `Stopped("completed")`. A failed attempt is restarted after `restart.getDelay` while the policy's
- * `when` accepts the error and attempts remain; otherwise the lifetime settles with that error and
- * state `Failed`.
+ * `Stopped("completed")` — unless a `repeat` policy is configured, in which case the lifetime
+ * stays open and the next attempt is scheduled after the policy's delay, with the restart
+ * counter reset. A failed attempt is restarted after `restart.getDelay` while the policy's
+ * `when` accepts the error and attempts remain; otherwise the lifetime settles with that error
+ * and state `Failed`.
  *
  * @example
  * ```ts
  * const outbox = Supervisor.make(processOutbox, {
  *   restart: RetryPolicy.exponential({ attempts: 5, initial: Duration.seconds(1), jitter: true }),
+ *   repeat: RepeatPolicy.spacing({ every: Duration.seconds(30), jitter: true }),
  * });
  *
  * const lifetime = outbox.run();
@@ -73,9 +78,10 @@ export namespace Supervisor {
 	export type Idle = WithKind<"SupervisorIdle">;
 
 	/**
-	 * An attempt is running. `restarts` counts the attempts that already failed.
+	 * An attempt is running. `restarts` counts the attempts that already failed since the last
+	 * success; `completed` counts the successful attempts since the lifetime started.
 	 */
-	export type Running = WithKind<"SupervisorRunning"> & { readonly restarts: number; };
+	export type Running = WithKind<"SupervisorRunning"> & { readonly restarts: number; readonly completed: number; };
 
 	/**
 	 * An attempt failed and the next one is scheduled. `delay` is the time until it starts.
@@ -87,7 +93,8 @@ export namespace Supervisor {
 	};
 
 	/**
-	 * The lifetime ended without an error, either because the task completed or the caller aborted.
+	 * The lifetime ended without an error, either because the caller aborted or — without a
+	 * repeat policy — because the task completed.
 	 */
 	export type Stopped = WithKind<"SupervisorStopped"> & { readonly reason: "aborted" | "completed"; };
 
@@ -105,19 +112,24 @@ type Session<E> = {
 	readonly cleanup: () => void;
 	controller: AbortController | undefined;
 	backoff: ReturnType<typeof setTimeout> | undefined;
+	repeat: ReturnType<typeof setTimeout> | undefined;
 	aborting: boolean;
+	startedAt: number;
 };
 
 const makeSupervisor = <E>(
 	task: Task.Result<E, void>,
-	config: { readonly restart: RetryPolicy<E>; },
+	config: { readonly restart: RetryPolicy<E>; readonly repeat?: RepeatPolicy; },
 ): Supervisor<E> => {
 	const policy = config.restart;
+	const repeatPolicy = config.repeat;
 	const attempts = toPositiveInteger(policy.attempts) ?? 1;
 	const shouldRestart = policy.when;
+	const budgetMs = normalizeBudgetMs(policy);
 
 	let state: Supervisor.State<E> = { kind: "SupervisorIdle" };
 	let session: Session<E> | undefined;
+	let completed = 0;
 	const subscribers = new Set<(state: Supervisor.State<E>) => void>();
 
 	const notify = (): void => {
@@ -135,16 +147,20 @@ const makeSupervisor = <E>(
 		}
 	};
 
-	const clearBackoff = (current: Session<E>): void => {
+	const clearTimers = (current: Session<E>): void => {
 		if (current.backoff !== undefined) {
 			clearTimeout(current.backoff);
 			current.backoff = undefined;
+		}
+		if (current.repeat !== undefined) {
+			clearTimeout(current.repeat);
+			current.repeat = undefined;
 		}
 	};
 
 	const finish = (current: Session<E>, result: Result<E, Supervisor.Stopped>, next: Supervisor.State<E>): void => {
 		session = undefined;
-		clearBackoff(current);
+		clearTimers(current);
 		current.controller = undefined;
 		current.cleanup();
 		state = next;
@@ -165,7 +181,7 @@ const makeSupervisor = <E>(
 	const startAttempt = (current: Session<E>, attempt: number): void => {
 		const controller = new AbortController();
 		current.controller = controller;
-		state = { kind: "SupervisorRunning", restarts: attempt - 1 };
+		state = { kind: "SupervisorRunning", restarts: attempt - 1, completed };
 		notify();
 
 		Deferred.to.Promise(task(controller.signal)).then((result) => {
@@ -177,7 +193,23 @@ const makeSupervisor = <E>(
 			}
 
 			if (Result.is.ok(result)) {
-				stop(current, "completed");
+				if (repeatPolicy === undefined) {
+					stop(current, "completed");
+					return;
+				}
+				completed++;
+				state = { kind: "SupervisorRunning", restarts: 0, completed };
+				notify();
+				const delay = repeatPolicy.getDelay({
+					tick: completed,
+					elapsed: Duration.milliseconds(Date.now() - current.startedAt),
+				});
+				// The repeat timer is armed only after the attempt settled, so attempts can never
+				// overlap; clearTimers removes it on abort and on terminal failure.
+				current.repeat = setTimeout(() => {
+					current.repeat = undefined;
+					startAttempt(current, 1);
+				}, clampTimerDelay(Duration.to.milliseconds(delay)));
 				return;
 			}
 
@@ -189,6 +221,12 @@ const makeSupervisor = <E>(
 			}
 
 			const delay = policy.getDelay(attempt);
+			// The budget bounds the whole restart sequence: once the time spent plus the next
+			// backoff would exceed it, the lifetime settles with the last error instead.
+			if (isBudgetExhausted(current.startedAt, Duration.to.milliseconds(delay), budgetMs)) {
+				fail(current, error, attempt);
+				return;
+			}
 			policy.onRetry?.({ attempt, error, delay });
 			// An abort inside onRetry or inside the notification completes the lifetime; a
 			// finished session must not publish further states or arm its backoff timer.
@@ -218,7 +256,7 @@ const makeSupervisor = <E>(
 			return;
 		}
 		current.aborting = true;
-		clearBackoff(current);
+		clearTimers(current);
 		if (current.controller !== undefined) {
 			current.controller.abort();
 			return;
@@ -254,7 +292,9 @@ const makeSupervisor = <E>(
 			},
 			controller: undefined,
 			backoff: undefined,
+			repeat: undefined,
 			aborting: false,
+			startedAt: Date.now(),
 		};
 
 		session = created;

@@ -2,6 +2,8 @@
 // Imports
 // =============================================================================
 import type { KeysOfUnion, WithKind, WithValue } from "../internal/InternalTypes";
+import type { Predicate } from "./Predicate.ts";
+import type { Refinement } from "./Refinement.ts";
 import { type Result, Result as CoreResult } from "./Result.ts";
 import { type Validation, Validation as CoreValidation } from "./Validation.ts";
 
@@ -203,10 +205,10 @@ export const Maybe = {
 		 * ```
 		 */
 		Predicate:
-			(<A, B extends A>(predicate: (value: A) => boolean) => (value: A): Maybe<B> =>
+			(<A, B extends A>(predicate: Predicate<A>) => (value: A): Maybe<B> =>
 				predicate(value) ? makeSome(value as unknown as B) : makeNone()) as {
-					<A, B extends A>(refinement: (value: A) => value is B): (value: A) => Maybe<B>;
-					<A>(predicate: (value: A) => boolean): (value: A) => Maybe<A>;
+					<A, B extends A>(refinement: Refinement<A, B>): (value: A) => Maybe<B>;
+					<A>(predicate: Predicate<A>): (value: A) => Maybe<A>;
 				},
 
 		/**
@@ -385,12 +387,12 @@ export const Maybe = {
 	 * ```
 	 */
 	filter:
-		(<A, B extends A>(predicate: (value: A) => boolean) => (maybe: Maybe<A>): Maybe<B> =>
+		(<A, B extends A>(predicate: Predicate<A>) => (maybe: Maybe<A>): Maybe<B> =>
 			isSome(maybe)
 				? (predicate(maybe.value) ? (maybe as unknown as Maybe<B>) : makeNone())
 				: (maybe as unknown as Maybe<B>)) as {
-				<A, B extends A>(refinement: (value: A) => value is B): (maybe: Maybe<A>) => Maybe<B>;
-				<A>(predicate: (value: A) => boolean): (maybe: Maybe<A>) => Maybe<A>;
+				<A, B extends A>(refinement: Refinement<A, B>): (maybe: Maybe<A>) => Maybe<B>;
+				<A>(predicate: Predicate<A>): (maybe: Maybe<A>) => Maybe<A>;
 			},
 
 	/**

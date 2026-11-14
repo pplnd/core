@@ -142,3 +142,17 @@ test("exponential: normalizes non-finite factors and attempts", () => {
 	const overflow = RetryPolicy.exponential({ attempts: 2, initial: Duration.milliseconds(100), factor: 2 });
 	expect(Duration.to.milliseconds(overflow.getDelay(2_000))).toBe(2_147_483_647);
 });
+
+test("exponential: forwards an optional budget onto the policy", () => {
+	const policy = RetryPolicy.exponential({
+		attempts: 3,
+		initial: Duration.milliseconds(10),
+		budget: Duration.seconds(2),
+	});
+	expect(policy.budget).toStrictEqual(Duration.seconds(2));
+});
+
+test("constant: forwards an optional budget onto the policy", () => {
+	const policy = RetryPolicy.constant({ attempts: 3, delay: Duration.milliseconds(10), budget: Duration.seconds(2) });
+	expect(policy.budget).toStrictEqual(Duration.seconds(2));
+});

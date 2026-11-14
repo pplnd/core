@@ -4,6 +4,8 @@
 import type { WithError, WithKind, WithValue } from "../internal/InternalTypes";
 import { type Maybe, Maybe as CoreMaybe } from "./Maybe.ts";
 import type { Op } from "./Op.ts";
+import type { Predicate } from "./Predicate.ts";
+import type { Refinement } from "./Refinement.ts";
 import { type Result, Result as CoreResult } from "./Result.ts";
 
 // =============================================================================
@@ -523,13 +525,13 @@ export const RemoteData = {
 	 * ```
 	 */
 	filter:
-		(<A, const E2>(predicate: (value: A) => boolean, onFalse: (value: A) => E2) =>
+		(<A, const E2>(predicate: Predicate<A>, onFalse: (value: A) => E2) =>
 		<E1 = never>(remoteData: RemoteData<E1, A>): RemoteData<E1 | E2, A> =>
 			isSuccess(remoteData)
 				? (predicate(remoteData.value) ? remoteData : makeFailure(onFalse(remoteData.value)))
 				: remoteData) as {
 				<A, B extends A, const E2>(
-					predicate: (value: A) => value is B,
+					predicate: Refinement<A, B>,
 					onFalse: (value: A) => E2,
 				): <E1 = never>(remoteData: RemoteData<E1, A>) => RemoteData<E1 | E2, B>;
 				<A, const E2>(

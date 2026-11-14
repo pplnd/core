@@ -1,6 +1,7 @@
 import type { WithKind } from "../internal/InternalTypes";
 import { Duration } from "../Types/Duration.ts";
 import { Deferred } from "./Deferred.ts";
+import type { Predicate } from "./Predicate.ts";
 import { Result } from "./Result.ts";
 import type { Task } from "./Task.ts";
 
@@ -175,8 +176,10 @@ export namespace CircuitBreaker {
 		 * Optional predicate to determine if a given error should count towards tripping the circuit.
 		 * Defaults to all errors (`() => true`). Non-tripping errors (e.g. 404 Not Found) pass through
 		 * without incrementing failure counts or tripping the circuit.
+		 *
+		 * @see {@link Predicate} to build reusable error tests from combinators.
 		 */
-		readonly shouldTrip?: (error: E) => boolean;
+		readonly shouldTrip?: Predicate<E>;
 	};
 }
 

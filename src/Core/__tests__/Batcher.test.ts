@@ -102,7 +102,7 @@ test("make: batch-level fetch failure fails all waiting callers with BatcherErr"
 	expect(Batcher.Outcome.is.err(r1)).toBe(true);
 });
 
-test("make: supports structural composite keys via serializeKey", async () => {
+test("make: supports structural composite keys via keyBy", async () => {
 	type CompositeKey = { readonly orgId: string; readonly memberId: string; };
 	let dispatchedKeys: readonly CompositeKey[] = [];
 
@@ -113,7 +113,7 @@ test("make: supports structural composite keys via serializeKey", async () => {
 			map.set(keys[i], `role_for_${keys[i].orgId}_${keys[i].memberId}`);
 		}
 		return Deferred.from.Promise(Promise.resolve(Result.make.ok(map)));
-	}, { serializeKey: (k) => `${k.orgId}:${k.memberId}` });
+	}, { keyBy: (k) => `${k.orgId}:${k.memberId}` });
 
 	const key1a: CompositeKey = { orgId: "org1", memberId: "m1" };
 	const key1b: CompositeKey = { orgId: "org1", memberId: "m1" };

@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { Duration } from "../../Types/Duration.ts";
 import { RetryPolicy } from "../../Types/RetryPolicy.ts";
+import { TimeoutPolicy } from "../../Types/TimeoutPolicy.ts";
 import { Aborted } from "../Aborted.ts";
 import { Deferred } from "../Deferred.ts";
 import { Result } from "../Result.ts";
@@ -457,7 +458,7 @@ test("timeout: forward step exceeding timeout duration fails and rolls back", as
 	const transactionStep1 = Transaction.step(
 		"slowStep",
 		() =>
-			Task.Result.timeout({ duration: Duration.milliseconds(10), onTimeout: () => "timed_out" })(() =>
+			Task.Result.timeout(TimeoutPolicy.after({ duration: Duration.milliseconds(10), onTimeout: () => "timed_out" }))(() =>
 				Deferred.from.Promise(
 					new Promise<Result<never, string>>((resolve) => {
 						setTimeout(() => resolve(Result.make.ok("too_late")), 50);
@@ -484,7 +485,7 @@ test("timeout: aborts the task before compensation and leaves undo uncancelled",
 	const upload = Transaction.step(
 		"upload",
 		() =>
-			Task.Result.timeout({ duration: Duration.milliseconds(5), onTimeout: () => "timed_out" })(
+			Task.Result.timeout(TimeoutPolicy.after({ duration: Duration.milliseconds(5), onTimeout: () => "timed_out" }))(
 				Task.Result.tryCatch((signal) =>
 					new Promise<string>((_resolve, reject) => {
 						signal?.addEventListener("abort", () => {

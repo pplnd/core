@@ -3,6 +3,8 @@
 // =============================================================================
 import type { KeysOfUnion, NonEmptyArr, WithError, WithKind, WithValue } from "../internal/InternalTypes";
 import { type Maybe, Maybe as CoreMaybe } from "./Maybe.ts";
+import type { Predicate } from "./Predicate.ts";
+import type { Refinement } from "./Refinement.ts";
 import { type Validation, Validation as CoreValidation } from "./Validation.ts";
 
 // =============================================================================
@@ -263,13 +265,10 @@ export const Result = {
 		 * ```
 		 */
 		Predicate:
-			(<A, B extends A, const E>(predicate: (value: A) => boolean, onFalse: (value: A) => E) => (value: A): Result<E, B> =>
+			(<A, B extends A, const E>(predicate: Predicate<A>, onFalse: (value: A) => E) => (value: A): Result<E, B> =>
 				predicate(value) ? makeOk(value as unknown as B) : makeErr(onFalse(value))) as {
-					<A, B extends A, const E>(
-						refinement: (value: A) => value is B,
-						onFalse: (value: A) => E,
-					): (value: A) => Result<E, B>;
-					<A, const E>(predicate: (value: A) => boolean, onFalse: (value: A) => E): (value: A) => Result<E, A>;
+					<A, B extends A, const E>(refinement: Refinement<A, B>, onFalse: (value: A) => E): (value: A) => Result<E, B>;
+					<A, const E>(predicate: Predicate<A>, onFalse: (value: A) => E): (value: A) => Result<E, A>;
 				},
 
 		/**
@@ -340,6 +339,8 @@ export const Result = {
 
 	/**
 	 * Recovers from an error unless the predicate `isBlocked` returns true for that error.
+	 *
+	 * @see {@link Predicate} to build reusable error tests from combinators.
 	 * The fallback can produce a different success type, widening the result to `Result<E1 | E2, A | B>`.
 	 *
 	 * @see {@link Result.recover} for unconditional error recovery.
@@ -353,7 +354,7 @@ export const Result = {
 	 * ```
 	 */
 	recoverUnless:
-		<E1, B, E2 = never>(isBlocked: (error: E1) => boolean, fallback: (error: E1) => Result<E2, B>) =>
+		<E1, B, E2 = never>(isBlocked: Predicate<E1>, fallback: (error: E1) => Result<E2, B>) =>
 		<A = never>(result: Result<E1, A>): Result<E1 | E2, A | B> =>
 			isErr(result) && !isBlocked(result.error) ? fallback(result.error) : result,
 
@@ -515,13 +516,13 @@ export const Result = {
 	 * ```
 	 */
 	ensure:
-		(<A, B extends A, const E2>(predicate: (value: A) => boolean, onFail: (value: A) => E2) =>
+		(<A, B extends A, const E2>(predicate: Predicate<A>, onFail: (value: A) => E2) =>
 		<E1 = never>(result: Result<E1, A>): Result<E1 | E2, B> =>
 			isErr(result)
 				? result
 				: (predicate(result.value) ? (result as unknown as Result<E1 | E2, B>) : makeErr(onFail(result.value)))) as {
 				<A, B extends A, const E2>(
-					refinement: (value: A) => value is B,
+					refinement: Refinement<A, B>,
 					onFail: (value: A) => E2,
 				): <E1 = never>(result: Result<E1, A>) => Result<E1 | E2, B>;
 				<A, const E2>(

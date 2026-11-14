@@ -48,12 +48,10 @@ export type WithId = { readonly id?: string; };
 export type RetryOptions<E = unknown> = RetryPolicy<E>;
 
 /** Timeout policy for `Op.interpret`. Wraps the entire retry sequence. */
-export type TimeoutOptions<E = unknown> = { readonly duration: Duration; readonly onTimeout: () => E; };
 
 // Cross-cutting option wrappers
 
 export type WithRetry<E = unknown> = { readonly retry: RetryOptions<E>; };
-export type WithTimeout<E = unknown> = { readonly timeout?: TimeoutOptions<E>; };
 
 // Throttled / debounced options
 
@@ -82,8 +80,6 @@ export type WithOverflow<O extends string> = { readonly overflow: O; };
 
 export type WithMaxSize = { readonly maxSize: number; };
 export type WithConcurrency = { readonly concurrency?: number; };
-export type WithDedupe<I> = { readonly dedupe: (a: I, b: I) => boolean; };
-
 // Buffered options
 
 export type WithSize = { readonly size?: number; };

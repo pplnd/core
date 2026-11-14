@@ -4,6 +4,7 @@
 import { Equality } from "../Core/Equality.ts";
 import { Maybe as CoreMaybe } from "../Core/Maybe.ts";
 import { Ordering } from "../Core/Ordering.ts";
+import type { Predicate } from "../Core/Predicate.ts";
 import { Result as CoreResult } from "../Core/Result.ts";
 import { Task as CoreTask } from "../Core/Task.ts";
 import { Validation as CoreValidation } from "../Core/Validation.ts";
@@ -185,8 +186,8 @@ const init = <A>(items: readonly A[]): CoreMaybe<readonly A[]> =>
  * ```
  */
 function findFirst<A, B extends A>(predicate: (item: A) => item is B): (items: readonly A[]) => CoreMaybe<B>;
-function findFirst<A>(predicate: (item: A) => boolean): (items: readonly A[]) => CoreMaybe<A>;
-function findFirst<A>(predicate: (item: A) => boolean): (items: readonly A[]) => CoreMaybe<A> {
+function findFirst<A>(predicate: Predicate<A>): (items: readonly A[]) => CoreMaybe<A>;
+function findFirst<A>(predicate: Predicate<A>): (items: readonly A[]) => CoreMaybe<A> {
 	return (items: readonly A[]): CoreMaybe<A> => {
 		for (let i = 0; i < items.length; i++) {
 			if (predicate(items[i])) { return CoreMaybe.make.some(items[i]); }
@@ -206,8 +207,8 @@ function findFirst<A>(predicate: (item: A) => boolean): (items: readonly A[]) =>
  * ```
  */
 function findLast<A, B extends A>(predicate: (item: A) => item is B): (items: readonly A[]) => CoreMaybe<B>;
-function findLast<A>(predicate: (item: A) => boolean): (items: readonly A[]) => CoreMaybe<A>;
-function findLast<A>(predicate: (item: A) => boolean): (items: readonly A[]) => CoreMaybe<A> {
+function findLast<A>(predicate: Predicate<A>): (items: readonly A[]) => CoreMaybe<A>;
+function findLast<A>(predicate: Predicate<A>): (items: readonly A[]) => CoreMaybe<A> {
 	return (items: readonly A[]): CoreMaybe<A> => {
 		for (let i = items.length - 1; i >= 0; i--) {
 			if (predicate(items[i])) { return CoreMaybe.make.some(items[i]); }
@@ -226,7 +227,7 @@ function findLast<A>(predicate: (item: A) => boolean): (items: readonly A[]) => 
  * pipe([1, 2, 3, 4], Arr.findIndex(n => n > 2)); // Some(2)
  * ```
  */
-const findIndex = <A>(predicate: (item: A) => boolean) => (items: readonly A[]): CoreMaybe<number> => {
+const findIndex = <A>(predicate: Predicate<A>) => (items: readonly A[]): CoreMaybe<number> => {
 	for (let i = 0; i < items.length; i++) {
 		if (predicate(items[i])) { return CoreMaybe.make.some(i); }
 	}
@@ -284,8 +285,8 @@ const mapWithIndex = <A, B>(transform: (index: number, item: A) => B) => (items:
  * ```
  */
 function filter<A, B extends A>(predicate: (item: A) => item is B): (items: readonly A[]) => readonly B[];
-function filter<A>(predicate: (item: A) => boolean): (items: readonly A[]) => readonly A[];
-function filter<A>(predicate: (item: A) => boolean): (items: readonly A[]) => readonly A[] {
+function filter<A>(predicate: Predicate<A>): (items: readonly A[]) => readonly A[];
+function filter<A>(predicate: Predicate<A>): (items: readonly A[]) => readonly A[] {
 	return (items: readonly A[]): readonly A[] => {
 		const n = items.length;
 		const result = new Array<A>(n);
@@ -342,8 +343,8 @@ const filterMap = <A, B>(transform: (item: A) => CoreMaybe<B>) => (items: readon
 function partition<A, B extends A>(
 	predicate: (item: A) => item is B,
 ): (items: readonly A[]) => readonly [readonly B[], readonly Exclude<A, B>[]];
-function partition<A>(predicate: (item: A) => boolean): (items: readonly A[]) => readonly [readonly A[], readonly A[]];
-function partition<A>(predicate: (item: A) => boolean): (items: readonly A[]) => readonly [readonly A[], readonly A[]] {
+function partition<A>(predicate: Predicate<A>): (items: readonly A[]) => readonly [readonly A[], readonly A[]];
+function partition<A>(predicate: Predicate<A>): (items: readonly A[]) => readonly [readonly A[], readonly A[]] {
 	return (items: readonly A[]): readonly [readonly A[], readonly A[]] => {
 		const n = items.length;
 		const pass = new Array<A>(n);
@@ -551,7 +552,7 @@ const uniqWith = <A>(areEqual: Equality<A>) => (items: readonly A[]): readonly A
  * pipe([3, 1, 2], Arr.sortBy((a, b) => a - b)); // [1, 2, 3]
  * ```
  */
-const sortBy = <A>(compare: (first: A, second: A) => number) => (items: readonly A[]): readonly A[] => {
+const sortBy = <A>(compare: Ordering<A>) => (items: readonly A[]): readonly A[] => {
 	const arr = items as A[];
 	if (typeof arr.toSorted === "function") { return arr.toSorted(compare); }
 	return [...items].sort(compare);
@@ -790,7 +791,7 @@ const size = <A>(items: readonly A[]): number => items.length;
  * pipe([1, 2, 3], Arr.some(n => n > 2)); // true
  * ```
  */
-const some = <A>(predicate: (item: A) => boolean) => (items: readonly A[]): boolean => {
+const some = <A>(predicate: Predicate<A>) => (items: readonly A[]): boolean => {
 	const n = items.length;
 	for (let i = 0; i < n; i++) { if (predicate(items[i])) { return true; } }
 	return false;
@@ -806,7 +807,7 @@ const some = <A>(predicate: (item: A) => boolean) => (items: readonly A[]): bool
  * pipe([1, 2, 3], Arr.every(n => n > 0)); // true
  * ```
  */
-const every = <A>(predicate: (item: A) => boolean) => (items: readonly A[]): boolean => {
+const every = <A>(predicate: Predicate<A>) => (items: readonly A[]): boolean => {
 	const n = items.length;
 	for (let i = 0; i < n; i++) { if (!predicate(items[i])) { return false; } }
 	return true;
@@ -906,7 +907,7 @@ const drop = (count: number) => <A>(items: readonly A[]): readonly A[] =>
  * pipe([1, 2, 3, 1], Arr.takeWhile(n => n < 3)); // [1, 2]
  * ```
  */
-const takeWhile = <A>(predicate: (item: A) => boolean) => (items: readonly A[]): readonly A[] => {
+const takeWhile = <A>(predicate: Predicate<A>) => (items: readonly A[]): readonly A[] => {
 	let i = 0;
 	while (i < items.length && predicate(items[i])) { i++; }
 	return items.slice(0, i);
@@ -923,7 +924,7 @@ const takeWhile = <A>(predicate: (item: A) => boolean) => (items: readonly A[]):
  * pipe([1, 2, 3, 1], Arr.dropWhile(n => n < 3)); // [3, 1]
  * ```
  */
-const dropWhile = <A>(predicate: (item: A) => boolean) => (items: readonly A[]): readonly A[] => {
+const dropWhile = <A>(predicate: Predicate<A>) => (items: readonly A[]): readonly A[] => {
 	let i = 0;
 	while (i < items.length && predicate(items[i])) { i++; }
 	return items.slice(i);

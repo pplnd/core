@@ -8,7 +8,9 @@ import type { Op } from "../Core/Op.ts";
 import { Result } from "../Core/Result.ts";
 import { Duration } from "../Types/Duration.ts";
 import type { RetryPolicy } from "../Types/RetryPolicy.ts";
+import type { TimeoutPolicy } from "../Types/TimeoutPolicy.ts";
 import { toPositiveInteger } from "./Numbers.ts";
+import { isBudgetExhausted, normalizeBudgetMs } from "./RetryBudget.ts";
 import { clampTimerDelay, MAX_TIMER_MS } from "./timers.ts";
 import { waitForDelay } from "./waitForDelay.ts";
 
@@ -153,6 +155,8 @@ export const runWithRetry = <Args extends readonly unknown[], E, A>(
 	const rawAttempts = policy.attempts;
 	const attempts = toPositiveInteger(rawAttempts) ?? 1;
 	const { when: shouldRetry, onRetry } = policy;
+	const startedAt = Date.now();
+	const budgetMs = normalizeBudgetMs(policy);
 
 	const attempt = async (left: number): Promise<Result<E, A> | null> => {
 		const result = await Deferred.to.Promise(toInternalOp(op)[OP_FACTORY](args, signal));
@@ -165,6 +169,7 @@ export const runWithRetry = <Args extends readonly unknown[], E, A>(
 		const attemptNumber = attempts - left + 1;
 		const delayDuration = policy.getDelay(attemptNumber);
 		const ms = getMs(delayDuration);
+		if (isBudgetExhausted(startedAt, ms, budgetMs)) { return result; }
 		onRetrying({
 			kind: "Retrying",
 			attempt: attemptNumber,
@@ -197,7 +202,7 @@ export const execute = <Args extends readonly unknown[], E, A>(
 	args: Args,
 	controller: AbortController,
 	retryOptions?: Op.RetryOptions<E>,
-	timeoutOptions?: Op.TimeoutOptions<any>,
+	timeoutOptions?: TimeoutPolicy<any>,
 	onRetrying?: (state: Op.Retrying<E>) => void,
 ): Deferred<Op.Outcome<E, A>> => {
 	const { signal } = controller;
@@ -247,7 +252,7 @@ export const makeRestartable = <Args extends readonly unknown[], E, A>(
 	op: Op<Args, E, A>,
 	minInterval?: Duration,
 	retryOptions?: Op.RetryOptions<E>,
-	timeoutOptions?: Op.TimeoutOptions<any>,
+	timeoutOptions?: TimeoutPolicy<any>,
 	id?: string,
 ): Op.Manager<Args, E, A, Op.State<E, A>> => {
 	let currentState: Op.State<E, A> = _idle;
@@ -364,7 +369,7 @@ export const makeExclusive = <Args extends readonly unknown[], E, A>(
 	op: Op<Args, E, A>,
 	cooldown?: Duration,
 	retryOptions?: Op.RetryOptions<E>,
-	timeoutOptions?: Op.TimeoutOptions<any>,
+	timeoutOptions?: TimeoutPolicy<any>,
 	id?: string,
 ): Op.Manager<Args, E, A, Op.State<E, A>> => {
 	let currentState: Op.State<E, A> = _idle;
@@ -476,7 +481,7 @@ export const makeQueue = <Args extends readonly unknown[], E, A>(
 	concurrency?: number,
 	dedupe?: (a: Args, b: Args) => boolean,
 	retryOptions?: Op.RetryOptions<E>,
-	timeoutOptions?: Op.TimeoutOptions<any>,
+	timeoutOptions?: TimeoutPolicy<any>,
 	id?: string,
 ): Op.Manager<Args, E, A, Op.State<E, A>> => {
 	const maxConcurrency = concurrency !== undefined && Number.isInteger(concurrency) && concurrency > 0 ? concurrency : 1;
@@ -662,7 +667,7 @@ export const makeBuffered = <Args extends readonly unknown[], E, A>(
 	op: Op<Args, E, A>,
 	size?: number,
 	retryOptions?: Op.RetryOptions<E>,
-	timeoutOptions?: Op.TimeoutOptions<any>,
+	timeoutOptions?: TimeoutPolicy<any>,
 	id?: string,
 ): Op.Manager<Args, E, A, Op.State<E, A>> => {
 	const bufferSize = size !== undefined && Number.isInteger(size) && size > 0 ? size : 1;
@@ -786,7 +791,7 @@ export const makeDebounced = <Args extends readonly unknown[], E, A>(
 	leading: boolean,
 	maxWait?: Duration,
 	retryOptions?: Op.RetryOptions<E>,
-	timeoutOptions?: Op.TimeoutOptions<any>,
+	timeoutOptions?: TimeoutPolicy<any>,
 	id?: string,
 ): Op.Manager<Args, E, A, Op.State<E, A>> => {
 	let currentState: Op.State<E, A> = _idle;
@@ -991,7 +996,7 @@ export const makeThrottled = <Args extends readonly unknown[], E, A>(
 	duration: Duration,
 	trailing: boolean,
 	retryOptions?: Op.RetryOptions<E>,
-	timeoutOptions?: Op.TimeoutOptions<any>,
+	timeoutOptions?: TimeoutPolicy<any>,
 	id?: string,
 ): Op.Manager<Args, E, A, Op.State<E, A>> => {
 	let currentState: Op.State<E, A> = _idle;
@@ -1138,7 +1143,7 @@ export const makeConcurrent = <Args extends readonly unknown[], E, A>(
 	n: number,
 	overflow: "queue" | "drop",
 	retryOptions?: Op.RetryOptions<E>,
-	timeoutOptions?: Op.TimeoutOptions<any>,
+	timeoutOptions?: TimeoutPolicy<any>,
 	id?: string,
 ): Op.Manager<Args, E, A, Op.State<E, A>> => {
 	const maxConcurrency = Number.isInteger(n) && n > 0 ? n : 1;
@@ -1298,7 +1303,7 @@ export const makeKeyed = <Args extends readonly unknown[], K, E, A>(
 	op: Op<Args, E, A>,
 	keyFn: (...args: Args) => K,
 	perKey: "exclusive" | "restartable",
-	timeoutOptions?: Op.TimeoutOptions<any>,
+	timeoutOptions?: TimeoutPolicy<any>,
 	id?: string,
 ): Op.KeyedManager<Args, K, E, Op.KeyedExclusivePerKey<E, A> | Op.KeyedRestartablePerKey<E, A>> => {
 	type PerKeyS = Op.KeyedExclusivePerKey<E, A> | Op.KeyedRestartablePerKey<E, A>;
@@ -1421,7 +1426,7 @@ export const makeKeyed = <Args extends readonly unknown[], K, E, A>(
 export const makeOnce = <Args extends readonly unknown[], E, A>(
 	op: Op<Args, E, A>,
 	retryOptions?: Op.RetryOptions<E>,
-	timeoutOptions?: Op.TimeoutOptions<any>,
+	timeoutOptions?: TimeoutPolicy<any>,
 	id?: string,
 ): Op.Manager<Args, E, A, Op.State<E, A>> => {
 	let currentState: Op.State<E, A> = _idle;

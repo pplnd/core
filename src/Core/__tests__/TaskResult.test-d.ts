@@ -3,7 +3,9 @@ import { expectTypeOf, test } from "vitest";
 import { pipe } from "../../Composition/pipe.ts";
 import { Duration } from "../../Types/Duration.ts";
 import { RetryPolicy } from "../../Types/RetryPolicy.ts";
+import { TimeoutPolicy } from "../../Types/TimeoutPolicy.ts";
 import { Aborted } from "../Aborted.ts";
+import type { Predicate } from "../Predicate.ts";
 import { type Result } from "../Result.ts";
 import { Task } from "../Task.ts";
 
@@ -11,7 +13,7 @@ test("timeout: preserves domain and timeout error types", () => {
 	const source: Task.Result<"source", number> = Task.Result.make.err("source");
 	const timed = pipe(
 		source,
-		Task.Result.timeout({ duration: Duration.seconds(1), onTimeout: () => "deadline" as const }),
+		Task.Result.timeout(TimeoutPolicy.after({ duration: Duration.seconds(1), onTimeout: () => "deadline" as const })),
 	);
 	expectTypeOf(timed).toEqualTypeOf<Task.Result<"source" | "deadline", number>>();
 });
@@ -171,7 +173,7 @@ test("from.nullable: strips null and undefined from the success channel", () => 
 test("timeout: preserves literal timeout errors", () => {
 	const task = pipe(
 		Task.Result.make.ok(1),
-		Task.Result.timeout({ duration: Duration.seconds(1), onTimeout: () => "timeout" }),
+		Task.Result.timeout(TimeoutPolicy.after({ duration: Duration.seconds(1), onTimeout: () => "timeout" })),
 	);
 	expectTypeOf(task).toEqualTypeOf<Task.Result<"timeout", number>>();
 });
@@ -239,4 +241,34 @@ test("retry: a policy typed narrower than the task's union is rejected", () => {
 	});
 	// @ts-expect-error the policy must cover the task's whole error union
 	expectTypeOf(Task.Result.retry(narrowPolicy)(task)).toBeFunction();
+});
+
+test("any: infers the per-position error tuple and the union of value channels", () => {
+	const t1: Task.Result<"offline", number> = constTruthyBool()
+		? Task.Result.make.ok(1)
+		: Task.Result.make.err("offline");
+	const t2: Task.Result<"timeout", string> = constTruthyBool()
+		? Task.Result.make.ok("v")
+		: Task.Result.make.err("timeout");
+
+	const hedged = Task.Result.any([t1, t2]);
+	expectTypeOf(hedged).toEqualTypeOf<Task.Result<readonly ["offline", "timeout"] | Aborted, number | string>>();
+});
+
+test("any: empty input keeps the tuple error channel with no value", () => {
+	expectTypeOf(Task.Result.any([])).toEqualTypeOf<Task.Result<readonly [] | Aborted, never>>();
+});
+
+test("any: negative — elements must be Task.Result tasks", () => {
+	// @ts-expect-error any expects Task.Result elements
+	expectTypeOf(Task.Result.any([123])).toBeFunction();
+});
+
+test("poll: accepts combinator-built Predicate values", () => {
+	const task: Task.Result<"offline", number> = constTruthyBool()
+		? Task.Result.make.ok(1)
+		: Task.Result.make.err("offline");
+	const ready: Predicate<number> = (value) => value > 0;
+	const polled = pipe(task, Task.Result.poll({ until: ready }));
+	expectTypeOf(polled).toEqualTypeOf<Task.Result<"offline", number>>();
 });

@@ -729,7 +729,7 @@ test("all: releases all record resources in reverse order when consume returns E
 // end-to-end multi-resource pipeline
 // ---------------------------------------------------------------------------
 
-test("pipe: end-to-end multi-layer infrastructure pipeline from API_ROADMAP.md", async () => {
+test("pipe: end-to-end multi-layer infrastructure pipeline", async () => {
 	const lifecycle: string[] = [];
 
 	const openSshTunnel = (host: string) =>

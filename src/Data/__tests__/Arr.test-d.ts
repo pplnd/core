@@ -2,6 +2,7 @@ import { constTruthyBool } from "#test-utils";
 import { expectTypeOf, test } from "vitest";
 import { pipe } from "../../Composition/pipe.ts";
 import { Maybe } from "../../Core/Maybe.ts";
+import type { Ordering } from "../../Core/Ordering.ts";
 import { Result } from "../../Core/Result.ts";
 import { Task } from "../../Core/Task.ts";
 import { Validation } from "../../Core/Validation.ts";
@@ -124,4 +125,11 @@ test("absent channels: empty traversals default to never", () => {
 
 test("sequence.Task: accepts a concurrency option", () => {
 	expectTypeOf(Arr.sequence.Task([Task.make(1)], { concurrency: 1 })).toEqualTypeOf<Task<readonly number[]>>();
+});
+
+test("sortBy: accepts combinator-built Ordering values", () => {
+	type Item = { readonly name: string; };
+	const byName: Ordering<Item> = (first, second) => first.name.localeCompare(second.name);
+	const sorted = pipe([{ name: "a" }] as const, Arr.sortBy(byName));
+	expectTypeOf(sorted).toEqualTypeOf<readonly Item[]>();
 });

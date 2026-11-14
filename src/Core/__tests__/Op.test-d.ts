@@ -3,7 +3,9 @@ import { expectTypeOf, test } from "vitest";
 import { pipe } from "../../Composition/pipe.ts";
 import { Duration } from "../../Types/Duration.ts";
 import { RetryPolicy } from "../../Types/RetryPolicy.ts";
+import { TimeoutPolicy } from "../../Types/TimeoutPolicy.ts";
 import type { Deferred } from "../Deferred.ts";
+import type { Equality } from "../Equality.ts";
 import type { Maybe } from "../Maybe.ts";
 import { Op } from "../Op.ts";
 import type { Result } from "../Result.ts";
@@ -203,7 +205,7 @@ test("interpret: infers strategy-specific state unions and manager run return ty
 		Deferred<Op.Ok<number> | Op.Err<string> | Op.AbortedNil | Op.DroppedNil>
 	>();
 
-	const keyedExclusive = Op.interpret(delayedOp, { strategy: "keyed", key: (n: number) => n, perKey: "exclusive" });
+	const keyedExclusive = Op.interpret(delayedOp, { strategy: "keyed", keyBy: (n: number) => n, perKey: "exclusive" });
 	expectTypeOf(keyedExclusive).toEqualTypeOf<
 		Op.KeyedManager<[n: number], number, string, Op.KeyedExclusivePerKey<string, number>>
 	>();
@@ -211,7 +213,11 @@ test("interpret: infers strategy-specific state unions and manager run return ty
 		Deferred<Op.Ok<number> | Op.Err<string> | Op.AbortedNil | Op.DroppedNil>
 	>();
 
-	const keyedRestartable = Op.interpret(delayedOp, { strategy: "keyed", key: (n: number) => n, perKey: "restartable" });
+	const keyedRestartable = Op.interpret(delayedOp, {
+		strategy: "keyed",
+		keyBy: (n: number) => n,
+		perKey: "restartable",
+	});
 	expectTypeOf(keyedRestartable).toEqualTypeOf<
 		Op.KeyedManager<[n: number], number, string, Op.KeyedRestartablePerKey<string, number>>
 	>();
@@ -239,11 +245,11 @@ test("interpret options: widens state union with Retrying and widens error with 
 	});
 	expectTypeOf(typedRetry).toEqualTypeOf<Op.RetryOptions<string>>();
 
-	const typedTimeout: Op.TimeoutOptions<Error> = {
+	const typedTimeout = TimeoutPolicy.after<Error>({
 		duration: Duration.milliseconds(500),
 		onTimeout: () => new Error("timeout error"),
-	};
-	expectTypeOf(typedTimeout).toEqualTypeOf<Op.TimeoutOptions<Error>>();
+	});
+	expectTypeOf(typedTimeout).toEqualTypeOf<TimeoutPolicy<Error>>();
 
 	const retryManager = Op.interpret(delayedOp, { strategy: "restartable", retry: typedRetry });
 	expectTypeOf(retryManager.state).toEqualTypeOf<Op.RestartableState<string, number> | Op.Retrying<string>>();
@@ -257,7 +263,7 @@ test("interpret options: widens state union with Retrying and widens error with 
 	);
 	const timeoutManager = Op.interpret(timeoutOp, {
 		strategy: "restartable",
-		timeout: { duration: Duration.milliseconds(10), onTimeout: () => "timeout_error" as const },
+		timeout: TimeoutPolicy.after({ duration: Duration.milliseconds(10), onTimeout: () => "timeout_error" as const }),
 	});
 	expectTypeOf(timeoutManager.state).toEqualTypeOf<Op.RestartableState<"op_error" | "timeout_error", number>>();
 	expectTypeOf(timeoutManager.run).returns.toEqualTypeOf<
@@ -493,7 +499,7 @@ test("interpret options: dynamic union properties on concurrent, keyed, and queu
 	>();
 
 	const perKey: Op.PerKey = constTruthyBool() ? "exclusive" : "restartable";
-	const keyedMgr = Op.interpret(delayedOp, { strategy: "keyed", key: (n: number) => n, perKey });
+	const keyedMgr = Op.interpret(delayedOp, { strategy: "keyed", keyBy: (n: number) => n, perKey });
 	expectTypeOf(keyedMgr.state).toEqualTypeOf<
 		ReadonlyMap<number, Op.KeyedExclusivePerKey<string, number> | Op.KeyedRestartablePerKey<string, number>>
 	>();
@@ -527,6 +533,13 @@ test("interpret: optional overflow and perKey map to runtime state unions", () =
 	};
 	expectTypeOf(Op.interpret(delayedOp, typed).state).not.toBeNever();
 
-	const keyed = Op.interpret(delayedOp, { strategy: "keyed", key: (n: number) => n, perKey: undefined });
+	const keyed = Op.interpret(delayedOp, { strategy: "keyed", keyBy: (n: number) => n, perKey: undefined });
 	expectTypeOf(keyed.state).toEqualTypeOf<ReadonlyMap<number, Op.KeyedExclusivePerKey<string, number>>>();
+});
+
+test("dedupe: accepts combinator-built Equality values", () => {
+	const op = Op.make((value: string) => Task.Result.make.ok(value.length));
+	const dedupe: Equality<[string]> = (first, second) => first[0] === second[0];
+	const manager = Op.interpret(op, { strategy: "queue", concurrency: 1, dedupe });
+	expectTypeOf(manager.run).toBeFunction();
 });

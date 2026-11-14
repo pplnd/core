@@ -2,6 +2,7 @@ import { constTruthyBool } from "#test-utils";
 import { expectTypeOf, test } from "vitest";
 import { Duration } from "../../Types/Duration.ts";
 import { RetryPolicy } from "../../Types/RetryPolicy.ts";
+import { TimeoutPolicy } from "../../Types/TimeoutPolicy.ts";
 import { Aborted } from "../Aborted.ts";
 import { Deferred } from "../Deferred.ts";
 import { Graph } from "../Graph.ts";
@@ -60,9 +61,9 @@ test("node: infers contextual dependency outputs and accumulates error unions", 
 		expectTypeOf(deps.user).toEqualTypeOf<{ id: string; roleId: string; }>();
 		expectTypeOf(deps.config).toEqualTypeOf<{ region: string; }>();
 		expectTypeOf(deps.permissions).toEqualTypeOf<string[]>();
-		return Task.Result.timeout({ duration: Duration.seconds(5), onTimeout: () => "e_timeout" as const })(
-			Task.Result.make.ok({ count: deps.permissions.length }),
-		);
+		return Task.Result.timeout(
+			TimeoutPolicy.after({ duration: Duration.seconds(5), onTimeout: () => "e_timeout" as const }),
+		)(Task.Result.make.ok({ count: deps.permissions.length }));
 	});
 
 	expectTypeOf(summary).toEqualTypeOf<
@@ -227,7 +228,9 @@ test("nodeFactory: infers task-level retry and timeout error channels", () => {
 	const node = Graph.nodeFactory<Input>();
 	const source = node("source", ({ ctx }) => {
 		expectTypeOf(ctx.input).toEqualTypeOf<Input>();
-		return Task.Result.timeout({ duration: Duration.seconds(1), onTimeout: (): "timeout" => "timeout" })(
+		return Task.Result.timeout(
+			TimeoutPolicy.after({ duration: Duration.seconds(1), onTimeout: (): "timeout" => "timeout" }),
+		)(
 			Task.Result.retry(RetryPolicy.exponential({ attempts: 3, initial: Duration.milliseconds(10) }))(
 				Task.Result.make.ok(ctx.input.path),
 			),

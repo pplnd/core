@@ -116,6 +116,7 @@ export default defineConfig({
 						{ slug: "guides/cache" },
 						{ slug: "guides/event-bus" },
 						{ slug: "guides/resource" },
+						{ slug: "guides/pool" },
 						{ slug: "guides/graph" },
 						{ slug: "guides/transaction" },
 						{ slug: "guides/supervisor" },
@@ -132,9 +133,14 @@ export default defineConfig({
 				{
 					label: "Type safety",
 					collapsed: false,
-					items: [{ slug: "guides/brand" }, { slug: "guides/duration" }, { slug: "guides/nonempty" }, {
-						slug: "guides/refinement",
-					}, { slug: "guides/predicate" }],
+					items: [
+						{ slug: "guides/brand" },
+						{ slug: "guides/duration" },
+						{ slug: "guides/policies" },
+						{ slug: "guides/nonempty" },
+						{ slug: "guides/refinement" },
+						{ slug: "guides/predicate" },
+					],
 				},
 				{
 					label: "Comparing & combining",

@@ -1,6 +1,7 @@
 import { isNonEmptyArr, type NonEmptyArr, type Thenable } from "../internal/InternalTypes";
 import { Deferred } from "./Deferred.ts";
 import { type Maybe, Maybe as CoreMaybe } from "./Maybe.ts";
+import type { Predicate } from "./Predicate.ts";
 import { type Result } from "./Result.ts";
 import { Task } from "./Task.ts";
 import { type Validation, Validation as CoreValidation } from "./Validation.ts";
@@ -277,6 +278,8 @@ export const TaskValidation = {
 
 	/**
 	 * Recovers from a Failed state unless the predicate `isBlocked` returns true for the accumulated errors.
+	 *
+	 * @see {@link Predicate} to build reusable error tests from combinators.
 	 * The fallback receives the accumulated errors and can produce a different success type, widening the result to `Task.Validation<E1 | E2, A | B>`.
 	 *
 	 * @see {@link Task.Validation.recover} for unconditional error recovery.
@@ -294,7 +297,7 @@ export const TaskValidation = {
 	 */
 	recoverUnless:
 		<E1, B, E2 = never>(
-			isBlocked: (errors: NonEmptyArr<E1>) => boolean,
+			isBlocked: Predicate<NonEmptyArr<E1>>,
 			fallback: (errors: NonEmptyArr<E1>) => Task.Validation<E2, B>,
 		) =>
 		<A = never>(task: Task.Validation<E1, A>): Task.Validation<E1 | E2, A | B> =>

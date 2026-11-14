@@ -2,6 +2,7 @@ import { constTruthyBool } from "#test-utils";
 import { expectTypeOf, test } from "vitest";
 import { Duration } from "../../Types/Duration.ts";
 import { RetryPolicy } from "../../Types/RetryPolicy.ts";
+import { TimeoutPolicy } from "../../Types/TimeoutPolicy.ts";
 import type { Aborted } from "../Aborted.ts";
 import type { Deferred } from "../Deferred.ts";
 import type { Result } from "../Result.ts";
@@ -30,7 +31,9 @@ test("step: infers dependencies, input, output and compensation", () => {
 		({ ctx: { input: order }, deps: { reserved } }) => {
 			expectTypeOf(reserved).toMatchTypeOf<Reservation>();
 			expectTypeOf(order).toEqualTypeOf<Order>();
-			return Task.Result.timeout({ duration: Duration.seconds(2), onTimeout: (): "payment_timeout" => "payment_timeout" })(
+			return Task.Result.timeout(
+				TimeoutPolicy.after({ duration: Duration.seconds(2), onTimeout: (): "payment_timeout" => "payment_timeout" }),
+			)(
 				Task.Result.retry(RetryPolicy.constant({ attempts: 2, delay: Duration.milliseconds(1) }))(
 					constTruthyBool()
 						? Task.Result.make.ok({ id: `${reserved.id}:${order.sku}` })
@@ -259,7 +262,7 @@ test("stepFactory: preserves forward and timeout errors when a task is retried",
 		"index",
 		{ upload },
 		({ deps }) =>
-			Task.Result.timeout({ duration: Duration.seconds(1), onTimeout: (): "timeout" => "timeout" })(
+			Task.Result.timeout(TimeoutPolicy.after({ duration: Duration.seconds(1), onTimeout: (): "timeout" => "timeout" }))(
 				Task.Result.retry(RetryPolicy.exponential({ attempts: 3, initial: Duration.milliseconds(10) }))(
 					Task.Result.make.ok(deps.upload.length),
 				),

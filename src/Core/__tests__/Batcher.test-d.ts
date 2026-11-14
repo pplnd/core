@@ -64,7 +64,7 @@ test("make: infers serializer keys and error and value types from the fetch func
 	type FetchError = { readonly reason: "unavailable"; };
 	const fetchProducts = (_keys: readonly ProductKey[]): Task.Result<FetchError, ReadonlyMap<ProductKey, Product>> =>
 		Task.Result.make.err({ reason: "unavailable" });
-	const products = Batcher.make(fetchProducts, { serializeKey: (key) => `${key.shopId}:${key.productId}` });
+	const products = Batcher.make(fetchProducts, { keyBy: (key) => `${key.shopId}:${key.productId}` });
 
 	expectTypeOf(products).toEqualTypeOf<Batcher<ProductKey, FetchError, Product>>();
 	expectTypeOf(products.load({ shopId: "north", productId: "book" })).toEqualTypeOf<

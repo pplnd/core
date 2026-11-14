@@ -7,7 +7,6 @@ import {
 	type WithKind,
 	type WithMinInterval,
 	type WithSize,
-	type WithTimeout,
 	type WithValue,
 } from "../internal/InternalTypes.ts";
 import {
@@ -24,7 +23,9 @@ import {
 } from "../internal/Op.util.ts";
 import { Duration } from "../Types/Duration.ts";
 import type { RetryPolicy } from "../Types/RetryPolicy.ts";
+import type { TimeoutPolicy } from "../Types/TimeoutPolicy.ts";
 import { Deferred } from "./Deferred.ts";
+import type { Equality } from "./Equality.ts";
 import { Maybe as CoreMaybe } from "./Maybe.ts";
 import { Result as CoreResult } from "./Result.ts";
 import type { Task } from "./Task.ts";
@@ -35,45 +36,45 @@ type NormalizeArgs<T> = [T] extends [void] ? [] : T extends readonly unknown[] ?
 
 type RetryOptionsInternal<E = unknown> = RetryPolicy<E>;
 
-type TimeoutOptionsInternal<E = unknown> = { readonly duration: Duration; readonly onTimeout: () => E; };
-
 // Union of all valid option shapes — exposed as a single type so the TS language service
 // can show all strategy literals in autocomplete (overload aggregation is unreliable).
 type AllInterpretOptions<Args extends readonly unknown[], E> =
 	& (
-		| ({ strategy: "once"; retry?: RetryOptionsInternal<E>; } & WithTimeout<unknown>)
-		| ({ strategy: "restartable"; retry?: RetryOptionsInternal<E>; } & WithMinInterval & WithTimeout<unknown>)
-		| ({ strategy: "exclusive"; retry?: RetryOptionsInternal<E>; } & WithCooldown & WithTimeout<unknown>)
+		| ({ strategy: "once"; retry?: RetryOptionsInternal<E>; } & { readonly timeout?: TimeoutPolicy<unknown>; })
+		| ({ strategy: "restartable"; retry?: RetryOptionsInternal<E>; } & WithMinInterval & {
+			readonly timeout?: TimeoutPolicy<unknown>;
+		})
+		| ({ strategy: "exclusive"; retry?: RetryOptionsInternal<E>; } & WithCooldown & {
+			readonly timeout?: TimeoutPolicy<unknown>;
+		})
 		| (
 			& {
 				strategy: "queue";
 				retry?: RetryOptionsInternal<E>;
 				maxSize?: number;
 				overflow?: "drop" | "replace-last";
-				dedupe?: (a: Args, b: Args) => boolean;
+				dedupe?: Equality<Args>;
 			}
 			& WithConcurrency
-			& WithTimeout<unknown>
+			& { readonly timeout?: TimeoutPolicy<unknown>; }
 		)
-		| ({ strategy: "buffered"; retry?: RetryOptionsInternal<E>; } & WithSize & WithTimeout<unknown>)
+		| ({ strategy: "buffered"; retry?: RetryOptionsInternal<E>; } & WithSize & {
+			readonly timeout?: TimeoutPolicy<unknown>;
+		})
 		| (
 			& { strategy: "debounced"; retry?: RetryOptionsInternal<E>; leading?: boolean; maxWait?: Duration; }
 			& WithDuration
-			& WithTimeout<unknown>
+			& { readonly timeout?: TimeoutPolicy<unknown>; }
 		)
-		| (
-			& { strategy: "throttled"; retry?: RetryOptionsInternal<E>; trailing?: boolean; }
-			& WithDuration
-			& WithTimeout<unknown>
-		)
-		| (
-			& { strategy: "concurrent"; retry?: RetryOptionsInternal<E>; overflow?: "queue" | "drop"; concurrency?: number; }
-			& WithTimeout<unknown>
-		)
-		| (
-			& { strategy: "keyed"; perKey?: "exclusive" | "restartable"; key?: (...args: Args) => unknown; }
-			& WithTimeout<unknown>
-		)
+		| ({ strategy: "throttled"; retry?: RetryOptionsInternal<E>; trailing?: boolean; } & WithDuration & {
+			readonly timeout?: TimeoutPolicy<unknown>;
+		})
+		| ({ strategy: "concurrent"; retry?: RetryOptionsInternal<E>; overflow?: "queue" | "drop"; concurrency?: number; } & {
+			readonly timeout?: TimeoutPolicy<unknown>;
+		})
+		| ({ strategy: "keyed"; perKey?: "exclusive" | "restartable"; keyBy?: (...args: Args) => unknown; } & {
+			readonly timeout?: TimeoutPolicy<unknown>;
+		})
 	)
 	& WithId;
 
@@ -353,19 +354,6 @@ export namespace Op {
 	export type RetryOptions<E = unknown> = RetryOptionsInternal<E>;
 
 	/**
-	 * Configuration options for operation timeout deadlines in `Op.interpret`.
-	 *
-	 * @example
-	 * ```ts
-	 * const timeout: Op.TimeoutOptions<string> = {
-	 *   duration: Duration.seconds(5),
-	 *   onTimeout: () => "Request timed out",
-	 * };
-	 * ```
-	 */
-	export type TimeoutOptions<E = unknown> = TimeoutOptionsInternal<E>;
-
-	/**
 	 * Union of all valid option shapes accepted by `Op.interpret`.
 	 */
 	export type InterpretOptions<Args extends readonly unknown[] = readonly unknown[], E = unknown> = AllInterpretOptions<
@@ -388,9 +376,9 @@ type TimeoutErrorOf<O> = O extends { timeout?: infer T; }
 	: never;
 type CombinedError<E, O> = E | TimeoutErrorOf<O>;
 
-// Extracts the key type from the `keyed` strategy's `key` function, defaulting to the first argument type.
-type KeyType<Args extends readonly unknown[], O> = "key" extends keyof O
-	? NonNullable<O["key"]> extends (...args: Args) => infer K ? K
+// Extracts the key type from the `keyed` strategy's `keyBy` function, defaulting to the first argument type.
+type KeyType<Args extends readonly unknown[], O> = "keyBy" extends keyof O
+	? NonNullable<O["keyBy"]> extends (...args: Args) => infer K ? K
 	: Args extends readonly [infer First, ...unknown[]] ? First
 	: unknown
 	: Args extends readonly [infer First, ...unknown[]] ? First
@@ -490,15 +478,15 @@ function interpretFn<Args extends readonly unknown[], E, A>(
 		maxWait?: Duration;
 		concurrency?: number;
 		overflow?: "queue" | "drop" | "replace-last";
-		key?: (...args: Args) => unknown;
+		keyBy?: (...args: Args) => unknown;
 		perKey?: "exclusive" | "restartable";
 		maxSize?: number;
-		dedupe?: (a: Args, b: Args) => boolean;
+		dedupe?: Equality<Args>;
 		size?: number;
 		cooldown?: Duration;
 		minInterval?: Duration;
 		retry?: RetryOptionsInternal<E>;
-		timeout?: TimeoutOptionsInternal<any>;
+		timeout?: TimeoutPolicy<any>;
 	},
 ): unknown {
 	const { strategy, retry: retryOptions, timeout: timeoutOptions, id } = options;
@@ -554,7 +542,7 @@ function interpretFn<Args extends readonly unknown[], E, A>(
 		case "keyed": {
 			return makeKeyed(
 				op,
-				(options.key ?? ((...args: Args) => args[0])) as (...args: Args) => unknown,
+				(options.keyBy ?? ((...args: Args) => args[0])) as (...args: Args) => unknown,
 				options.perKey ?? "exclusive",
 				timeoutOptions,
 				id,

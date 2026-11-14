@@ -1,3 +1,4 @@
+import type { Predicate } from "../Core/Predicate.ts";
 import { toPositiveInteger } from "../internal/Numbers.ts";
 import { clampTimerDelay, MAX_TIMER_MS } from "../internal/timers.ts";
 import { Duration } from "./Duration.ts";
@@ -5,6 +6,9 @@ import { Duration } from "./Duration.ts";
 /**
  * An immutable policy describing retry limits, backoff delay strategies,
  * transient failure filters, and observational telemetry.
+ *
+ * @see {@link TimeoutPolicy} to bound one attempt's runtime instead of the sequence.
+ * @see {@link RepeatPolicy} to repeat a lifetime past success instead of retrying failures.
  *
  * @example
  * ```ts
@@ -23,7 +27,18 @@ export type RetryPolicy<E = unknown> = {
 	 */
 	readonly attempts: number;
 	readonly getDelay: (attempt: number) => Duration;
-	readonly when?: (error: E) => boolean;
+	/**
+	 * Total wall-clock budget for the whole retry sequence, including backoff delays. Engines
+	 * stop retrying — settling with the last error — when the time already spent plus the next
+	 * delay would exceed it. The first attempt always runs, and `attempts` remains the hard
+	 * ceiling; bounding one attempt's runtime is the job of `timeout`, not the budget. A
+	 * negative value clamps to zero.
+	 */
+	readonly budget?: Duration;
+	/**
+	 * Whether an error qualifies for retry. Build reusable tests with the `Predicate` combinators.
+	 */
+	readonly when?: Predicate<E>;
 	readonly onRetry?: (metadata: RetryPolicy.Metadata<E>) => void;
 };
 
@@ -66,11 +81,13 @@ export const RetryPolicy = {
 		 */
 		readonly attempts: number;
 		readonly delay: Duration;
-		readonly when?: (error: E) => boolean;
+		readonly budget?: Duration;
+		readonly when?: Predicate<E>;
 		readonly onRetry?: (metadata: RetryPolicy.Metadata<E>) => void;
 	}): RetryPolicy<E> => ({
 		attempts: toPositiveInteger(options.attempts) ?? 1,
 		getDelay: () => options.delay,
+		...(options.budget !== undefined ? { budget: options.budget } : {}),
 		...(options.when !== undefined ? { when: options.when } : {}),
 		...(options.onRetry !== undefined ? { onRetry: options.onRetry } : {}),
 	}),
@@ -80,6 +97,8 @@ export const RetryPolicy = {
 	 * An optional `factor` (default 2) controls the growth rate.
 	 * An optional `jitter` (default false) adds randomized variance to prevent thundering herd problems.
 	 * An optional `maxDelay` caps the maximum duration between retry attempts.
+	 * An optional `budget` caps the total wall-clock time for the whole retry sequence, including
+	 * backoff delays; retrying stops — settling with the last error — once it would be exceeded.
 	 * An optional `when` predicate filters which errors qualify for retry.
 	 * An optional `onRetry` callback executes telemetry side-effects before each retry delay.
 	 *
@@ -105,7 +124,8 @@ export const RetryPolicy = {
 		readonly factor?: number;
 		readonly jitter?: boolean;
 		readonly maxDelay?: Duration;
-		readonly when?: (error: E) => boolean;
+		readonly budget?: Duration;
+		readonly when?: Predicate<E>;
 		readonly onRetry?: (metadata: RetryPolicy.Metadata<E>) => void;
 	}): RetryPolicy<E> => {
 		const attempts = toPositiveInteger(options.attempts) ?? 1;
@@ -125,6 +145,7 @@ export const RetryPolicy = {
 				const finalMs = jitter ? Math.random() * cappedMs : cappedMs;
 				return Duration.milliseconds(clampTimerDelay(finalMs));
 			},
+			...(options.budget !== undefined ? { budget: options.budget } : {}),
 			...(options.when !== undefined ? { when: options.when } : {}),
 			...(options.onRetry !== undefined ? { onRetry: options.onRetry } : {}),
 		};

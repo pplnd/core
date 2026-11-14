@@ -2,6 +2,8 @@ import { constTruthyBool } from "#test-utils";
 import { expectTypeOf, test } from "vitest";
 import { pipe } from "../../Composition/pipe.ts";
 import { Maybe } from "../Maybe.ts";
+import type { Predicate } from "../Predicate.ts";
+import type { Refinement } from "../Refinement.ts";
 import { Result } from "../Result.ts";
 import { Validation } from "../Validation.ts";
 
@@ -294,4 +296,17 @@ test("struct: accepts interface-typed records of containers", () => {
 	}
 	const form: Form = { name: Result.make.ok("a"), age: Result.make.ok(1) };
 	expectTypeOf(Result.struct(form)).toEqualTypeOf<Result<string, { name: string; age: number; }>>();
+});
+
+test("from.Predicate: accepts declared Predicate values through the plain overload", () => {
+	const isPositive: Predicate<number> = (value) => value > 0;
+	const made = Result.from.Predicate(isPositive, () => "not positive" as const)(5);
+	expectTypeOf(made).toEqualTypeOf<Result<"not positive", number>>();
+});
+
+test("ensure: accepts declared Refinement values", () => {
+	const isString: Refinement<unknown, string> = (value): value is string => typeof value === "string";
+	const input: Result<"ERR_INIT", unknown> = constTruthyBool() ? Result.make.ok("hello") : Result.make.err("ERR_INIT");
+	const ensured = pipe(input, Result.ensure(isString, () => "NOT_STRING" as const));
+	expectTypeOf(ensured).toEqualTypeOf<Result<"ERR_INIT" | "NOT_STRING", string>>();
 });

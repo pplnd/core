@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import { pipe } from "../../Composition/pipe.ts";
 import { Duration } from "../../Types/Duration.ts";
 import { RetryPolicy } from "../../Types/RetryPolicy.ts";
+import { TimeoutPolicy } from "../../Types/TimeoutPolicy.ts";
 import { Deferred } from "../Deferred.ts";
 import { Maybe } from "../Maybe.ts";
 import { Result } from "../Result.ts";
@@ -728,7 +729,7 @@ test("timeout: resolves to task Ok when task finishes before duration", async ()
 	const task: Task.Result<string, number> = () => Deferred.from.Promise(Promise.resolve(Result.make.ok(42)));
 	const res = await pipe(
 		task,
-		Task.Result.timeout({ duration: Duration.milliseconds(100), onTimeout: () => "timed_out" }),
+		Task.Result.timeout(TimeoutPolicy.after({ duration: Duration.milliseconds(100), onTimeout: () => "timed_out" })),
 	)();
 
 	expect(res).toStrictEqual(Result.make.ok(42));
@@ -739,7 +740,7 @@ test("timeout: resolves to Err(onTimeout()) when task exceeds duration", async (
 		Deferred.from.Promise(new Promise((resolve) => setTimeout(() => resolve(Result.make.ok(42)), 100)));
 	const res = await pipe(
 		task,
-		Task.Result.timeout({ duration: Duration.milliseconds(10), onTimeout: () => "timed_out" }),
+		Task.Result.timeout(TimeoutPolicy.after({ duration: Duration.milliseconds(10), onTimeout: () => "timed_out" })),
 	)();
 
 	expect(res).toStrictEqual(Result.make.err("timed_out"));
@@ -753,7 +754,7 @@ test("timeout: handles pre-aborted signal", async () => {
 
 	const res = await pipe(
 		task,
-		Task.Result.timeout({ duration: Duration.milliseconds(100), onTimeout: () => "timed_out" }),
+		Task.Result.timeout(TimeoutPolicy.after({ duration: Duration.milliseconds(100), onTimeout: () => "timed_out" })),
 	)(controller.signal);
 
 	expect(res).toStrictEqual(Result.make.err("aborted"));
@@ -768,7 +769,7 @@ test("timeout: handles signal aborted during execution", async () => {
 
 	const res = await pipe(
 		task,
-		Task.Result.timeout({ duration: Duration.milliseconds(100), onTimeout: () => "timed_out" }),
+		Task.Result.timeout(TimeoutPolicy.after({ duration: Duration.milliseconds(100), onTimeout: () => "timed_out" })),
 	)(controller.signal);
 
 	expect(res).toStrictEqual(Result.make.ok(42));
@@ -778,9 +779,10 @@ test("timeout: keeps the deadline after external cancellation when the task igno
 	const controller = new AbortController();
 	const task: Task.Result<string, number> = () =>
 		Deferred.from.Promise(new Promise((resolve) => setTimeout(() => resolve(Result.make.ok(42)), 50)));
-	const outcome = pipe(task, Task.Result.timeout({ duration: Duration.milliseconds(10), onTimeout: () => "timed out" }))(
-		controller.signal,
-	);
+	const outcome = pipe(
+		task,
+		Task.Result.timeout(TimeoutPolicy.after({ duration: Duration.milliseconds(10), onTimeout: () => "timed out" })),
+	)(controller.signal);
 	controller.abort();
 	await expect(Deferred.to.Promise(outcome)).resolves.toStrictEqual(Result.make.err("timed out"));
 });
@@ -851,7 +853,9 @@ test("timeout: infers exact error union without collapsing to unknown", async ()
 	const step1: Task.Result<"ERR_A", number> = Task.Result.make.ok(42);
 	const taskRes = pipe(
 		step1,
-		Task.Result.timeout({ duration: Duration.milliseconds(100), onTimeout: () => "TIMEOUT" as const }),
+		Task.Result.timeout(
+			TimeoutPolicy.after({ duration: Duration.milliseconds(100), onTimeout: () => "TIMEOUT" as const }),
+		),
 	);
 
 	const res = await taskRes();
@@ -1055,7 +1059,7 @@ test("timeout: aborts inner task signal when timeout fires", async () => {
 	};
 	const res = await pipe(
 		task,
-		Task.Result.timeout({ duration: Duration.milliseconds(20), onTimeout: () => "timed_out" }),
+		Task.Result.timeout(TimeoutPolicy.after({ duration: Duration.milliseconds(20), onTimeout: () => "timed_out" })),
 	)();
 	expect(res).toStrictEqual(Result.make.err("timed_out"));
 	expect(innerSignal?.aborted).toBe(true);
@@ -1070,7 +1074,7 @@ test("timeout: returns the deadline error when abort completes the inner task", 
 		);
 	const result = await pipe(
 		task,
-		Task.Result.timeout({ duration: Duration.milliseconds(1), onTimeout: () => "deadline" }),
+		Task.Result.timeout(TimeoutPolicy.after({ duration: Duration.milliseconds(1), onTimeout: () => "deadline" })),
 	)();
 	expect(result).toStrictEqual(Result.make.err("deadline"));
 });
@@ -1280,6 +1284,188 @@ test("all: does not trigger abort listeners when all tasks succeed", async () =>
 	const result = await Task.Result.all([taskA, taskB])();
 	expect(result).toStrictEqual(Result.make.ok([1, 2]));
 	expect(abortFired).toBe(false);
+});
+
+// ---------------------------------------------------------------------------
+// any
+// ---------------------------------------------------------------------------
+
+test("any: settles with the first success and aborts the losers", async () => {
+	const winner = Task.Result.make.ok("fast");
+	let loserCancelled = false;
+	const loser = (signal?: AbortSignal) => {
+		signal?.addEventListener("abort", () => {
+			loserCancelled = true;
+		});
+		return Deferred.from.Promise(new Promise<Result<never, string>>(() => {}));
+	};
+
+	const result = await Task.Result.any([loser, winner])();
+	expect(result).toStrictEqual(Result.make.ok("fast"));
+	expect(loserCancelled).toBe(true);
+});
+
+test("any: does not abort the winner's signal", async () => {
+	let winnerAborted = false;
+	const winner = (signal?: AbortSignal) => {
+		signal?.addEventListener("abort", () => {
+			winnerAborted = true;
+		});
+		return Deferred.from.Promise(Promise.resolve(Result.make.ok(1)));
+	};
+	const loser = Task.Result.make.err("boom");
+
+	const result = await Task.Result.any([loser, winner])();
+	expect(result).toStrictEqual(Result.make.ok(1));
+	expect(winnerAborted).toBe(false);
+});
+
+test("any: ignores a late loser settlement after a winner resolved", async () => {
+	let finishLoser: (value: Result<"late", number>) => void = () => {};
+	const loser: Task.Result<"late", number> = () =>
+		Deferred.from.Promise(
+			new Promise<Result<"late", number>>((resolve) => {
+				finishLoser = resolve;
+			}),
+		);
+
+	const outcome = Task.Result.any([loser, Task.Result.make.ok(1)])();
+	const result = await outcome;
+	expect(result).toStrictEqual(Result.make.ok(1));
+	finishLoser(Result.make.err("late"));
+	await Promise.resolve();
+	await Promise.resolve();
+	expect(result).toStrictEqual(Result.make.ok(1));
+});
+
+test("any: settles Err with the frozen error tuple in input order when every task fails", async () => {
+	const t1 = Task.Result.make.err("offline");
+	const t2 = Task.Result.make.err("timeout");
+
+	const result = await Task.Result.any([t1, t2])();
+	expect(result).toStrictEqual(Result.make.err(["offline", "timeout"]));
+	const errors = Result.match({ ok: () => null, err: (error) => error })(result);
+	expect(Object.isFrozen(errors)).toBe(true);
+});
+
+test("any: pre-aborted signal returns Aborted without starting work", async () => {
+	const controller = new AbortController();
+	controller.abort("stopped");
+	let starts = 0;
+	const t = Task.Result.from.Task(Task.from.sync(() => ++starts));
+	const result = await Task.Result.any([t, t])(controller.signal);
+	expect(result).toStrictEqual(Result.make.err({ kind: "Aborted", reason: "stopped" }));
+	expect(starts).toBe(0);
+});
+
+test("any: settles with Aborted when caller aborts during execution and cancels tasks", async () => {
+	const controller = new AbortController();
+	let cancelled = false;
+	const slow = (signal?: AbortSignal) => {
+		signal?.addEventListener("abort", () => {
+			cancelled = true;
+		});
+		return Deferred.from.Promise(new Promise<Result<never, number>>(() => {}));
+	};
+
+	const promise = Task.Result.any([slow])(controller.signal);
+	controller.abort("caller-cancelled");
+	const result = await promise;
+	expect(result).toStrictEqual(Result.make.err({ kind: "Aborted", reason: "caller-cancelled" }));
+	expect(cancelled).toBe(true);
+});
+
+test("any: returns Err([]) for empty input", async () => {
+	const result = await Task.Result.any([])();
+	expect(result).toStrictEqual(Result.make.err([]));
+});
+
+test("any: composes in a pipe after tryCatch", async () => {
+	const hedge = pipe(
+		Task.Result.any([
+			Task.Result.tryCatch(() =>
+				new Promise<string>((_, reject) => setTimeout(() => reject(new Error("primary down")), 5)), {
+				onError: () => "primary" as const,
+			}),
+			Task.Result.tryCatch(() => Promise.resolve("backup"), { onError: () => "backup" as const }),
+		]),
+		Task.Result.map((value) => value.toUpperCase()),
+	);
+	const result = await hedge();
+	expect(result).toStrictEqual(Result.make.ok("BACKUP"));
+});
+
+// ---------------------------------------------------------------------------
+// retry budget
+// ---------------------------------------------------------------------------
+
+test("retry: settles with the last error when the policy budget is exhausted", async () => {
+	let attempts = 0;
+	const failing = (): Task.Result<"offline", number> => () => {
+		attempts++;
+		return Deferred.from.Promise(Promise.resolve(Result.make.err("offline")));
+	};
+	const policy = RetryPolicy.constant<"offline">({
+		attempts: 5,
+		delay: Duration.milliseconds(100),
+		budget: Duration.milliseconds(50),
+	});
+
+	const result = await Task.Result.retry(policy)(failing())();
+	expect(result).toStrictEqual(Result.make.err("offline"));
+	expect(attempts).toBe(1);
+});
+
+test("retry: a larger budget lets every attempt run", async () => {
+	let attempts = 0;
+	const failing = (): Task.Result<"offline", number> => () => {
+		attempts++;
+		return Deferred.from.Promise(Promise.resolve(Result.make.err("offline")));
+	};
+	const policy = RetryPolicy.constant<"offline">({
+		attempts: 3,
+		delay: Duration.milliseconds(5),
+		budget: Duration.seconds(10),
+	});
+
+	const result = await Task.Result.retry(policy)(failing())();
+	expect(result).toStrictEqual(Result.make.err("offline"));
+	expect(attempts).toBe(3);
+});
+
+test("retry: the first attempt always runs even when the budget is spent", async () => {
+	let attempts = 0;
+	const failing = (): Task.Result<"boom", number> => () => {
+		attempts++;
+		return Deferred.from.Promise(Promise.resolve(Result.make.err("boom")));
+	};
+	const policy = RetryPolicy.constant<"boom">({
+		attempts: 4,
+		delay: Duration.milliseconds(10),
+		budget: Duration.milliseconds(-5),
+	});
+
+	const result = await Task.Result.retry(policy)(failing())();
+	expect(result).toStrictEqual(Result.make.err("boom"));
+	expect(attempts).toBe(1);
+});
+
+test("retry: onRetry is not fired on a phantom budget delay", async () => {
+	let retryEvents = 0;
+	const failing: Task.Result<"offline", number> = () =>
+		Deferred.from.Promise(Promise.resolve(Result.make.err("offline")));
+	const policy = RetryPolicy.constant<"offline">({
+		attempts: 5,
+		delay: Duration.milliseconds(100),
+		budget: Duration.milliseconds(50),
+		onRetry: () => {
+			retryEvents++;
+		},
+	});
+
+	const result = await Task.Result.retry(policy)(failing)();
+	expect(result).toStrictEqual(Result.make.err("offline"));
+	expect(retryEvents).toBe(0);
 });
 
 // ---------------------------------------------------------------------------

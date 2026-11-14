@@ -26,6 +26,19 @@ describe("RetryPolicy type-level tests", () => {
 		expectTypeOf<Meta>().toEqualTypeOf<{ readonly attempt: number; readonly error: string; readonly delay: Duration; }>();
 	});
 
+	it("types the optional budget as a Duration on policies and factory options", () => {
+		const policy: RetryPolicy<"offline"> = {
+			attempts: 3,
+			getDelay: () => Duration.milliseconds(10),
+			budget: Duration.seconds(2),
+		};
+		expectTypeOf(policy.budget).toEqualTypeOf<Duration | undefined>();
+
+		const withBudget = RetryPolicy.constant({ attempts: 3, delay: Duration.seconds(1), budget: Duration.seconds(2) });
+		expectTypeOf(withBudget.budget).toEqualTypeOf<Duration | undefined>();
+		expectTypeOf(withBudget).toEqualTypeOf<RetryPolicy>();
+	});
+
 	it("rejects invalid options and unbranded delay numbers", () => {
 		// @ts-expect-error raw number passed instead of Duration
 		expectTypeOf(RetryPolicy.constant({ attempts: 3, delay: 1000 })).toBeObject();

@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { Duration } from "../../Types/Duration.ts";
 import { RetryPolicy } from "../../Types/RetryPolicy.ts";
+import { TimeoutPolicy } from "../../Types/TimeoutPolicy.ts";
 import { Graph } from "../Graph.ts";
 import { Result } from "../Result.ts";
 import { Task } from "../Task.ts";
@@ -364,9 +365,9 @@ test("node: applies timeout policy when execution exceeds duration", async () =>
 	const slowNode = Graph.node(
 		"slow",
 		() =>
-			Task.Result.timeout({ duration: Duration.milliseconds(15), onTimeout: () => "timed_out" as const })(
-				Task.delay(Duration.milliseconds(80))(Task.Result.make.ok("finished")),
-			),
+			Task.Result.timeout(
+				TimeoutPolicy.after({ duration: Duration.milliseconds(15), onTimeout: () => "timed_out" as const }),
+			)(Task.delay(Duration.milliseconds(80))(Task.Result.make.ok("finished"))),
 	);
 
 	const graph = Graph.make(slowNode);

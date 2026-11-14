@@ -141,7 +141,7 @@ test("op-dropped-run", async ({ bench }) => {
 // =============================================================================
 
 test("op-keyed-transition", async ({ bench }) => {
-	const manager = opInterpret(op, { strategy: "keyed", key: (n: number) => n, perKey: "exclusive" });
+	const manager = opInterpret(op, { strategy: "keyed", keyBy: (n: number) => n, perKey: "exclusive" });
 	for (let key = 0; key < 128; key++) {
 		await manager.run(key);
 	}

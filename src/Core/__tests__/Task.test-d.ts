@@ -1,6 +1,7 @@
 import { expectTypeOf, test } from "vitest";
 import { pipe } from "../../Composition/pipe.ts";
 import { Duration } from "../../Types/Duration.ts";
+import { TimeoutPolicy } from "../../Types/TimeoutPolicy.ts";
 import type { Deferred } from "../Deferred.ts";
 import type { Maybe } from "../Maybe.ts";
 import type { Result } from "../Result.ts";
@@ -73,7 +74,10 @@ test("all & race: preserve element types and execute multiple tasks", () => {
 
 test("timeout: converts task into fallible result channel with typed error", () => {
 	const taskNum = Task.make(42);
-	const timed = pipe(taskNum, Task.timeout({ duration: Duration.seconds(1), onTimeout: () => "timed_out" as const }));
+	const timed = pipe(
+		taskNum,
+		Task.timeout(TimeoutPolicy.after({ duration: Duration.seconds(1), onTimeout: () => "timed_out" as const })),
+	);
 	expectTypeOf(timed).toEqualTypeOf<Task<Result<"timed_out", number>>>();
 });
 
@@ -151,7 +155,7 @@ test("negative: disallows fallible primitives and invalid signatures", () => {
 	expectTypeOf(Task.make()).toBeFunction();
 
 	// @ts-expect-error Task.timeout requires duration and onTimeout
-	expectTypeOf(Task.timeout({ duration: Duration.seconds(1) })).toBeFunction();
+	expectTypeOf(Task.timeout(TimeoutPolicy.after({ duration: Duration.seconds(1) }))).toBeFunction();
 
 	// @ts-expect-error Task.repeat requires times
 	expectTypeOf(Task.repeat({})).toBeFunction();

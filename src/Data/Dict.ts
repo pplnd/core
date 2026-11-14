@@ -2,6 +2,7 @@
 // Imports
 // =============================================================================
 import { Maybe } from "../Core/Maybe.ts";
+import type { Predicate } from "../Core/Predicate.ts";
 import { type NonEmpty as InternalNonEmpty, type NonEmptyArr } from "../internal/InternalTypes";
 import type { Brand } from "../Types/Brand.ts";
 
@@ -279,8 +280,9 @@ const mapWithKey = <K, A, B>(transform: (key: K, value: A) => B) => (dict: Reado
  * Filters dictionary entries by a predicate on values.
  *
  * @see {@link filterWithKey} for filtering with key access.
+ * @see {@link Predicate} to build reusable predicates from combinators.
  */
-const filter = <A>(predicate: (value: A) => boolean) => <K = unknown>(dict: ReadonlyMap<K, A>): ReadonlyMap<K, A> => {
+const filter = <A>(predicate: Predicate<A>) => <K = unknown>(dict: ReadonlyMap<K, A>): ReadonlyMap<K, A> => {
 	const res = new globalThis.Map<K, A>();
 	for (const [k, v] of dict) {
 		if (predicate(v)) {

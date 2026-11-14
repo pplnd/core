@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import { pipe } from "../../Composition/pipe.ts";
 import { Duration } from "../../Types/Duration.ts";
 import { RetryPolicy } from "../../Types/RetryPolicy.ts";
+import { TimeoutPolicy } from "../../Types/TimeoutPolicy.ts";
 import { Deferred } from "../Deferred.ts";
 import { Maybe } from "../Maybe.ts";
 import { Op } from "../Op.ts";
@@ -326,19 +327,19 @@ test("interpret: supports optional instance id and sets Symbol.toStringTag on Ma
 	expect(Object.prototype.toString.call(concurrentMgr)).toBe("[object Op.Manager[op-base]]");
 
 	// KeyedManager (unified as Op.Manager under Option 1)
-	const defaultKeyed = Op.interpret(anonymousOp, { strategy: "keyed", key: () => "k" });
+	const defaultKeyed = Op.interpret(anonymousOp, { strategy: "keyed", keyBy: () => "k" });
 	expect(defaultKeyed.id).toBeUndefined();
 	expect(Object.prototype.toString.call(defaultKeyed)).toBe("[object Op.Manager]");
 
-	const keyedWithoutInstanceId = Op.interpret(namedOp, { strategy: "keyed", key: () => "k" });
+	const keyedWithoutInstanceId = Op.interpret(namedOp, { strategy: "keyed", keyBy: () => "k" });
 	expect(keyedWithoutInstanceId.id).toBeUndefined();
 	expect(Object.prototype.toString.call(keyedWithoutInstanceId)).toBe("[object Op.Manager[op-base]]");
 
-	const overriddenKeyed = Op.interpret(namedOp, { strategy: "keyed", key: () => "k", id: "keyed-override" });
+	const overriddenKeyed = Op.interpret(namedOp, { strategy: "keyed", keyBy: () => "k", id: "keyed-override" });
 	expect(overriddenKeyed.id).toBe("keyed-override");
 	expect(Object.prototype.toString.call(overriddenKeyed)).toBe("[object Op.Manager(keyed-override)[op-base]]");
 
-	const instanceOnlyKeyed = Op.interpret(anonymousOp, { strategy: "keyed", key: () => "k", id: "keyed-instance" });
+	const instanceOnlyKeyed = Op.interpret(anonymousOp, { strategy: "keyed", keyBy: () => "k", id: "keyed-instance" });
 	expect(instanceOnlyKeyed.id).toBe("keyed-instance");
 	expect(Object.prototype.toString.call(instanceOnlyKeyed)).toBe("[object Op.Manager(keyed-instance)]");
 });
@@ -489,6 +490,26 @@ test("is.retrying: returns true only for Retrying state", async () => {
 	});
 	await manager.run(1);
 	expect(sawRetrying).toBe(true);
+});
+
+test("retry: an exhausted budget settles with the last error without a Retrying state", async () => {
+	const op = Op.make((_: number) => Task.Result.make.err("offline"));
+	const manager = Op.interpret(op, {
+		strategy: "restartable",
+		retry: RetryPolicy.constant<"offline">({
+			attempts: 5,
+			delay: Duration.milliseconds(100),
+			budget: Duration.milliseconds(50),
+		}),
+	});
+	let sawRetrying = false;
+	manager.subscribe((s) => {
+		if (Op.is.retrying(s)) { sawRetrying = true; }
+	});
+	const outcome = await manager.run(1);
+	const error = Op.Outcome.match({ ok: () => null, err: (e) => e, nil: () => null })(outcome);
+	expect(error).toBe("offline");
+	expect(sawRetrying).toBe(false);
 });
 
 // --- match ---
@@ -834,7 +855,7 @@ test("interpret: restartable with retry respects when guard", async () => {
 test("interpret: restartable with timeout emits Err when deadline fires", async () => {
 	const manager = Op.interpret(delayedOp(100), {
 		strategy: "restartable",
-		timeout: { duration: Duration.milliseconds(10), onTimeout: () => "timed out" },
+		timeout: TimeoutPolicy.after({ duration: Duration.milliseconds(10), onTimeout: () => "timed out" }),
 	});
 	const states = await runAndCollect(manager, 1);
 	expect(states).toStrictEqual([{ kind: "Pending" }, { kind: "OpErr", error: "timed out" }]);
@@ -843,7 +864,7 @@ test("interpret: restartable with timeout emits Err when deadline fires", async 
 test("interpret: restartable with timeout resolves Ok when op finishes in time", async () => {
 	const manager = Op.interpret(delayedOp(0), {
 		strategy: "restartable",
-		timeout: { duration: Duration.milliseconds(500), onTimeout: () => "timed out" },
+		timeout: TimeoutPolicy.after({ duration: Duration.milliseconds(500), onTimeout: () => "timed out" }),
 	});
 	const states = await runAndCollect(manager, 42);
 	expect(states).toStrictEqual([{ kind: "Pending" }, { kind: "OpOk", value: 42 }]);
@@ -867,7 +888,7 @@ test("interpret: restartable retry and timeout wraps entire retry sequence with 
 	const manager = Op.interpret(op, {
 		strategy: "restartable",
 		retry: RetryPolicy.constant({ attempts: 10, delay: Duration.milliseconds(0) }),
-		timeout: { duration: Duration.milliseconds(35), onTimeout: () => "timed out" },
+		timeout: TimeoutPolicy.after({ duration: Duration.milliseconds(35), onTimeout: () => "timed out" }),
 	});
 	const states = await runAndCollect(manager, 1);
 	// Timeout at 35ms fires before 10 attempts (each 20ms) can complete
@@ -1527,14 +1548,14 @@ test("interpret: concurrent abort inside settled subscriber aborts reserved work
 // --- Op.interpret — keyed (exclusive perKey) ---
 
 test("interpret: keyed exclusive runs different keys in parallel", async () => {
-	const manager = Op.interpret(delayedOp(20), { strategy: "keyed", key: (n) => n, perKey: "exclusive" });
+	const manager = Op.interpret(delayedOp(20), { strategy: "keyed", keyBy: (n) => n, perKey: "exclusive" });
 	const [r1, r2] = await Promise.all([manager.run(1), manager.run(2)]);
 	expect(r1).toStrictEqual({ kind: "OpOk", value: 1 });
 	expect(r2).toStrictEqual({ kind: "OpOk", value: 2 });
 });
 
 test("interpret: keyed exclusive returns DroppedNil for same key while in-flight", async () => {
-	const manager = Op.interpret(delayedOp(30), { strategy: "keyed", key: (n) => n, perKey: "exclusive" });
+	const manager = Op.interpret(delayedOp(30), { strategy: "keyed", keyBy: (n) => n, perKey: "exclusive" });
 	const p1 = manager.run(1);
 	const p2 = manager.run(1); // same key — dropped
 	await expect(p2).resolves.toStrictEqual({ kind: "OpNil", reason: "dropped" });
@@ -1542,7 +1563,7 @@ test("interpret: keyed exclusive returns DroppedNil for same key while in-flight
 });
 
 test("interpret: keyed exclusive state map reflects per-key state", () => {
-	const manager = Op.interpret(delayedOp(20), { strategy: "keyed", key: (n) => n, perKey: "exclusive" });
+	const manager = Op.interpret(delayedOp(20), { strategy: "keyed", keyBy: (n) => n, perKey: "exclusive" });
 	manager.run(1);
 	manager.run(2);
 	expect(manager.state.get(1)).toStrictEqual({ kind: "Pending" });
@@ -1550,7 +1571,7 @@ test("interpret: keyed exclusive state map reflects per-key state", () => {
 });
 
 test("interpret: keyed exclusive abort key cancels only that key", async () => {
-	const manager = Op.interpret(delayedOp(50), { strategy: "keyed", key: (n) => n, perKey: "exclusive" });
+	const manager = Op.interpret(delayedOp(50), { strategy: "keyed", keyBy: (n) => n, perKey: "exclusive" });
 	const p1 = manager.run(1);
 	const p2 = manager.run(2);
 	manager.abort(1);
@@ -1559,7 +1580,7 @@ test("interpret: keyed exclusive abort key cancels only that key", async () => {
 });
 
 test("interpret: keyed exclusive abort cancels all keys", async () => {
-	const manager = Op.interpret(delayedOp(50), { strategy: "keyed", key: (n) => n, perKey: "exclusive" });
+	const manager = Op.interpret(delayedOp(50), { strategy: "keyed", keyBy: (n) => n, perKey: "exclusive" });
 	const p1 = manager.run(1);
 	const p2 = manager.run(2);
 	manager.abort();
@@ -1569,20 +1590,20 @@ test("interpret: keyed exclusive abort cancels all keys", async () => {
 });
 
 test("interpret: keyed exclusive abort on inactive key is a no-op", async () => {
-	const manager = Op.interpret(delayedOp(20), { strategy: "keyed", key: (n) => n, perKey: "exclusive" });
+	const manager = Op.interpret(delayedOp(20), { strategy: "keyed", keyBy: (n) => n, perKey: "exclusive" });
 	manager.abort(99); // key 99 has no active slot — no-op
 	const result = await manager.run(1);
 	expect(result).toStrictEqual({ kind: "OpOk", value: 1 });
 });
 
 test("interpret: keyed exclusive abort with no active keys is a no-op", () => {
-	const manager = Op.interpret(delayedOp(), { strategy: "keyed", key: (n) => n, perKey: "exclusive" });
+	const manager = Op.interpret(delayedOp(), { strategy: "keyed", keyBy: (n) => n, perKey: "exclusive" });
 	manager.abort(); // no active keys — no emit, no resolves
 	expect(manager.state.size).toBe(0);
 });
 
 test("interpret: keyed exclusive subscribe after run started fires immediately with snapshot", () => {
-	const manager = Op.interpret(delayedOp(50), { strategy: "keyed", key: (n) => n, perKey: "exclusive" });
+	const manager = Op.interpret(delayedOp(50), { strategy: "keyed", keyBy: (n) => n, perKey: "exclusive" });
 	manager.run(1);
 	const received: ReadonlyMap<number, Op.KeyedExclusivePerKey<string, number>>[] = [];
 	manager.subscribe((map) => received.push(map));
@@ -1592,13 +1613,13 @@ test("interpret: keyed exclusive subscribe after run started fires immediately w
 });
 
 test("interpret: keyed exclusive state map keeps terminal state after completion", async () => {
-	const manager = Op.interpret(delayedOp(), { strategy: "keyed", key: (n) => n, perKey: "exclusive" });
+	const manager = Op.interpret(delayedOp(), { strategy: "keyed", keyBy: (n) => n, perKey: "exclusive" });
 	await manager.run(42);
 	expect(manager.state.get(42)).toStrictEqual({ kind: "OpOk", value: 42 });
 });
 
 test("interpret: keyed exclusive subscriber fires with snapshot on each transition", async () => {
-	const manager = Op.interpret(delayedOp(), { strategy: "keyed", key: (n) => n, perKey: "exclusive" });
+	const manager = Op.interpret(delayedOp(), { strategy: "keyed", keyBy: (n) => n, perKey: "exclusive" });
 	const snapshots: ReadonlyMap<number, Op.KeyedExclusivePerKey<string, number>>[] = [];
 	manager.subscribe((map) => snapshots.push(map));
 	await manager.run(1);
@@ -1615,7 +1636,7 @@ test("interpret: keyed abort called inside subscriber upon seeing Pending preven
 			return Promise.resolve(42);
 		}, { onError: (e) => String(e) })
 	);
-	const manager = Op.interpret(op, { strategy: "keyed", key: () => "item" });
+	const manager = Op.interpret(op, { strategy: "keyed", keyBy: () => "item" });
 	manager.subscribe((map) => {
 		if (map.get("item")?.kind === "Pending") {
 			manager.abort("item");
@@ -1630,7 +1651,7 @@ test("interpret: keyed abort called inside subscriber upon seeing Pending preven
 // --- Op.interpret — keyed (restartable perKey) ---
 
 test("interpret: keyed restartable cancels previous run for same key while in-flight", async () => {
-	const manager = Op.interpret(delayedOp(50), { strategy: "keyed", key: (n) => n, perKey: "restartable" });
+	const manager = Op.interpret(delayedOp(50), { strategy: "keyed", keyBy: (n) => n, perKey: "restartable" });
 	const p1 = manager.run(1);
 	const p2 = manager.run(1); // cancels p1
 	await expect(p1).resolves.toStrictEqual({ kind: "OpNil", reason: "replaced" });
@@ -1638,7 +1659,7 @@ test("interpret: keyed restartable cancels previous run for same key while in-fl
 });
 
 test("interpret: keyed restartable runs different keys in parallel", async () => {
-	const manager = Op.interpret(delayedOp(20), { strategy: "keyed", key: (n) => n, perKey: "restartable" });
+	const manager = Op.interpret(delayedOp(20), { strategy: "keyed", keyBy: (n) => n, perKey: "restartable" });
 	const [r1, r2] = await Promise.all([manager.run(1), manager.run(2)]);
 	expect(r1).toStrictEqual({ kind: "OpOk", value: 1 });
 	expect(r2).toStrictEqual({ kind: "OpOk", value: 2 });
@@ -2584,7 +2605,7 @@ test("poll: works for throttled strategy", async () => {
 });
 
 test("reset: clears all keyed per-key state", async () => {
-	const manager = Op.interpret(delayedOp(), { strategy: "keyed", key: (n: number) => n });
+	const manager = Op.interpret(delayedOp(), { strategy: "keyed", keyBy: (n: number) => n });
 	await manager.run(1);
 	await manager.run(2);
 	expect(manager.state.size).toBe(2);
@@ -2593,7 +2614,7 @@ test("reset: clears all keyed per-key state", async () => {
 });
 
 test("poll: runs immediately on keyed manager and can be stopped", async () => {
-	const manager = Op.interpret(delayedOp(), { strategy: "keyed", key: (n: number) => n });
+	const manager = Op.interpret(delayedOp(), { strategy: "keyed", keyBy: (n: number) => n });
 	const stop = manager.poll({ interval: Duration.milliseconds(10_000) })(1);
 	await new Promise<void>((resolve) => {
 		// oxlint-disable-next-line prefer-const -- TDZ: subscribe fires immediately, const would crash
@@ -2712,7 +2733,7 @@ test("interpret: timeout policy with Duration", async () => {
 	);
 	const manager = Op.interpret(op, {
 		strategy: "restartable",
-		timeout: { duration: Duration.milliseconds(5), onTimeout: () => "timeout" },
+		timeout: TimeoutPolicy.after({ duration: Duration.milliseconds(5), onTimeout: () => "timeout" }),
 	});
 	const outcome = await manager.run(1);
 	expect(outcome).toStrictEqual(Op.Outcome.make.err("timeout"));
@@ -2752,7 +2773,7 @@ test("pipe: composes outcome with mapError and to.Result", () => {
 	expect(res).toStrictEqual(Result.make.err("error: fail"));
 });
 
-// --- Op.RetryOptions & Op.TimeoutOptions type and runtime tests ---
+// --- Op.RetryOptions & TimeoutPolicy type and runtime tests ---
 
 test("RetryOptions: supports default unknown error type and typed error predicate", () => {
 	const defaultRetry: Op.RetryOptions = RetryPolicy.constant({ attempts: 3, delay: Duration.seconds(1) });
@@ -2767,13 +2788,13 @@ test("RetryOptions: supports default unknown error type and typed error predicat
 });
 
 test("TimeoutOptions: supports default unknown error type and typed onTimeout callback", () => {
-	const defaultTimeout: Op.TimeoutOptions = { duration: Duration.seconds(1), onTimeout: () => "timed out" };
+	const defaultTimeout = TimeoutPolicy.after({ duration: Duration.seconds(1), onTimeout: () => "timed out" });
 	expect(defaultTimeout.duration).toStrictEqual(Duration.seconds(1));
 
-	const typedTimeout: Op.TimeoutOptions<Error> = {
+	const typedTimeout = TimeoutPolicy.after<Error>({
 		duration: Duration.milliseconds(500),
 		onTimeout: () => new Error("timeout error"),
-	};
+	});
 	expect(typedTimeout.onTimeout().message).toBe("timeout error");
 });
 
@@ -2783,7 +2804,7 @@ test("interpret: widens outcome error type when timeout option is present", asyn
 	);
 	const manager = Op.interpret(op, {
 		strategy: "restartable",
-		timeout: { duration: Duration.milliseconds(10), onTimeout: () => "timeout_error" as const },
+		timeout: TimeoutPolicy.after({ duration: Duration.milliseconds(10), onTimeout: () => "timeout_error" as const }),
 	});
 	const outcome = await manager.run(1);
 	expect(outcome).toStrictEqual(Op.Outcome.make.ok(42));
