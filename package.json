@@ -3,20 +3,20 @@
 	"version": "0.102.0",
 	"description": "Typed errors, explicit optional values, and composable pipelines for TypeScript",
 	"keywords": [
-		"typescript",
-		"result",
-		"maybe",
-		"error-handling",
-		"typed-errors",
-		"validation",
-		"pipe",
-		"flow",
 		"async",
+		"branded-types",
 		"concurrency",
-		"retry",
-		"remotedata",
+		"error-handling",
+		"flow",
 		"lens",
-		"branded-types"
+		"maybe",
+		"pipe",
+		"remotedata",
+		"result",
+		"retry",
+		"typed-errors",
+		"typescript",
+		"validation"
 	],
 	"homepage": "https://pplnd.dev/",
 	"license": "BSD-3-Clause",
@@ -28,8 +28,8 @@
 		"dist"
 	],
 	"type": "module",
-	"packageManager": "pnpm@12.16.1",
 	"sideEffects": false,
+	"types": "./dist/index.d.ts",
 	"imports": {
 		"#core": "./src/Core/index.ts",
 		"#data": "./src/Data/index.ts",
@@ -38,7 +38,6 @@
 		"#internal": "./src/internal/index.ts",
 		"#test-utils": "./test-utils.ts"
 	},
-	"types": "./dist/index.d.ts",
 	"exports": {
 		".": {
 			"import": {
@@ -416,5 +415,6 @@
 	],
 	"engines": {
 		"node": ">=18.0.0"
-	}
+	},
+	"packageManager": "pnpm@12.20.0"
 }
