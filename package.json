@@ -1,6 +1,6 @@
 {
 	"name": "@pplnd/core",
-	"version": "0.103.0",
+	"version": "0.104.0",
 	"description": "Typed errors, explicit optional values, and composable pipelines for TypeScript",
 	"keywords": [
 		"async",
