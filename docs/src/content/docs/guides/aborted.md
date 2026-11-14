@@ -29,7 +29,9 @@ Cancellable engines settle with this shape instead of inventing their own cancel
 
 Cancellation is reported by every cancellable engine, so one check covers the source. Reach for
 `Aborted` when work can be stopped from outside; reach for [`Result`](/guides/result/) when the work
-itself fails. The [choosing guide](/basics/choosing/) covers the async engines that produce it.
+itself fails. [Reading the Types](/basics/types/) covers why engines settle with a shared outcome
+instead of throwing. The [choosing guide](/basics/choosing/) covers the async engines that produce
+it.
 
 ## Example: Nightly Report Export
 

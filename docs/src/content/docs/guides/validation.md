@@ -156,13 +156,11 @@ import { pipe, Task } from "@pplnd/core";
 
 type AsyncFieldError = FieldError | "USERNAME_UNAVAILABLE";
 
+declare const usernameTaken: (username: string, signal: AbortSignal) => Promise<void>;
+
 const checkUsernameAvailable = (username: string): Task.Validation<AsyncFieldError, string> =>
   Task.Validation.tryCatch(
-    (signal) =>
-      fetch(`/api/usernames/${encodeURIComponent(username)}`, { signal }).then((response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return username;
-      }),
+    (signal) => usernameTaken(username, signal).then(() => username),
     { onError: () => "USERNAME_UNAVAILABLE" as const },
   );
 
