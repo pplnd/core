@@ -255,6 +255,260 @@ function matchMachine(
 	return arg2[state.kind](state);
 }
 
+function interpretMachine<States extends AnyMachineState, Events extends Record<string, unknown>>(
+	machine: Machine<States, Events>,
+	options: { readonly initial: States; readonly id?: string; },
+): MachineActor<States, Events>;
+
+function interpretMachine<
+	States extends AnyMachineState,
+	Events extends Record<string, unknown>,
+	BusEvents extends Record<string, unknown> = Events,
+>(
+	machine: Machine<States, Events>,
+	options: MachineInterpretOptions<States, Events, BusEvents> & CompatibleBus<Events, BusEvents>,
+): MachineActor<States, Events>;
+
+function interpretMachine<
+	States extends AnyMachineState,
+	Events extends Record<string, unknown>,
+	BusEvents extends Record<string, unknown> = Events,
+>(
+	machine: Machine<States, Events>,
+	options: MachineInterpretOptions<States, Events, BusEvents>,
+): MachineActor<States, Events> {
+	const actorId = options?.id;
+	let currentState: States = options.initial;
+	let isRunning = true;
+	let generation = 0;
+	let currentAbortController: AbortController | null = null;
+	let currentCleanup: (() => void) | null = null;
+	let stateEntered = false;
+	let isEntering = false;
+	let isProcessing = false;
+	let busDisposer: (() => void) | null = null;
+
+	const listeners = new Set<(state: States) => void>();
+	const queue: MachineEventMessage<Events>[] = [];
+	let pendingError: unknown;
+	let hasPendingError = false;
+
+	const reportError = (error: unknown): void => {
+		if (!hasPendingError) {
+			pendingError = error;
+			hasPendingError = true;
+		}
+	};
+
+	const flushPendingError = (): void => {
+		if (hasPendingError) {
+			const error = pendingError;
+			pendingError = undefined;
+			hasPendingError = false;
+			throw error;
+		}
+	};
+
+	const runExitHook = (state: States): void => {
+		const config = machine.states[state.kind as States["kind"]];
+		if (config?.exit) {
+			try {
+				config.exit(state as any);
+			} catch (error) {
+				reportError(error);
+			}
+		}
+	};
+
+	const exitState = (state: States): void => {
+		if (!stateEntered) { return; }
+		stateEntered = false;
+		const controller = currentAbortController;
+		const cleanup = currentCleanup;
+		currentAbortController = null;
+		currentCleanup = null;
+		controller?.abort();
+		if (isEntering) {
+			// An entry hook aborted the actor before returning its disposer. The disposer is
+			// not available yet, so defer cleanup and exit until the entry returns and
+			// `enterState` runs them in cleanup → exit order.
+			return;
+		}
+		if (cleanup) {
+			try {
+				cleanup();
+			} catch (error) {
+				reportError(error);
+			}
+		}
+		runExitHook(state);
+	};
+
+	const enterState = (
+		state: States,
+		currentGen: number,
+		dispatch: (event: MachineEventMessage<Events>) => void,
+	): void => {
+		const controller = new AbortController();
+		currentAbortController = controller;
+		stateEntered = true;
+
+		const config = machine.states[state.kind as States["kind"]];
+		if (!config?.entry) {
+			return;
+		}
+
+		const guardedSend = (event: MachineEventMessage<Events>): void => {
+			if (!isRunning || currentGen !== generation || controller.signal.aborted) {
+				return;
+			}
+			dispatch(event);
+		};
+
+		isEntering = true;
+		let cleanup: (() => void) | undefined;
+		try {
+			const result = config.entry(state as any, { send: guardedSend, signal: controller.signal });
+			cleanup = typeof result === "function" ? result : undefined;
+		} catch (error) {
+			reportError(error);
+		} finally {
+			isEntering = false;
+		}
+
+		// An entry hook may abort the actor before returning its disposer. In that case
+		// `exitState` deferred cleanup and the exit hook; replay them here in the documented
+		// cleanup → exit order. Otherwise store the disposer for the next transition or abort.
+		if (!isRunning) {
+			if (cleanup !== undefined) {
+				try {
+					cleanup();
+				} catch (error) {
+					reportError(error);
+				}
+			}
+			runExitHook(state);
+		} else if (cleanup !== undefined) {
+			currentCleanup = cleanup;
+		}
+	};
+
+	const drain = (dispatch: (event: MachineEventMessage<Events>) => States): States => {
+		if (isProcessing) {
+			return currentState;
+		}
+
+		isProcessing = true;
+		try {
+			while (queue.length > 0) {
+				const nextEvent = queue.shift()!;
+				const prevState = currentState;
+				let nextState: States | null = null;
+				try {
+					nextState = Machine.transition(machine, nextEvent)(prevState);
+				} catch (error) {
+					reportError(error);
+				}
+				if (!isRunning) {
+					flushPendingError();
+					break;
+				}
+
+				if (nextState !== null && nextState !== prevState) {
+					exitState(prevState);
+					if (!isRunning) {
+						flushPendingError();
+						break;
+					}
+					currentState = nextState;
+					generation++;
+					const currentGen = generation;
+
+					for (const listener of [...listeners]) {
+						if (!isRunning) { break; }
+						if (listeners.has(listener)) {
+							try {
+								listener(nextState);
+							} catch (error) {
+								reportError(error);
+							}
+						}
+					}
+
+					if (isRunning) { enterState(nextState, currentGen, dispatch); }
+				}
+
+				flushPendingError();
+			}
+		} finally {
+			isProcessing = false;
+		}
+
+		return currentState;
+	};
+	const send = (event: MachineEventMessage<Events>): States => {
+		if (!isRunning) { return currentState; }
+		queue.push(event);
+		return drain(send);
+	};
+
+	// If an EventBus is provided, subscribe to incoming events
+	if (options?.bus) {
+		busDisposer = EventBus.subscribe(options.bus).tap((msg) => {
+			send(msg as unknown as MachineEventMessage<Events>);
+		});
+	}
+
+	// Run initial state entry effect. A throwing initial entry or transition must not leave
+	// a half-initialized actor or bus subscription behind.
+	isProcessing = true;
+	try {
+		try {
+			enterState(currentState, generation, send);
+		} finally {
+			isProcessing = false;
+		}
+		flushPendingError();
+		drain(send);
+	} catch (error) {
+		isRunning = false;
+		queue.length = 0;
+		exitState(currentState);
+		if (busDisposer) {
+			busDisposer();
+			busDisposer = null;
+		}
+		throw error;
+	}
+
+	return {
+		...(actorId !== undefined ? { id: actorId } : {}),
+		[Symbol.toStringTag]: actorId !== undefined ? `Machine.Actor(${actorId})` : "Machine.Actor",
+		getState: () => currentState,
+		send,
+		subscribe: (listener: (state: States) => void) => {
+			listeners.add(listener);
+			return () => {
+				listeners.delete(listener);
+			};
+		},
+		abort: () => {
+			if (!isRunning) {
+				return;
+			}
+			isRunning = false;
+			queue.length = 0;
+			exitState(currentState);
+			if (busDisposer) {
+				busDisposer();
+				busDisposer = null;
+			}
+			flushPendingError();
+		},
+		isRunning: () => isRunning,
+	};
+}
+
 export const Machine = {
 	/**
 	 * Creates a state machine definition from state configurations and event handlers.
@@ -431,243 +685,5 @@ export const Machine = {
 	 * actor.send({ kind: "SUBMIT", value: { email: "dev@example.com" } });
 	 * ```
 	 */
-	interpret: <
-		States extends AnyMachineState,
-		Events extends Record<string, unknown>,
-		BusEvents extends Record<string, unknown> = Events,
-	>(
-		machine: Machine<States, Events>,
-		options: MachineInterpretOptions<States, Events, BusEvents> & CompatibleBus<Events, BusEvents>,
-	): MachineActor<States, Events> => {
-		const actorId = options?.id;
-		let currentState: States = options.initial;
-		let isRunning = true;
-		let generation = 0;
-		let currentAbortController: AbortController | null = null;
-		let currentCleanup: (() => void) | null = null;
-		let stateEntered = false;
-		let isEntering = false;
-		let isProcessing = false;
-		let busDisposer: (() => void) | null = null;
-
-		const listeners = new Set<(state: States) => void>();
-		const queue: MachineEventMessage<Events>[] = [];
-		let pendingError: unknown;
-		let hasPendingError = false;
-
-		const reportError = (error: unknown): void => {
-			if (!hasPendingError) {
-				pendingError = error;
-				hasPendingError = true;
-			}
-		};
-
-		const flushPendingError = (): void => {
-			if (hasPendingError) {
-				const error = pendingError;
-				pendingError = undefined;
-				hasPendingError = false;
-				throw error;
-			}
-		};
-
-		const runExitHook = (state: States): void => {
-			const config = machine.states[state.kind as States["kind"]];
-			if (config?.exit) {
-				try {
-					config.exit(state as any);
-				} catch (error) {
-					reportError(error);
-				}
-			}
-		};
-
-		const exitState = (state: States): void => {
-			if (!stateEntered) { return; }
-			stateEntered = false;
-			const controller = currentAbortController;
-			const cleanup = currentCleanup;
-			currentAbortController = null;
-			currentCleanup = null;
-			controller?.abort();
-			if (isEntering) {
-				// An entry hook aborted the actor before returning its disposer. The disposer is
-				// not available yet, so defer cleanup and exit until the entry returns and
-				// `enterState` runs them in cleanup → exit order.
-				return;
-			}
-			if (cleanup) {
-				try {
-					cleanup();
-				} catch (error) {
-					reportError(error);
-				}
-			}
-			runExitHook(state);
-		};
-
-		const enterState = (
-			state: States,
-			currentGen: number,
-			dispatch: (event: MachineEventMessage<Events>) => void,
-		): void => {
-			const controller = new AbortController();
-			currentAbortController = controller;
-			stateEntered = true;
-
-			const config = machine.states[state.kind as States["kind"]];
-			if (!config?.entry) {
-				return;
-			}
-
-			const guardedSend = (event: MachineEventMessage<Events>): void => {
-				if (!isRunning || currentGen !== generation || controller.signal.aborted) {
-					return;
-				}
-				dispatch(event);
-			};
-
-			isEntering = true;
-			let cleanup: (() => void) | undefined;
-			try {
-				const result = config.entry(state as any, { send: guardedSend, signal: controller.signal });
-				cleanup = typeof result === "function" ? result : undefined;
-			} catch (error) {
-				reportError(error);
-			} finally {
-				isEntering = false;
-			}
-
-			// An entry hook may abort the actor before returning its disposer. In that case
-			// `exitState` deferred cleanup and the exit hook; replay them here in the documented
-			// cleanup → exit order. Otherwise store the disposer for the next transition or abort.
-			if (!isRunning) {
-				if (cleanup !== undefined) {
-					try {
-						cleanup();
-					} catch (error) {
-						reportError(error);
-					}
-				}
-				runExitHook(state);
-			} else if (cleanup !== undefined) {
-				currentCleanup = cleanup;
-			}
-		};
-
-		const drain = (dispatch: (event: MachineEventMessage<Events>) => States): States => {
-			if (isProcessing) {
-				return currentState;
-			}
-
-			isProcessing = true;
-			try {
-				while (queue.length > 0) {
-					const nextEvent = queue.shift()!;
-					const prevState = currentState;
-					let nextState: States | null = null;
-					try {
-						nextState = Machine.transition(machine, nextEvent)(prevState);
-					} catch (error) {
-						reportError(error);
-					}
-					if (!isRunning) {
-						flushPendingError();
-						break;
-					}
-
-					if (nextState !== null && nextState !== prevState) {
-						exitState(prevState);
-						if (!isRunning) {
-							flushPendingError();
-							break;
-						}
-						currentState = nextState;
-						generation++;
-						const currentGen = generation;
-
-						for (const listener of [...listeners]) {
-							if (!isRunning) { break; }
-							if (listeners.has(listener)) {
-								try {
-									listener(nextState);
-								} catch (error) {
-									reportError(error);
-								}
-							}
-						}
-
-						if (isRunning) { enterState(nextState, currentGen, dispatch); }
-					}
-
-					flushPendingError();
-				}
-			} finally {
-				isProcessing = false;
-			}
-
-			return currentState;
-		};
-		const send = (event: MachineEventMessage<Events>): States => {
-			if (!isRunning) { return currentState; }
-			queue.push(event);
-			return drain(send);
-		};
-
-		// If an EventBus is provided, subscribe to incoming events
-		if (options?.bus) {
-			busDisposer = EventBus.subscribe(options.bus).tap((msg) => {
-				send(msg as unknown as MachineEventMessage<Events>);
-			});
-		}
-
-		// Run initial state entry effect. A throwing initial entry or transition must not leave
-		// a half-initialized actor or bus subscription behind.
-		isProcessing = true;
-		try {
-			try {
-				enterState(currentState, generation, send);
-			} finally {
-				isProcessing = false;
-			}
-			flushPendingError();
-			drain(send);
-		} catch (error) {
-			isRunning = false;
-			queue.length = 0;
-			exitState(currentState);
-			if (busDisposer) {
-				busDisposer();
-				busDisposer = null;
-			}
-			throw error;
-		}
-
-		return {
-			...(actorId !== undefined ? { id: actorId } : {}),
-			[Symbol.toStringTag]: actorId !== undefined ? `Machine.Actor(${actorId})` : "Machine.Actor",
-			getState: () => currentState,
-			send,
-			subscribe: (listener: (state: States) => void) => {
-				listeners.add(listener);
-				return () => {
-					listeners.delete(listener);
-				};
-			},
-			abort: () => {
-				if (!isRunning) {
-					return;
-				}
-				isRunning = false;
-				queue.length = 0;
-				exitState(currentState);
-				if (busDisposer) {
-					busDisposer();
-					busDisposer = null;
-				}
-				flushPendingError();
-			},
-			isRunning: () => isRunning,
-		};
-	},
+	interpret: interpretMachine,
 };
