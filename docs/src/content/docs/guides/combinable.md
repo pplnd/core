@@ -5,7 +5,7 @@ description: Fold collections into a value with per-type merge rules and an iden
 
 <!-- BUNDLE_SIZE:START -->
 
-> 1.74 kB minified + gzipped
+> 1.82 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

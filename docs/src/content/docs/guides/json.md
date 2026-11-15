@@ -5,7 +5,7 @@ description: Parse and serialize JSON with syntax failures returned as typed res
 
 <!-- BUNDLE_SIZE:START -->
 
-> 1.70 kB minified + gzipped
+> 1.77 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

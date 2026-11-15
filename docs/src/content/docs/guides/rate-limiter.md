@@ -5,7 +5,7 @@ description: Pace outbound calls so a sliding window never exceeds the quota an 
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.52 kB minified + gzipped
+> 2.60 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

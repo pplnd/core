@@ -5,7 +5,7 @@ description: Store successful keyed lookups, share in-flight loads, and serve st
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.40 kB minified + gzipped
+> 2.48 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

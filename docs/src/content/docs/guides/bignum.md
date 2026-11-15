@@ -5,7 +5,7 @@ description: Keep integer arithmetic exact once counters pass the safe range for
 
 <!-- BUNDLE_SIZE:START -->
 
-> 1.85 kB minified + gzipped
+> 1.93 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

@@ -5,7 +5,7 @@ description: Read and update a nested value that may be absent without guarding 
 
 <!-- BUNDLE_SIZE:START -->
 
-> 1.82 kB minified + gzipped
+> 1.90 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

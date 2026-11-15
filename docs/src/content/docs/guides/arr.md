@@ -5,7 +5,7 @@ description: Search, split, regroup, and validate readonly arrays with bounds-sa
 
 <!-- BUNDLE_SIZE:START -->
 
-> 6.82 kB minified + gzipped
+> 6.97 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

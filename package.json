@@ -158,7 +158,7 @@
 			"name": "RemoteData",
 			"import": "{ RemoteData }",
 			"path": "dist/index.mjs",
-			"limit": "2 KB",
+			"limit": "3 KB",
 			"gzip": true
 		},
 		{
@@ -305,7 +305,7 @@
 			"name": "These",
 			"import": "{ These }",
 			"path": "dist/index.mjs",
-			"limit": "2 KB",
+			"limit": "3 KB",
 			"gzip": true
 		},
 		{

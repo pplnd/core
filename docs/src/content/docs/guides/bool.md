@@ -5,7 +5,7 @@ description: Parse flags and defer a second check until the first condition requ
 
 <!-- BUNDLE_SIZE:START -->
 
-> 1.84 kB minified + gzipped
+> 1.91 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

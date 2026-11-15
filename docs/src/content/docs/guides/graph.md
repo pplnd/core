@@ -5,7 +5,7 @@ description: Run asynchronous nodes once, in dependency order, and cancel the re
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.88 kB minified + gzipped
+> 2.96 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

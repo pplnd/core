@@ -5,7 +5,7 @@ description: Describe asynchronous work now, run it on demand, and keep failures
 
 <!-- BUNDLE_SIZE:START -->
 
-> 4.80 kB minified + gzipped
+> 4.95 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

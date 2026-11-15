@@ -5,7 +5,7 @@ description: Pause calls to a failing dependency and allow controlled recovery p
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.83 kB minified + gzipped
+> 2.90 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

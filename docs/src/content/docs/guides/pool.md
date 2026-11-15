@@ -5,7 +5,7 @@ description: Check exclusive items like database connections out of a bounded po
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.91 kB minified + gzipped
+> 2.99 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

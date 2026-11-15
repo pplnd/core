@@ -5,7 +5,7 @@ description: Run ordered asynchronous steps and undo completed ones when a later
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.58 kB minified + gzipped
+> 2.66 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

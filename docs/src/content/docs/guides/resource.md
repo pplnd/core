@@ -5,7 +5,7 @@ description: Acquire a handle, run work with it, and release it in reverse order
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.05 kB minified + gzipped
+> 2.13 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

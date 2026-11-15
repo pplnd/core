@@ -5,7 +5,7 @@ description: Represent synchronous success and failure as typed values and handl
 
 <!-- BUNDLE_SIZE:START -->
 
-> 1.51 kB minified + gzipped
+> 1.59 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

@@ -5,7 +5,7 @@ description: Run asynchronous work through a manager that reports state and sett
 
 <!-- BUNDLE_SIZE:START -->
 
-> 6.44 kB minified + gzipped
+> 6.55 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

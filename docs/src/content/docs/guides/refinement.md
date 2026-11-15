@@ -5,7 +5,7 @@ description: Build type guards that narrow values and convert failed checks into
 
 <!-- BUNDLE_SIZE:START -->
 
-> 1.58 kB minified + gzipped
+> 1.66 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

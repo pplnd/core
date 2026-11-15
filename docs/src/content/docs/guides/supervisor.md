@@ -5,7 +5,7 @@ description: Restart a long-running task under a retry policy, repeat it on a ca
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.75 kB minified + gzipped
+> 2.83 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
