@@ -4,6 +4,7 @@
 		"module": "ESNext",
 		"moduleResolution": "bundler",
 		"allowImportingTsExtensions": true,
+		"paths": { "@pplnd/core": ["./src/index.ts"] },
 		"noEmit": true,
 		"strict": true,
 		"lib": ["ESNext", "DOM"],

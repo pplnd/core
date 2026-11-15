@@ -73,7 +73,8 @@
 		"check": "pnpm lint && pnpm format:check && pnpm test:types && pnpm typecheck && pnpm typecheck:min",
 		"check:doc-links": "node scripts/check-doc-links.ts",
 		"check:doc-snippets": "node scripts/check-doc-snippets.ts",
-		"check:docs": "pnpm format:check && pnpm size:check && pnpm check:doc-links && pnpm check:doc-snippets && pnpm docs:build",
+		"check:doc-fixtures": "node scripts/check-doc-fixtures.ts",
+		"check:docs": "pnpm format:check && pnpm size:check && pnpm check:doc-links && pnpm check:doc-snippets && pnpm check:doc-fixtures && pnpm docs:build",
 		"check:pr": "pnpm check && pnpm build && pnpm test:coverage && pnpm check:docs"
 	},
 	"devDependencies": {

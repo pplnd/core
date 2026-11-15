@@ -6,6 +6,7 @@ const r = (p: string) => path.resolve(import.meta.dirname, p);
 export default defineConfig({
 	resolve: {
 		alias: {
+			"@pplnd/core": r("src/index.ts"),
 			"#core/": `${r("src/Core")}/`,
 			"#data/": `${r("src/Data")}/`,
 			"#types/": `${r("src/Types")}/`,
