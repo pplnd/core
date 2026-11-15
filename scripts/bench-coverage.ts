@@ -8,7 +8,7 @@ const benchmarkedModules = ["Arr", "Rec", "Dict", "Uniq", "Str", "Num"] as const
 type BenchmarkedModule = typeof benchmarkedModules[number];
 
 const root = fileURLToPath(new URL("..", import.meta.url));
-const benchDir = join(root, "src/Data/__bench__");
+const benchDir = join(root, "packages/core/src/Data/__bench__");
 const manifestUrl = new URL("../packages/core/benchmarks/coverage.json", import.meta.url);
 
 const sources = [
