@@ -63,8 +63,9 @@ optional, and `RunOptions` for per-execution settings.
 
 ## Set up
 
-Development uses Node 26.13.0 and pnpm 12.16.1. The published package supports Node 18+;
-`engines.node` describes consumers, not the development toolchain.
+Development uses the Node and pnpm versions pinned in [mise.toml](./mise.toml); `mise install` picks
+them up. The published package supports Node 18+; `engines.node` describes consumers, not the
+development toolchain.
 
 ```sh
 git clone https://github.com/pplnd/core.git
@@ -75,8 +76,8 @@ pnpm test:coverage
 pnpm check
 ```
 
-If you do not use [mise](https://mise.jdx.dev/), install Node 26.13.0 and pnpm 12.16.1 yourself. The
-lockfile is checked in.
+If you do not use [mise](https://mise.jdx.dev/), install the same Node and pnpm versions yourself —
+[mise.toml](./mise.toml) is the source of truth. The lockfile is checked in.
 
 ## Everyday commands
 

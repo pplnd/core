@@ -9,8 +9,10 @@ the code expectations.
 
 ## Set up
 
-Development uses Node 26.13.0 and pnpm 12.16.1. The published package supports Node 18+; the
-`engines.node` field describes consumers, not the development toolchain.
+Development uses the Node and pnpm versions pinned in
+[mise.toml](https://github.com/pplnd/core/blob/main/mise.toml); `mise install` picks them up. The
+published package supports Node 18+; the `engines.node` field describes consumers, not the
+development toolchain.
 
 ```sh
 git clone https://github.com/pplnd/core.git
@@ -19,8 +21,9 @@ mise install
 pnpm install
 ```
 
-If you do not use [mise](https://mise.jdx.dev/), install Node 26.13.0 and pnpm 12.16.1 yourself. The
-root workspace includes the documentation site; `pnpm install` installs both.
+If you do not use [mise](https://mise.jdx.dev/), install the same Node and pnpm versions yourself —
+[mise.toml](https://github.com/pplnd/core/blob/main/mise.toml) is the source of truth. The root
+workspace includes the documentation site; `pnpm install` installs both.
 
 ## The loop
 
@@ -84,6 +87,8 @@ If a check fails, reproduce it with the matching local command before pushing ag
 
 - **Wrong Node or pnpm version.** Run `mise install` and check `node -v` and `pnpm -v`. The pinned
   versions are in `mise.toml`.
+- **The Toolchain test fails after a pnpm bump.** `package.json` derives `packageManager` from
+  `mise.toml`; run `pnpm toolchain:update`.
 - **Formatting fails on Markdown.** Run `pnpm format`. Plain `dprint fmt` only covers the default
   configuration and leaves the Markdown config untouched.
 - **The docs server will not start.** Stop the existing Astro server or use the port it reports.

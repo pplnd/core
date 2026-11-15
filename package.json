@@ -60,6 +60,7 @@
 		"bench:ci": "pnpm build && node --expose-gc scripts/bench-gate.ts && node scripts/bench-coverage.ts",
 		"size": "size-limit",
 		"size:update": "node scripts/sync-bundle-sizes.ts",
+		"toolchain:update": "node scripts/sync-toolchain.ts",
 		"size:check": "vitest run src/__tests__/BundleSize.test.ts",
 		"typecheck": "tsc --noEmit",
 		"typecheck:dev": "tsc --noEmit --watch",
@@ -417,5 +418,5 @@
 	"engines": {
 		"node": ">=18.0.0"
 	},
-	"packageManager": "pnpm@12.20.0"
+	"packageManager": "pnpm@12.21.0"
 }
