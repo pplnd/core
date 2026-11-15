@@ -183,6 +183,20 @@ const boot = resolveThumbnailWorkerBoot({
   THUMBNAIL_WORKER_CONCURRENCY: "8",
   THUMBNAIL_VISIBILITY_TIMEOUT_SECONDS: "300",
 });
+
+// When the maybe is already in scope, matchValue dispatches on it directly —
+// the unified handler return flows out without per-handler annotations:
+const decide = (maybe: Maybe<ThumbnailWorkerConfiguration>): ThumbnailWorkerBoot =>
+  Maybe.matchValue(maybe, {
+    some: (configuration) => ({ kind: "ready", configuration }),
+    none: () => ({
+      kind: "rejected",
+      error: {
+        code: "INVALID_THUMBNAIL_WORKER_CONFIGURATION",
+        message: "Thumbnail worker configuration is missing or invalid",
+      },
+    }),
+  });
 // { kind: "ready", configuration: { queueUrl: URL, concurrency: 8,
 //   visibilityTimeoutSeconds: 300, workerLabel: "thumbnail-worker" } }
 ```
@@ -262,6 +276,7 @@ later dependent check can then use [`Result.chain`](/guides/result/) without re-
 | Signature                                           | What it does                                                      | Return type                                     |
 | :-------------------------------------------------- | :---------------------------------------------------------------- | :---------------------------------------------- |
 | `Maybe.match({ some, none })`                       | Handles both startup outcomes at the process boundary.            | The shared return type of the two handlers.     |
+| `Maybe.matchValue(maybe, { some, none })`           | Dispatches on a maybe already in hand, data-first.                | The union of the handler returns.               |
 | `Maybe.getOrElse(fallback)`                         | Extracts a setting or supplies a plain fallback.                  | `A` or the fallback type; the fallback is lazy. |
 | `Maybe.is.some(maybe)` / `Maybe.is.none(maybe)`     | Narrows a value for an imperative integration point.              | A TypeScript type guard.                        |
 | `Maybe.to.nullable(maybe)` / `to.undefined(maybe)`  | Returns to an API that expects a nullable primitive.              | `A` or `null`; `A` or `undefined`.              |

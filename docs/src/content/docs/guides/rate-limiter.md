@@ -75,9 +75,10 @@ const titles = await github.run(fetchIssues("vercel/next.js"));
 // Ok(titles) once a permit is free, or Err({ kind: "RateLimitExceeded", retryAfter })
 ```
 
-A fan-out of 200 panels now runs 60 immediately and queues the rest, in submission order. A queue
-call that waits longer than `maxWait` never starts, and its `retryAfter` is what the caller needs to
-schedule its own retry.
+A fan-out of 200 panels runs 60 immediately; the rest are refused without waiting, because the
+oldest permits do not leave the window for nearly a minute — far past `maxWait` (15 seconds). Each
+refusal carries `retryAfter` (about the time until the first permit frees), which is what the caller
+needs to schedule its own retry. A larger `maxWait` trades fast refusals for actual queueing.
 
 ### Retrying Under the Quota
 
@@ -85,12 +86,12 @@ A retry is another request, so it needs its own permit. Wrap each attempt instea
 sequence: `run` returns a `Deferred`, and the retry policy needs a task whose body takes a permit.
 
 ```ts
-import { Duration, RateLimiter, RetryPolicy, Task, pipe } from "@pplnd/core";
+import { type Aborted, Duration, RateLimiter, RetryPolicy, Task, pipe } from "@pplnd/core";
 
-const policy = RetryPolicy.constant<ApiError | RateLimiter.LimitError>({
+const policy = RetryPolicy.constant<ApiError | RateLimiter.LimitError | Aborted>({
   attempts: 2,
   delay: Duration.seconds(1),
-  when: (error) => error.kind !== "RateLimitExceeded",
+  when: (error) => error.kind !== "RateLimitExceeded" && error.kind !== "Aborted",
 });
 
 const attempt = (repo: string) => (signal?: AbortSignal) =>

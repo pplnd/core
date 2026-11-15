@@ -104,6 +104,20 @@ console.log(describeReading("21"));
 The parser chooses the variant from the value. The transformations then act on whichever sides
 exist, and `match` is the only place that has to handle all three shapes.
 
+`match` composes in pipes with the data last. When the these is already in scope, `matchValue`
+dispatches on it directly. Handler returns unify either way: related returns reconcile, and
+unrelated ones widen to their union; in curried `match`, that reconciliation needs one
+handler-return annotation:
+
+```ts
+const headline = These.matchValue(parseReading("48"), {
+  first: (reading) => `Reading: ${reading.celsius.toFixed(1)} °C`,
+  second: (diagnostic) => `Invalid reading: ${diagnostic.message}`,
+  both: (reading, diagnostic) => `Reading: ${reading.celsius.toFixed(1)} °C; ${diagnostic.message}`,
+});
+// "Reading: 48.0 °C; Sensor: Temperature exceeds 45 °C"
+```
+
 ### Sending the Reading and Its Note Together
 
 Downstream telemetry expects one payload containing both facts. `to.Pair` extracts a pair only from
@@ -156,13 +170,14 @@ or failure semantics of its own.
 
 ### Reading and Converting
 
-| Signature                                                       | What it does                                  | Return type                                |
-| :-------------------------------------------------------------- | :-------------------------------------------- | :----------------------------------------- |
-| `These.match(cases)`                                            | Handles `first`, `second`, and `both`.        | The selected callback result.              |
-| `These.is.first(value)` / `is.second(value)` / `is.both(value)` | Checks the exact variant.                     | Type guard.                                |
-| `These.hasFirst(value)` / `hasSecond(value)`                    | Checks for a side, including `Both`.          | Type guard.                                |
-| `These.getFirstOrElse(fn)` / `getSecondOrElse(fn)`              | Reads a side or calls a fallback when absent. | Value or fallback result.                  |
-| `These.to.Pair(value)`                                          | Extracts both values when present.            | `Some(pair)` for `Both`, otherwise `None`. |
+| Signature                                                       | What it does                                       | Return type                                |
+| :-------------------------------------------------------------- | :------------------------------------------------- | :----------------------------------------- |
+| `These.match(cases)`                                            | Handles `first`, `second`, and `both`.             | The selected callback result.              |
+| `These.matchValue(value, cases)`                                | Dispatches on a these already in hand, data-first. | The union of the handler results.          |
+| `These.is.first(value)` / `is.second(value)` / `is.both(value)` | Checks the exact variant.                          | Type guard.                                |
+| `These.hasFirst(value)` / `hasSecond(value)`                    | Checks for a side, including `Both`.               | Type guard.                                |
+| `These.getFirstOrElse(fn)` / `getSecondOrElse(fn)`              | Reads a side or calls a fallback when absent.      | Value or fallback result.                  |
+| `These.to.Pair(value)`                                          | Extracts both values when present.                 | `Some(pair)` for `Both`, otherwise `None`. |
 
 ## Failure Behavior and Edge Cases
 

@@ -202,11 +202,10 @@ The client is still released after the transaction settles, whatever the transac
 | `Resource.use(resource, { run, signal? })` | Acquires, runs `run`, then releases. | A deferred `Result<E, B>`. |
 
 For an infallible acquisition, convert it first with `Task.Result.from.Task(acquire)`; the resource
-then has error type `never`. Annotate the `run` parameter with the acquired type. The resource is
-supplied after the options, so TypeScript cannot infer that type from the call. The optional
-`signal` is forwarded to acquisition, work, and release. `run` must return a `Task.Result`; a plain
-`Task` cannot express the work's error. The result error type is the union of the acquisition and
-work errors.
+then has error type `never`. The `run` callback's parameter is inferred from the resource's acquired
+value type, so no annotation is needed. The optional `signal` is forwarded to acquisition, work, and
+release. `run` must return a `Task.Result`; a plain `Task` cannot express the work's error. The
+result error type is the union of the acquisition and work errors.
 
 ## Failure Behavior and Edge Cases
 

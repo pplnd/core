@@ -129,6 +129,21 @@ console.log(configResponse('{"host":"example.com","port":80}'));
 // { status: 400, body: "PUBLIC_PRIVILEGED_PORT" }
 ```
 
+`match` composes in pipes with the data last. When the result is already in scope — a local, a
+field, a loop variable — `matchValue` dispatches on it directly. Handler returns unify either way:
+related returns reconcile, and unrelated ones widen to their union; in curried `match`, that
+reconciliation needs one handler-return annotation:
+
+```ts
+const stored = loadConfig('{"host":"localhost","port":8080}');
+
+const storedResponse = Result.matchValue(stored, {
+  ok: (config) => ({ status: 200, body: JSON.stringify(config) }),
+  err: (error) => ({ status: 400, body: error }),
+});
+// { status: 200, body: '{"host":"localhost","port":8080}' }
+```
+
 The error constructors and error-producing callbacks preserve inline literal types. Inline object
 errors can infer readonly literal properties; choose an explicit wider type if the error must be
 mutable:
@@ -205,6 +220,7 @@ network boundary. When the request needs retries, timeouts, or overlapping calls
 | Operation                                    | What it does                                         | Return type                                                  |
 | :------------------------------------------- | :--------------------------------------------------- | :----------------------------------------------------------- |
 | `match({ ok, err })`                         | Handle both cases.                                   | The selected handler's return value.                         |
+| `matchValue(result, { ok, err })`            | Dispatch on a result already in hand, data-first.    | The union of the handler returns.                            |
 | `getOrElse(fallback)`                        | Extract success or call a no-argument fallback.      | Success or fallback value.                                   |
 | `is.ok(result)` / `is.err(result)`           | Test and narrow the variant.                         | Boolean type guard.                                          |
 | `to.Maybe(result)` / `to.Validation(result)` | Convert the outcome.                                 | `Maybe` discards the error; `Validation` wraps it in a list. |

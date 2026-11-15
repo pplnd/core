@@ -25,7 +25,7 @@ work reads top to bottom in a `pipe`.
 <!-- BUNDLE_OVERVIEW:START -->
 
 It has zero dependencies, ships ESM and CommonJS builds, and tree-shakes down to ~27 B–6.97 kB
-gzipped for individual modules and 28.62 kB for the entire package.
+gzipped for individual modules and 28.63 kB for the entire package.
 
 <!-- BUNDLE_OVERVIEW:END -->
 
@@ -366,7 +366,7 @@ These measurements include each listed import and its dependencies, minified and
 | `Arr`            | **6.97 kB**        |
 | `Rec`            | **3.33 kB**        |
 | `Dict`           | **2.52 kB**        |
-| `Uniq`           | **2.07 kB**        |
+| `Uniq`           | **2.08 kB**        |
 | `Str`            | **2.44 kB**        |
 | `Num`            | **2.12 kB**        |
 | `BigNum`         | **1.93 kB**        |

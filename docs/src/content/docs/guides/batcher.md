@@ -99,6 +99,20 @@ const descriptions = outcomes.map((outcome) =>
 Both `pencil` entries share one queued key and one map lookup. The second `pencil` resolves from the
 same batch as the first, and the missing id is reported without failing the batch.
 
+Inside a callback over several outcomes, the value is already in hand — `matchValue` dispatches on
+it directly and drops the pipe:
+
+```ts
+const labels = outcomes.map((outcome) =>
+  Batcher.Outcome.matchValue(outcome, {
+    ok: (item) => item.name,
+    missing: (id) => `No item for ${id}`,
+    err: (error) => `Catalog lookup failed: ${error}`,
+  }),
+);
+// ["Pencil", "Pencil", "No item for missing"]
+```
+
 ### Keeping a Failing Source Away
 
 A catalog database that starts failing should not be queried by every rendered page. The breaker
@@ -146,16 +160,17 @@ a timer. `keyBy` groups structurally equal object keys.
 
 ### Reading Outcomes
 
-| Signature                                     | What it does                               | Result                               |
-| :-------------------------------------------- | :----------------------------------------- | :----------------------------------- |
-| `Batcher.Outcome.match({ ok, missing, err })` | Handles all three outcomes.                | The selected handler's result        |
-| `Batcher.Outcome.is.ok` / `err` / `missing`   | Checks the outcome kind.                   | Type guard                           |
-| `Batcher.Outcome.make.ok` / `err` / `missing` | Creates an outcome.                        | The selected variant                 |
-| `Batcher.Outcome.map(fn)` / `mapError(fn)`    | Transforms a found value or a fetch error. | Other variants pass through          |
-| `Batcher.Outcome.getOrElse(fn)`               | Reads a found value or calls a fallback.   | Value or fallback                    |
-| `Batcher.Outcome.to.Result(onMissing)`        | Turns a missing key into an error.         | `Result` that preserves fetch errors |
-| `Batcher.Outcome.to.Maybe(outcome)`           | Keeps only a found value.                  | Missing and error become `None`      |
-| `Batcher.Outcome.to.nullable(outcome)`        | Keeps only a found value.                  | Missing and error become `null`      |
+| Signature                                                   | What it does                                  | Result                               |
+| :---------------------------------------------------------- | :-------------------------------------------- | :----------------------------------- |
+| `Batcher.Outcome.match({ ok, missing, err })`               | Handles all three outcomes.                   | The selected handler's result        |
+| `Batcher.Outcome.matchValue(outcome, { ok, missing, err })` | Dispatches on an outcome in hand, data-first. | The union of the handler results     |
+| `Batcher.Outcome.is.ok` / `err` / `missing`                 | Checks the outcome kind.                      | Type guard                           |
+| `Batcher.Outcome.make.ok` / `err` / `missing`               | Creates an outcome.                           | The selected variant                 |
+| `Batcher.Outcome.map(fn)` / `mapError(fn)`                  | Transforms a found value or a fetch error.    | Other variants pass through          |
+| `Batcher.Outcome.getOrElse(fn)`                             | Reads a found value or calls a fallback.      | Value or fallback                    |
+| `Batcher.Outcome.to.Result(onMissing)`                      | Turns a missing key into an error.            | `Result` that preserves fetch errors |
+| `Batcher.Outcome.to.Maybe(outcome)`                         | Keeps only a found value.                     | Missing and error become `None`      |
+| `Batcher.Outcome.to.nullable(outcome)`                      | Keeps only a found value.                     | Missing and error become `null`      |
 
 ## Failure Behavior and Edge Cases
 

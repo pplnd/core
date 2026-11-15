@@ -22,8 +22,9 @@ flowchart TD
 
 ## Validate at the boundary
 
-The form has three fields and one cross-field rule. `Validation.struct` runs every check and returns
-all failures at once, so the user fixes the whole form in one pass instead of one field per submit.
+The form has three fields, each checked independently. `Validation.struct` runs every check and
+returns all failures at once, so the user fixes the whole form in one pass instead of one field per
+submit.
 
 ```ts
 import { Validation } from "@pplnd/core";
@@ -67,8 +68,8 @@ const check = validateTicket({ subject: "Printer", priority: "urgent", assignee:
 
 ## Run it under a policy
 
-Submitting is a request that can overlap with itself. An `Op` manager settles the previous call when
-a new one arrives, and applies retry and timeout rules without the handler knowing about them.
+Submitting is a request that can overlap with itself. An `Op` manager drops a new call while one is
+still in flight, and applies retry and timeout rules without the handler knowing about them.
 
 ```ts
 import { Duration, Op, RetryPolicy, Task } from "@pplnd/core";
@@ -76,12 +77,18 @@ import { Duration, Op, RetryPolicy, Task } from "@pplnd/core";
 type Ticket = { readonly id: string; readonly subject: string };
 type SubmitError = { readonly kind: "Rejected"; readonly message: string } | { readonly kind: "Timeout"; };
 
-const submitTicket = Op.make((form: TicketForm & { readonly priority: "low" | "high" }) =>
+type TicketSubmission = {
+  readonly ticket: TicketForm & { readonly priority: "low" | "high" };
+  readonly idempotencyKey: string;
+};
+
+const submitTicket = Op.make((submission: TicketSubmission) =>
   Task.Result.tryCatch(
     async (signal) => {
       const response = await fetch("/api/tickets", {
         method: "POST",
-        body: JSON.stringify(form),
+        headers: { "Idempotency-Key": submission.idempotencyKey },
+        body: JSON.stringify(submission.ticket),
         signal,
       });
       if (!response.ok) throw new Error(await response.text());
@@ -99,8 +106,11 @@ const ticketManager = Op.interpret(submitTicket, {
 ```
 
 `strategy: "exclusive"` drops a second submit while the first is in flight, which is the correct
-behaviour for a button. The [`Op` guide](/guides/op/) covers the other strategies and what `OpNil`
-means for a dropped or replaced call.
+behaviour for a button. Exclusive does not protect against a lost *response*: retrying a create
+request can reach the server twice, so every attempt carries the same `Idempotency-Key` — retry
+re-invokes the task with the same arguments — and a server that deduplicates by key cannot create a
+second ticket. The [`Op` guide](/guides/op/) covers the other strategies and what `OpNil` means for
+a dropped or replaced call.
 
 ## Render the state it produces
 
@@ -134,10 +144,14 @@ const handleSubmit = (form: TicketForm): readonly string[] => {
   if (Validation.is.failed(validation)) {
     return validation.errors;
   }
-  void ticketManager.run(validation.value);
+  const submission: TicketSubmission = { ticket: validation.value, idempotencyKey: crypto.randomUUID() };
+  void ticketManager.run(submission);
   return [];
 };
 ```
+
+One submission, one key: `handleSubmit` generates it when the user submits, and every retry attempt
+of that run replays the same key.
 
 Field errors and request errors stay separate. The form owns validation; the manager owns the
 request. A settled `OpNil` maps to `NotAsked` because there is no value and no error to show, and
@@ -151,6 +165,10 @@ cancellation: the deadline covers the whole retry sequence. Replacement and drop
 with a reason, and they are not request failures. If the caller aborts, the signal reaches the
 `fetch` call and cancels the request, while the manager settles with `OpNil("aborted")` — the same
 nil channel, also not a request failure.
+
+A retry replays the same `Idempotency-Key`, so a response lost after the server accepted the write
+resolves to the original ticket instead of a second one. That contract lives on the server; the
+client's job is to keep the key stable for one logical submission.
 
 If the API can stay down for a while, wrap the same task in a
 [`CircuitBreaker`](/guides/circuit-breaker/) before the manager so repeated failures fail fast

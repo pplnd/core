@@ -1,0 +1,169 @@
+---
+title: Quickstart — Your First Result
+description: Handle one fallible function with Result, then see where map, chain, and pipe come from.
+---
+
+A function parses a price string into cents. Some inputs are not prices: `"free"`, `""`, `"1,90"`.
+Today the function returns `number | PriceError`, and every caller has to rediscover which member
+of the union came back — or it throws, and the failure is invisible in the signature entirely.
+
+This page fixes that one function. Nothing else in the library is needed for it.
+
+The package is one import with zero runtime dependencies. Version requirements live in the
+[installation guide](/basics/installation/).
+
+## The plain version
+
+One function, two failure exits, one union return. The caller discriminates the union with
+`typeof` because the language has nothing better to offer here:
+
+```ts
+type PriceError =
+  | { readonly kind: "NotANumber" }
+  | { readonly kind: "TooSmall"; readonly minimum: number };
+
+const charge = (cents: number): string => `Charging ${(cents / 100).toFixed(2)}`;
+const report = (error: PriceError): string =>
+  error.kind === "NotANumber" ? "That is not a number" : `Below the ${error.minimum}-cent minimum`;
+
+const parsePrice = (raw: string): PriceError | number => {
+  const cents = Math.round(Number.parseFloat(raw) * 100);
+  if (Number.isNaN(cents)) {
+    return { kind: "NotANumber" };
+  }
+  if (cents < 100) {
+    return { kind: "TooSmall", minimum: 100 };
+  }
+  return cents;
+};
+
+const price = parsePrice("12.90");
+
+if (typeof price === "number") {
+  charge(price); // "Charging 12.90"
+} else {
+  report(price); // "That is not a number" for "free"
+}
+```
+
+The return type already tells the truth — `PriceError | number`. What is missing is a way to carry
+that failure around: to `map` over the success case, to hand the error to a different formatter, to
+compose this step with the next one, without re-discriminating the union at every line.
+
+## The same function with Result
+
+`Result<PriceError, number>` is one value that is either `Err(PriceError)` or `Ok(number)`. The
+constructors make the intent explicit at each return:
+
+```ts
+import { Result } from "@pplnd/core";
+
+type PriceError =
+  | { readonly kind: "NotANumber" }
+  | { readonly kind: "TooSmall"; readonly minimum: number };
+
+const parsePrice = (raw: string): Result<PriceError, number> => {
+  const cents = Math.round(Number.parseFloat(raw) * 100);
+  if (Number.isNaN(cents)) {
+    return Result.make.err({ kind: "NotANumber" });
+  }
+  if (cents < 100) {
+    return Result.make.err({ kind: "TooSmall", minimum: 100 });
+  }
+  return Result.make.ok(cents);
+};
+```
+
+## Run it twice
+
+```ts
+const listed = parsePrice("12.90");
+// Ok(1290)
+
+const rejected = parsePrice("free");
+// Err({ kind: "NotANumber" })
+```
+
+The failure is a value: it arrived through the same channel as the success, it can be stored,
+passed to another function, and compared. Plain `if` still does the dispatching — `Result.is.ok`
+narrows the value, and ordinary TypeScript takes over:
+
+```ts
+const decide = (result: Result<PriceError, number>): string => {
+  if (Result.is.ok(result)) {
+    return `Charge ${(result.value / 100).toFixed(2)}`;
+  }
+  if (result.error.kind === "NotANumber") {
+    return "That is not a number";
+  }
+  return `Below the ${result.error.minimum}-cent minimum`;
+};
+
+decide(listed); // "Charge 12.90"
+decide(rejected); // "That is not a number"
+```
+
+## A second step, twice over
+
+Pricing does not stop at parsing. VAT applies to every parsed price — a step that cannot fail.
+`map` transforms the success value and passes the error through untouched:
+
+```ts
+const withVat = (cents: number): number => Math.round(cents * 1.2);
+
+const priced = Result.map(withVat)(listed);
+// Ok(1548)
+```
+
+A discount code can also expire — a second step that fails on its own. `chain` takes a step that
+returns a `Result` itself, so the second failure joins the same channel:
+
+```ts
+type DiscountError = { readonly kind: "Expired"; readonly code: string };
+
+const applyDiscount = (code: string) => (cents: number): Result<DiscountError, number> =>
+  code === "WELCOME" && cents >= 500
+    ? Result.make.ok(cents - 500)
+    : Result.make.err({ kind: "Expired", code });
+
+const discounted = Result.chain(applyDiscount("WELCOME"))(priced);
+// Ok(1048)
+
+const refused = Result.chain(applyDiscount("OLD2019"))(priced);
+// Err({ kind: "Expired", code: "OLD2019" })
+```
+
+The distinction is the whole vocabulary: `map` when the next step is infallible, `chain` when the
+next step can fail. Everything else in the library repeats this pattern under different names.
+
+## The same flow as a pipeline
+
+`pipe` is a convenience for reading order instead of nesting. It changes nothing about the
+behavior — the flow above, written top-down:
+
+```ts
+import { pipe } from "@pplnd/core";
+
+const checkout = (raw: string, code: string) =>
+  pipe(
+    parsePrice(raw),
+    Result.map(withVat),
+    Result.chain(applyDiscount(code)),
+  );
+
+checkout("12.90", "WELCOME"); // Ok(1048)
+checkout("12.90", "OLD2019"); // Err({ kind: "Expired", code: "OLD2019" })
+checkout("free", "WELCOME"); // Err({ kind: "NotANumber" })
+```
+
+Each failure short-circuits the rest of the pipeline: `parsePrice` rejects `"free"`, and neither
+VAT nor the discount ever runs.
+
+## What you did not need
+
+No `Task`, no `Op`, no collections, no optics, no generic machinery — one container, plain `if`,
+and two functions. That is a complete, production use of the library. Adopt the rest by problem,
+not by curriculum: when the same flow becomes asynchronous and stoppable, see
+[`Task`](/guides/task/); when several fields should report their failures together instead of
+stopping at the first, see [`Validation`](/guides/validation/); when the problem is "which
+container fits this case", the [choosing guide](/basics/choosing/) compares them side by side.

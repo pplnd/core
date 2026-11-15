@@ -38,7 +38,7 @@ type ErrorId =
   | "INVALID_EMAIL";
 
 const isBlank = (text: string): boolean => text.trim().length === 0;
-const isEmail = (text: string): boolean => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(text);
+const isEmail = (text: string): boolean => /^[^@\s]+@[^@\s]+\.[^@\s]+$/u.test(text);
 
 const rule = <A>(predicate: Predicate<A>, errorId: ErrorId) =>
   (value: A): Validation<ErrorId, A> => Validation.from.Predicate(predicate, () => errorId)(value);

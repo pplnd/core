@@ -72,11 +72,13 @@ export default defineConfig({
 					label: "The basics",
 					collapsed: false,
 					items: [
+						{ slug: "basics/quickstart" },
 						{ slug: "basics/installation" },
 						{ slug: "basics/pipelines" },
 						{ slug: "basics/overview" },
 						{ slug: "basics/types" },
 						{ slug: "basics/choosing" },
+						{ slug: "basics/plain-ts" },
 						{ slug: "basics/composition" },
 					],
 				},

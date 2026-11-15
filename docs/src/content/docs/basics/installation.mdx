@@ -73,7 +73,7 @@ These measurements include each listed import and its dependencies, minified and
 | `Arr` | **6.97 kB** |
 | `Rec` | **3.33 kB** |
 | `Dict` | **2.52 kB** |
-| `Uniq` | **2.07 kB** |
+| `Uniq` | **2.08 kB** |
 | `Str` | **2.44 kB** |
 | `Num` | **2.12 kB** |
 | `BigNum` | **1.93 kB** |
@@ -90,5 +90,5 @@ These measurements include each listed import and its dependencies, minified and
 ### Compatibility rationale
 
 - **Node.js Runtime Compatibility**: Built-in runtime feature detection provides zero-dependency fallbacks for newer ECMAScript features (such as `Set.prototype.union` and `Array.prototype.toSorted`), while `Intl.Segmenter` is loaded lazily for `Str.graphemeSize`, allowing `@pplnd/core` to run on Node.js 18+ and all modern JS runtimes.
-- **TypeScript 5.5+**: Required because standard ECMAScript 2023 Array methods (`.toSorted()`, `.toReversed()`) and ECMAScript 2024 Set methods (`.union()`, `.intersection()`, `.isSubsetOf()`) were introduced into TypeScript's standard library (`lib.es2023` / `lib.es2024`) in version 5.5.
+- **TypeScript 5.5+**: Required because the ECMAScript 2024 Set methods (`.union()`, `.intersection()`, `.isSubsetOf()`) were introduced into TypeScript's standard library (`lib.es2024`) in version 5.5; the ECMAScript 2023 Array copying methods (`.toSorted()`, `.toReversed()`) entered the standard library (`lib.es2023`) earlier, in version 5.2.
 - **Strict Mode**: Required for type-level guarantees — specifically exhaustiveness checking in `match` pattern branches and narrowing in type guards.

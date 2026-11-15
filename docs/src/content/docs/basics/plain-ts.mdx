@@ -1,0 +1,87 @@
+---
+title: Coming from Plain TypeScript
+description: Map the constructs you already write onto the library's vocabulary, and see where it stops.
+---
+
+You have a codebase of discriminated unions, `try`/`catch`, and promise chains that already works.
+Adopting a library like this one is not a rewrite; it is a set of translations from constructs you
+write today to types that carry one more piece of information. This page is that translation table,
+plus the answers about your existing stack that decide whether the library fits at all.
+
+## What each construct becomes
+
+| You write today | It becomes | What changes in the contract |
+| --- | --- | --- |
+| A union return plus `if`/`switch` at every caller | [`Result`](/guides/result/) | The failure travels in the same value as the success, so helpers like `map` can work on one branch without unwrapping the other. |
+| Transforming the inside of a wrapper | `map` | The shape changes, the failure channel rides along unchanged. |
+| A next step that can itself fail | `chain` | Sequencing without nesting; the second failure joins the first's channel. |
+| A `Promise` you already started | [`Task`](/guides/task/) | A `Task` is a function awaiting its call: nothing runs, no `AbortSignal` is attached, no timer ticks until you invoke it. |
+| `try`/`catch` around async work | [`Task.Result.tryCatch`](/guides/task/) | The catch becomes a typed error value produced at the boundary, not an `unknown` thrown through the stack. |
+| `value ?? fallback` for absent data | [`Maybe`](/guides/maybe/) | Absence becomes a value you can `map` and `chain` instead of a check at every use site. |
+
+Two of these rows carry most of the daily weight, so they deserve one example each.
+
+## The two that matter: map and chain
+
+```ts
+import { Result } from "@pplnd/core";
+
+type CountError = { readonly kind: "NotANumber" } | { readonly kind: "NotEven" };
+
+const parseCount = (raw: string): Result<CountError, number> =>
+  Number.isNaN(Number(raw)) ? Result.make.err({ kind: "NotANumber" }) : Result.make.ok(Number(raw));
+
+const double = Result.map((count: number) => count * 2)(parseCount("21")); // Ok(42)
+const half = Result.chain((count: number) =>
+  count % 2 === 0 ? Result.make.ok(count / 2) : Result.make.err({ kind: "NotEven" })
+)(parseCount("21")); // Err({ kind: "NotEven" }) — the next step failed on its own terms
+```
+
+`double` transforms an inner value; `half` ran a step that could fail and merged its failure into
+the same channel. If you remember one sentence from this page: `map` for the next infallible step,
+`chain` for the next fallible one.
+
+## Tasks start when you call them
+
+An `await`ed `Promise` begins its work the moment the expression evaluates. A `Task` separates the
+two:
+
+```ts
+import { Task } from "@pplnd/core";
+
+declare const fetchReport: (id: string, options?: { readonly signal?: AbortSignal }) => Promise<string>;
+
+const loadReport = Task.Result.tryCatch(
+  (signal) => fetchReport("rpt_7", { signal }),
+  { onError: () => "fetch_failed" as const },
+);
+
+// nothing has run yet — loadReport is a function awaiting its call
+const outcome = await loadReport(); // Ok("...") — the request starts here
+```
+
+Laziness is what lets the engines compose: an `Op` manager can decide to drop or replace a run
+before it starts, a `Graph` can hold nodes back until their dependencies succeed, and a `Resource`
+can pair acquisition with cleanup — all because a `Task` is a description first and a running
+computation second.
+
+## Working alongside your stack
+
+| Concern | Stays with | What this library adds |
+| --- | --- | --- |
+| Fetching, caching, invalidation | Your query layer (react-query, SWR, or hand-rolled) | Nothing — keep it. |
+| Run overlap, retry, timeout, cancellation policy | — | An [`Op`](/guides/op/) manager owns exactly these for one operation. If your operation has none of these concerns, you do not need `Op`. |
+| Field and UI state | Your form library | [`Validation`](/guides/validation/) aggregates the form's *result*: every failing field at once, cross-field rules included. |
+| Global application state | Your state manager | [`RemoteData`](/guides/remote-data/) models the async slice — not asked / loading / failed / loaded — as a value instead of flag combinations. |
+| Unknown external input | A runtime decoder at the edge | Nothing — the library deliberately ships no schema validator. Decode first, then trust the types inside. |
+
+The complement-or-duplicate line for `Op` is worth restating concretely: a single fire-and-forget
+request with no overlap policy, no retry, no deadline, and no one observing its lifecycle is a
+plain `Promise` — reach for `Op` when at least one of those becomes a requirement.
+
+## Keep going
+
+The [quickstart](/basics/quickstart/) builds one function end to end with the `map`/`chain` pair
+above. When you know the problem but not the container, the [choosing guide](/basics/choosing/)
+compares them side by side; the [recipes](/recipes/request-lifecycle/) show several modules
+joining into one feature.

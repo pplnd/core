@@ -18,9 +18,10 @@ Task.Result<E, A>
 Resource<E, A>
 ```
 
-Read `Result<ApiError, User>` as "a result of `ApiError` or `User`". The value position is the one
-you usually care about, so it stays in a stable, memorable place: the last parameter. `Maybe<A>` and
-`Task<A>` have no error channel, so they take a single value parameter.
+Read `Result<ApiError, User>` as "a result of `ApiError` or `User`". For the value containers —
+`Result`, `Maybe`, `Validation`, `RemoteData`, `These` — the value position is the one you usually
+care about, so it stays in a stable, memorable place: the last parameter. `Maybe<A>` and `Task<A>`
+have no error channel, so they take a single value parameter.
 
 The success channel is covariant and the error channel is too. A `Result<"NotFound", User>` is
 assignable to a `Result<"NotFound" | "Timeout", A>` when the values line up, which is why widening
@@ -40,8 +41,10 @@ parameterised by:
 | `Cache<K, E, V>`                 | `K` key         | The key identifies the stored value.            |
 | `CircuitBreaker<E>`              | `E` error       | It only wraps failure channels.                 |
 
-The rule is consistent even though the first parameter differs: the value a caller supplies last is
-the value produced, and everything before it describes the context that produced it.
+The value-last rule describes the value containers. The engines in the table order their generics
+around their own domain instead, and two of them put something other than the value last:
+`Graph<E, Out, Input>` puts the run input last because a graph is defined by what feeds it, and
+`Transaction<In, Acc, E, EUndo>` puts the undo error last.
 
 ## Phantom parameters keep channels independent
 

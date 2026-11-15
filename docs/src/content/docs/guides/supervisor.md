@@ -79,7 +79,7 @@ const drainOutbox = (signal?: AbortSignal): Task.Result<OutboxError, void> =>
     { onError: toOutboxError },
   );
 
-const outbox = Supervisor.make(drainOutbox, {
+const outbox = Supervisor.make(drainOutbox(), {
   restart: RetryPolicy.exponential({
     attempts: 5,
     initial: Duration.seconds(1),
@@ -118,7 +118,7 @@ const drainOneBatch = (signal?: AbortSignal): Task.Result<OutboxError, void> =>
     }
   }, { onError: toOutboxError });
 
-const outbox = Supervisor.make(drainOneBatch, {
+const outbox = Supervisor.make(drainOneBatch(), {
   restart: RetryPolicy.exponential({ attempts: 5, initial: Duration.seconds(1), jitter: true }),
   repeat: RepeatPolicy.spacing({ every: Duration.seconds(30), jitter: true }),
 });

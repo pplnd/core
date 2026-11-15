@@ -141,6 +141,19 @@ console.log(registrationResponse({ username: "longusername", email: "alex@exampl
 // { status: 400, body: "PASSWORD_MATCHES_USERNAME" }
 ```
 
+`match` composes in pipes with the validation last. When the validation is already in scope,
+`matchValue` dispatches on it directly. Handler returns unify either way: related returns reconcile,
+and unrelated ones widen to their union; in curried `match`, that reconciliation needs one
+handler-return annotation:
+
+```ts
+const verdict = (checked: Validation<FieldError, RegistrationInput>): string =>
+  Validation.matchValue(checked, {
+    passed: (registration) => `Ready to register ${registration.username}`,
+    failed: (errors) => errors.join(", "),
+  });
+```
+
 `struct` collects the field errors in enumeration order. `to.Result` joins them into one message at
 the boundary, and the dependent password rule runs only after every field has passed. The error
 constructors and error-producing callbacks preserve inline literal types; choose an explicit wider
@@ -156,7 +169,7 @@ import { pipe, Task } from "@pplnd/core";
 
 type AsyncFieldError = FieldError | "USERNAME_UNAVAILABLE";
 
-declare const usernameTaken: (username: string, signal: AbortSignal) => Promise<void>;
+declare const usernameTaken: (username: string, signal?: AbortSignal) => Promise<void>;
 
 const checkUsernameAvailable = (username: string): Task.Validation<AsyncFieldError, string> =>
   Task.Validation.tryCatch(
@@ -209,14 +222,15 @@ task returns one `Validation` with every failure from the local checks and the l
 
 ### Reading and Converting
 
-| Operation                               | What it does                                       | Return type                           |
-| :-------------------------------------- | :------------------------------------------------- | :------------------------------------ |
-| `match({ passed, failed })`             | Handle both cases.                                 | The selected handler's return value.  |
-| `getOrElse(fallback)`                   | Extract success or call a no-argument fallback.    | Passed or fallback value.             |
-| `is.passed(value)` / `is.failed(value)` | Test and narrow the variant.                       | Boolean type guard.                   |
-| `to.Result(validation)`                 | Convert to a fail-fast result.                     | An error contains the non-empty list. |
-| `to.Result(combineErrors)`              | Convert using a function to combine the errors.    | A curried converter to `Result`.      |
-| `to.Maybe(validation)`                  | Convert success or failure to presence or absence. | Discards errors.                      |
+| Operation                                    | What it does                                          | Return type                           |
+| :------------------------------------------- | :---------------------------------------------------- | :------------------------------------ |
+| `match({ passed, failed })`                  | Handle both cases.                                    | The selected handler's return value.  |
+| `matchValue(validation, { passed, failed })` | Dispatch on a validation already in hand, data-first. | The union of the handler returns.     |
+| `getOrElse(fallback)`                        | Extract success or call a no-argument fallback.       | Passed or fallback value.             |
+| `is.passed(value)` / `is.failed(value)`      | Test and narrow the variant.                          | Boolean type guard.                   |
+| `to.Result(validation)`                      | Convert to a fail-fast result.                        | An error contains the non-empty list. |
+| `to.Result(combineErrors)`                   | Convert using a function to combine the errors.       | A curried converter to `Result`.      |
+| `to.Maybe(validation)`                       | Convert success or failure to presence or absence.    | Discards errors.                      |
 
 ### Keyed Field Results
 

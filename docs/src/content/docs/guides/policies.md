@@ -18,7 +18,7 @@ The library models those three questions as immutable policy data, and the engin
   attempt with the error `onTimeout` produces when the duration elapses.
 - **`RetryPolicy`** governs a retry sequence. `constant` and `exponential` erase the backoff
   strategy into `getDelay`, `attempts` caps the sequence, `when` filters retriable errors, and
-  `budget` caps the whole sequence in wall-clock time.
+  `budget` stops the sequence from arming new attempts once its wall-clock budget is spent.
 - **`RepeatPolicy`** governs a lifetime that continues past success. `spacing` waits `every` after
   each settled attempt; `cadence` aligns attempt starts to fixed multiples of `every` from the
   lifetime's start.
@@ -69,7 +69,7 @@ const fetchFeed = (): Task.Result<FeedError, PriceFeed> =>
 // one attempt: bounded runtime, always the first thing that runs
 const fetchOne = Task.Result.timeout(
   TimeoutPolicy.after({ duration: Duration.seconds(10), onTimeout: () => "deadline" as const }),
-)(fetchFeed);
+)(fetchFeed());
 
 // the sequence: backoff with jitter, retriable errors only, 2s wall-clock budget
 const feedPolicy: RetryPolicy<FeedError> = RetryPolicy.exponential({
@@ -84,18 +84,19 @@ const loadFeed = Task.Result.retry(feedPolicy)(fetchOne);
 ```
 
 `budget` and the per-attempt `TimeoutPolicy` compose rather than compete: the timeout bounds one
-fetch, the budget bounds the whole sequence. The first attempt always runs even when the budget is
-already spent, and a budget-exhausted sequence settles with the last error without reporting a
-phantom upcoming delay.
+fetch, the budget gates each new attempt and never interrupts one already running. The first attempt
+always runs even when the budget is already spent, and a budget-exhausted sequence settles with the
+last error without reporting a phantom upcoming delay.
 
 ### Repeating on a Cadence
 
 The sync runs forever, so the lifetime belongs to [`Supervisor`](/guides/supervisor/):
 
 ```ts
-import { Duration, RepeatPolicy, Supervisor } from "@pplnd/core";
+import { Duration, RepeatPolicy, Supervisor, Task } from "@pplnd/core";
 
-const sync = Supervisor.make(loadFeed, {
+// Supervisor lifetimes repeat a void task — the price value belongs to the caller of loadFeed.
+const sync = Supervisor.make(Task.Result.map(() => undefined)(loadFeed), {
   restart: feedPolicy,
   repeat: RepeatPolicy.cadence({ every: Duration.minutes(5), jitter: true }),
 });

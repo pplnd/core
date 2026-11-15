@@ -120,6 +120,21 @@ console.log(renderInvoice(invoiceState)); // Select an invoice
 void loadInvoice("inv-42");
 ```
 
+`match` composes in pipes with the data last. When the state is already in scope — a local, a field,
+a loop variable — `matchValue` dispatches on it directly. Handler returns unify either way: related
+returns reconcile, and unrelated ones widen to their union; in curried `match`, that reconciliation
+needs one handler-return annotation:
+
+```ts
+const banner = (state: InvoiceState): string =>
+  RemoteData.matchValue(state, {
+    notAsked: () => "Select an invoice",
+    loading: () => "Loading invoice...",
+    failure: (error) => `Unable to display invoice: ${error}`,
+    success: (summary) => summary,
+  });
+```
+
 The sequence number prevents stale responses from updating this state, but the older request still
 runs. To stop it, pass an `AbortSignal` to `fetch` and manage its controller;
 [`Aborted`](/guides/aborted/) covers how the library's cancellable engines report a run that stopped
@@ -164,13 +179,14 @@ rendering pipeline above stays unchanged.
 
 ### Reading and Converting
 
-| Signature                                                                                         | What it does                                                          | Return type                   |
-| :------------------------------------------------------------------------------------------------ | :-------------------------------------------------------------------- | :---------------------------- |
-| `RemoteData.match(cases)`                                                                         | Handles all four states.                                              | The selected callback result. |
-| `RemoteData.is.notAsked(value)` / `is.loading(value)` / `is.failure(value)` / `is.success(value)` | Checks a state.                                                       | Type guard.                   |
-| `RemoteData.getOrElse(fn)`                                                                        | Reads a success value or calls a fallback for every other state.      | Value or fallback result.     |
-| `RemoteData.to.Maybe(value)`                                                                      | Keeps only a success value.                                           | `Some(value)` or `None`.      |
-| `RemoteData.to.Result(onNotReady)`                                                                | Converts success and failure; calls the fallback for idle or loading. | `Ok(value)` or `Err(error)`.  |
+| Signature                                                                                         | What it does                                                          | Return type                       |
+| :------------------------------------------------------------------------------------------------ | :-------------------------------------------------------------------- | :-------------------------------- |
+| `RemoteData.match(cases)`                                                                         | Handles all four states.                                              | The selected callback result.     |
+| `RemoteData.matchValue(value, cases)`                                                             | Dispatches on a state already in hand, data-first.                    | The union of the handler results. |
+| `RemoteData.is.notAsked(value)` / `is.loading(value)` / `is.failure(value)` / `is.success(value)` | Checks a state.                                                       | Type guard.                       |
+| `RemoteData.getOrElse(fn)`                                                                        | Reads a success value or calls a fallback for every other state.      | Value or fallback result.         |
+| `RemoteData.to.Maybe(value)`                                                                      | Keeps only a success value.                                           | `Some(value)` or `None`.          |
+| `RemoteData.to.Result(onNotReady)`                                                                | Converts success and failure; calls the fallback for idle or loading. | `Ok(value)` or `Err(error)`.      |
 
 ## Failure Behavior and Edge Cases
 

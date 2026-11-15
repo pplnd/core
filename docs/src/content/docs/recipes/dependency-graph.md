@@ -38,31 +38,34 @@ interface ReconciliationInput {
 
 type ReadError = { readonly kind: "SourceDown"; readonly source: string };
 
-const account = Graph.node("account", ({ ctx }) =>
+const node = Graph.nodeFactory<ReconciliationInput>();
+
+const account = node("account", ({ ctx }) =>
   Task.Result.tryCatch(
     () => accounts.find(ctx.input.accountId),
     { onError: (): ReadError => ({ kind: "SourceDown", source: "accounts" }) },
   ));
 
-const ledger = Graph.node("ledger", { account }, ({ ctx, deps }) =>
+const ledger = node("ledger", { account }, ({ ctx, deps }) =>
   Task.Result.tryCatch(
     () => ledgerApi.read(deps.account.id, ctx.input.period),
     { onError: (): ReadError => ({ kind: "SourceDown", source: "ledger" }) },
   ));
 
-const bank = Graph.node("bank", { account }, ({ ctx, deps }) =>
+const bank = node("bank", { account }, ({ ctx, deps }) =>
   Task.Result.tryCatch(
     () => bankApi.read(deps.account.externalId, ctx.input.period),
     { onError: (): ReadError => ({ kind: "SourceDown", source: "bank" }) },
   ));
 
-const difference = Graph.node("difference", { ledger, bank }, ({ deps }) =>
+const difference = node("difference", { ledger, bank }, ({ deps }) =>
   Task.Result.make.ok(deps.ledger.totalCents - deps.bank.totalCents));
 
 const reconciliation = Graph.make(difference);
 ```
 
-A failure in `bank` prevents `difference` from running and signals `ledger` to stop. The
+`nodeFactory` binds the shared run input, so every node reads the same typed `ctx.input`. A failure
+in `bank` prevents `difference` from running and signals `ledger` to stop. The
 [`Graph` guide](/guides/graph/) covers concurrency limits, shared-node execution, and the `Aborted`
 outcome.
 
@@ -81,6 +84,7 @@ interface WriteInput {
 }
 
 type WriteError = { readonly kind: "ReserveFailed" | "PostFailed"; readonly message: string };
+type ReleaseError = { readonly kind: "ReleaseFailed"; readonly message: string };
 
 const reconcileWith = (connection: DbClient, lock: LockHandle) => {
   const step = Transaction.stepFactory<WriteInput>();
@@ -93,11 +97,14 @@ const reconcileWith = (connection: DbClient, lock: LockHandle) => {
         { onError: (error): WriteError => ({ kind: "ReserveFailed", message: String(error) }) },
       ),
     ({ ctx }) =>
-      Task.tryCatch(() => adjustments.release(connection, ctx.output.id), { onError: () => {} }),
+      Task.Result.tryCatch(() => adjustments.release(connection, ctx.output.id), {
+        onError: (error): ReleaseError => ({ kind: "ReleaseFailed", message: String(error) }),
+      }),
   );
 
   const post = step(
     "post",
+    { reserve },
     ({ ctx, deps }) =>
       Task.Result.tryCatch(
         () => journal.post(connection, deps.reserve.id, ctx.input.cents),
@@ -109,9 +116,11 @@ const reconcileWith = (connection: DbClient, lock: LockHandle) => {
 };
 ```
 
-`post` reads `reserve`'s output through `deps`, so step order and dependency names are checked when
-the transaction is assembled. The [`Transaction` guide](/guides/transaction/) explains the step
-context, the accumulated record, and how `undo` failures are reported instead of swallowed.
+`post` declares `{ reserve }` as a dependency and reads `reserve`'s output through `deps`, so step
+order and dependency names are checked when the transaction is assembled. The `undo` action returns
+a `Task.Result` too: a release failure lands in the transaction's undo error channel, never
+swallowed. The [`Transaction` guide](/guides/transaction/) explains the step context, the
+accumulated record, and how `undo` failures are reported instead of swallowed.
 
 ## Hold the handles
 
@@ -121,28 +130,28 @@ releases them in reverse order once the work settles, including when it settles 
 ```ts
 import { pipe, Resource, Task } from "@pplnd/core";
 
-const connection = Resource.make(
+const dbConnection = Resource.make(
   Task.Result.tryCatch(() => db.connect(), {
     onError: (): ReadError => ({ kind: "SourceDown", source: "db" }),
   }),
   (client) => Task.tryCatch(() => client.close(), { onError: () => {} }),
 );
 
-const lock = Resource.make(
+const dbLock = Resource.make(
   Task.Result.tryCatch(() => locks.acquire("reconciliation"), {
     onError: (): ReadError => ({ kind: "SourceDown", source: "lock" }),
   }),
   (handle) => Task.tryCatch(() => handle.release(), { onError: () => {} }),
 );
 
-const infra = Resource.all({ connection, lock });
+const infra = Resource.all({ connection: dbConnection, lock: dbLock });
 
 const runGraph = (input: ReconciliationInput) =>
   (signal?: AbortSignal) => Graph.run(input, { signal })(reconciliation);
 
 const runReconciliation = (input: ReconciliationInput) =>
   Resource.use(infra, {
-    run: ({ connection, lock }: { readonly connection: DbClient; readonly lock: LockHandle }) =>
+    run: ({ connection, lock }) =>
       pipe(
         runGraph(input),
         Task.Result.chain((cents: number) =>
@@ -159,8 +168,8 @@ const outcome = await runReconciliation({ accountId: "acct_88", period: "2026-10
 ```
 
 `runGraph` returns a function, so the graph starts when the resource work starts, not when the
-module loads. The `run` parameter is annotated because the resource arrives after the options; the
-[`Resource` guide](/guides/resource/) covers `chain`, `combine`, and the release contract.
+module loads. The `run` callback's acquired type is inferred from `infra` — no annotation needed.
+The [`Resource` guide](/guides/resource/) covers `chain`, `combine`, and the release contract.
 
 ## Failure behavior
 

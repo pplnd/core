@@ -124,7 +124,8 @@ const validateDocument = Op.make((documentId: string) =>
 );
 
 const validation = Op.interpret(validateDocument, {
-  strategy: "exclusive",
+  strategy: "keyed",
+  perKey: "exclusive",
   retry: RetryPolicy.exponential({ attempts: 2, initial: Duration.milliseconds(300) }),
   timeout: { duration: Duration.seconds(20), onTimeout: (): ValidationError => ({ kind: "Rejected", reason: "timeout" }) },
 });
@@ -134,9 +135,10 @@ const runValidation = (documentId: string) => {
 };
 ```
 
-`strategy: "exclusive"` drops a duplicate validation request for the same document while one is in
-flight. The [`Op` guide](/guides/op/) covers the remaining strategies and the meaning of each
-`OpNil` reason.
+`strategy: "keyed"` with `perKey: "exclusive"` drops a duplicate validation request for the same
+document while one is in flight, and different documents validate concurrently. The key derives from
+the first argument, so documents are isolated by `documentId`. The [`Op` guide](/guides/op/) covers
+the remaining strategies and the meaning of each `OpNil` reason.
 
 ## Connect the three
 
@@ -156,10 +158,16 @@ actor.subscribe((state) => {
   if (state.kind === "validating") {
     runValidation(state.value.documentId);
   }
+  if (state.kind === "cancelled") {
+    validation.abort(state.value.documentId);
+  }
 });
 
-validation.subscribe(() => {
-  const outcome = validation.state;
+validation.subscribe((states) => {
+  const outcome = states.get("doc_1");
+  if (outcome === undefined) {
+    return;
+  }
   if (Op.Outcome.is.ok(outcome)) {
     EventBus.emit(ingestBus, {
       kind: "validated",
@@ -182,6 +190,11 @@ The actor accepts `validate` because its current state declares a handler for it
 current state handles is ignored, which is how a duplicate or out-of-order message stops at the
 boundary instead of corrupting the view.
 
+The work itself is owned by the manager, not by the machine. Starting a run from a subscription
+callback means the run outlives the state that triggered it unless something stops it — so the
+`cancelled` transition aborts the document's run explicitly. Because the manager is keyed, the abort
+targets only that document.
+
 ## Failure behavior
 
 A rejected validation settles the manager with `OpErr` and emits `rejected`, which moves the machine
@@ -189,7 +202,10 @@ to `failed`. A cancellation settles the manager with `OpNil("aborted")` and the 
 `cancelled` only if that event is emitted. Subscriber callbacks must not throw: an exception escapes
 `emit` and stops delivery to the remaining subscribers.
 
-The machine aborts the previous state's entry scope on every transition, so an asynchronous effect
-started by `validating` cannot write into `indexed`. If the ingestion pipeline also needs durable
-writes, hand the final state to a [`Transaction`](/guides/transaction/) instead of calling the
-storage layer from the subscriber.
+Cancelling the document is what stops the work: `abort` cancels the in-flight validation's signal,
+the run settles with `OpNil("aborted")`, and the outcome handler publishes nothing. Without that
+abort, a settled response would still reach every subscriber on the bus — the machine would ignore
+it, but nothing else would. The machine's entry scope protects effects started by state entry
+effects; work launched from a subscription callback is owned by whoever launched it. If the
+ingestion pipeline also needs durable writes, hand the final state to a
+[`Transaction`](/guides/transaction/) instead of calling the storage layer from the subscriber.

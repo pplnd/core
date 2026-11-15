@@ -94,6 +94,18 @@ console.log(message);
 `loadArtifact("build-42")` returns a description of two requests. The chain inside it runs only when
 `Task.run()` starts the pipeline, and a second `Task.run()` would send both requests again.
 
+When the task is already in scope, `Task.Result.matchValue` dispatches on it directly and wraps the
+unified handler return back into a task:
+
+```ts
+const artifactTask = loadArtifact("build-42"); // already in scope — nothing has run
+
+const message = await Task.Result.matchValue(artifactTask, {
+  ok: (summary) => summary,
+  err: (error) => `Artifact unavailable: ${error}`,
+})();
+```
+
 ### Running the Same Loader Under a Policy
 
 A build page can request several builds as the user moves between rows. `Op.make` takes the loader
@@ -144,6 +156,13 @@ options.
 | `Task.Result.chain(next)`                              | Runs fallible work built from an `Ok` value.       | An `Err` skips `next`; error types union.      |
 | `Task.tap(sideEffect)`; `Task.Result.tap` / `tapError` | Observes a value or an error without replacing it. | Returns the original task.                     |
 | `Task.assignTo(key)` / `Task.assign(key, next)`        | Starts a record and adds dependent results to it.  | `assign` runs `next` with the accumulator.     |
+
+### Reading Outcomes
+
+| Signature                                                                                                                | What it does                             | Behavior                                              |
+| :----------------------------------------------------------------------------------------------------------------------- | :--------------------------------------- | :---------------------------------------------------- |
+| `Task.Result.match({ ok, err })` / `Task.Maybe.match({ some, none })` / `Task.Validation.match({ passed, failed })`      | Handles every case at the end of a pipe. | The selected handler's return, wrapped into the task. |
+| `Task.Result.matchValue(task, cases)` / `Task.Maybe.matchValue(task, cases)` / `Task.Validation.matchValue(task, cases)` | Dispatches on a task already in hand.    | The unified handler return, wrapped into the task.    |
 
 ### Combining Tasks
 

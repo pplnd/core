@@ -9,9 +9,11 @@ hero:
   title: "pipelined"
   tagline: Failure is a value, not an exception.
   actions:
-    - text: Get started
-      link: /basics/installation
+    - text: Quickstart
+      link: /basics/quickstart
       icon: right-arrow
+    - text: Installation
+      link: /basics/installation
 ---
 
 import { CardGrid, LinkCard } from '@astrojs/starlight/components';
@@ -27,7 +29,7 @@ Typed errors, explicit absence, and composable async for TypeScript.
   <LinkCard
     title="Async work that can be stopped"
     href="/guides/task/"
-    description="Task.Result threads an AbortSignal and always settles with a typed result, so cancellation does not surface as an unhandled rejection."
+    description="Task.Result threads an AbortSignal and settles with a typed result, so cancellation does not surface as an unhandled rejection."
   />
   <LinkCard
     title="Overlapping calls get a policy"

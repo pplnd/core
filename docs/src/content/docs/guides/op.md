@@ -96,6 +96,20 @@ unsubscribe();
 The two differ when a call is replaced: the caller receives `OpNil` and the manager continues with
 the newer call.
 
+`match` composes in pipes with the outcome last. When the outcome is already in hand — the awaited
+deferred above, a field on some state object — `matchValue` dispatches on it directly. Handler
+returns unify either way: related returns reconcile, and unrelated ones widen to their union:
+
+```ts
+const settled = await current; // the outcome is already in hand
+
+const headline = Op.Outcome.matchValue(settled, {
+  ok: (results) => results,
+  err: (error) => error,
+  nil: (reason) => `Search ${reason}`,
+});
+```
+
 ### Protecting the Search Behind a Breaker
 
 A search endpoint that starts timing out should stop receiving calls for a while. The breaker runs
@@ -167,6 +181,7 @@ available for all of them.
 | `Op.Outcome.is.ok` / `err` / `nil`                           | Checks a settled outcome or a manager state. | Type guard                                       |
 | `Op.Outcome.make.ok` / `err` / `nil`                         | Builds an outcome.                           | Returns the selected variant                     |
 | `Op.Outcome.match({ ok, err, nil })`                         | Handles all three cases.                     | Returns the selected handler's result            |
+| `Op.Outcome.matchValue(outcome, { ok, err, nil })`           | Dispatches on a settled outcome in hand.     | The union of the handler results                 |
 | `Op.Outcome.map(fn)` / `chain(fn)`                           | Transforms or replaces a success value.      | Error and nil pass through                       |
 | `Op.Outcome.mapError(fn)` / `recover(fn)`                    | Transforms or replaces an error.             | Success and nil pass through                     |
 | `Op.Outcome.tap(fn)` / `tapError(fn)`                        | Observes success or error.                   | Returns the original outcome                     |

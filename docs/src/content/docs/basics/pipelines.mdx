@@ -115,11 +115,9 @@ The rule of thumb is simple: use `pipe` when you have a value ready and want to 
 ---
 
 <Aside title="The ten-step limit in pipelines">
-`pipe` and `flow` are typed for up to **10 steps**. If you exceed this limit, TypeScript will raise a compilation error. This boundary is chosen to align with the JIT optimization limits of modern JavaScript runtimes.
+`pipe` and `flow` are typed for up to **10 steps**. If you exceed this limit, TypeScript will raise a compilation error. The boundary is a deliberate API limit that keeps pipelines type-checking quickly and reading well.
 
 **TypeScript type inference.** TypeScript lacks a native syntax to represent a variadic function where the input of each argument must match the output of the preceding one. The only way to type this is to write explicit overloads for every chain length. Each additional overload adds significant work for the compiler, slowing down IDE completions across the entire codebase.
-
-**JIT compiler budgets.** Every modern JavaScript engine has a finite bytecode inlining budget. V8 (Node.js, Chrome) sets thresholds like `--max-inlined-bytecode-size` and `--max-inlined-bytecode-size-cumulative`. JavaScriptCore (Safari, Bun) and SpiderMonkey (Firefox) enforce similar boundaries. When a function call chain becomes too deep, the JIT engine stops inlining and falls back to indirect call execution. At that point, the performance profile of deep composition degrades regardless of how the library is implemented.
 
 If you find yourself needing more than 10 steps in a single pipeline, it is usually a signal to split your logic into named, modular phases:
 
