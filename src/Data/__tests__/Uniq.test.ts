@@ -194,13 +194,19 @@ test("union: returns equivalent set when unioned with empty set", () => {
 // intersection
 // ---------------------------------------------------------------------------
 
-test("intersection: keeps only items in both sets", () => {
+test("intersection: keeps only items in both sets, in the input's order", () => {
 	const s = pipe(Uniq.from.array([1, 2, 3]), Uniq.intersection(Uniq.from.array([2, 3, 4])));
 	expect(s.size).toBe(2);
-	expect(s.has(2)).toBe(true);
-	expect(s.has(3)).toBe(true);
+	expect([...s]).toStrictEqual([2, 3]);
 	expect(s.has(1)).toBe(false);
 	expect(s.has(4)).toBe(false);
+});
+
+test("intersection: preserves the input's order when the native path is bypassed by size", () => {
+	// Native Set#intersection iterates the smaller set; the input is larger here, so the
+	// implementation must fall back to keep the documented input order.
+	const s = pipe(Uniq.from.array([1, 2, 3, 4]), Uniq.intersection(Uniq.from.array([4, 1])));
+	expect([...s]).toStrictEqual([1, 4]);
 });
 
 test("intersection: returns empty set when no common items", () => {
@@ -262,13 +268,12 @@ test("union: handles polyfill path to combine items from both sets", () => {
 // intersection — polyfill path
 // ---------------------------------------------------------------------------
 
-test("intersection: handles polyfill path to keep items in both sets", () => {
+test("intersection: handles polyfill path to keep items in both sets, in the input's order", () => {
 	const data = new Set([1, 2, 3]);
 	Object.defineProperty(data, "intersection", { value: undefined, configurable: true });
 	const s = pipe(data, Uniq.intersection(Uniq.from.array([2, 3, 4])));
 	expect(s.size).toBe(2);
-	expect(s.has(2)).toBe(true);
-	expect(s.has(3)).toBe(true);
+	expect([...s]).toStrictEqual([2, 3]);
 	expect(s.has(1)).toBe(false);
 });
 

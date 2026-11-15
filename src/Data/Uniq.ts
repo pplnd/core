@@ -215,7 +215,9 @@ const union =
 const intersection =
 	<B>(other: ReadonlySet<B>) => <S extends ReadonlySet<unknown>>(set: S): ReadonlySet<SetValue<S>> => {
 		const native = set as unknown as Set<SetValue<S>>;
-		if (typeof native.intersection === "function") {
+		// Set.prototype.intersection iterates the smaller set (TC39), so the native fast path
+		// preserves the input's iteration order only when the input is not the larger set.
+		if (typeof native.intersection === "function" && native.size <= other.size) {
 			return native.intersection(other as unknown as ReadonlySet<SetValue<S>>);
 		}
 		const lookup = other as ReadonlySet<unknown>;
