@@ -34,6 +34,7 @@
 		"build": "tsdown",
 		"test": "vitest run",
 		"test:coverage": "vitest run --coverage",
+		"test:compiler": "vitest run --config vitest.compiler.config.ts && vitest run --config vitest.compiler-swc.config.ts",
 		"typecheck": "tsc --noEmit",
 		"check": "pnpm typecheck"
 	},
@@ -42,16 +43,22 @@
 		"react": ">=19.0.0"
 	},
 	"devDependencies": {
+		"@babel/core": "8.1.2",
 		"@pplnd/core": "workspace:^",
+		"@swc/core": "1.16.22",
 		"@testing-library/react": "16.3.3",
+		"@types/convert-source-map": "2.0.3",
+		"@types/node": "26.6.6",
 		"@types/react": "19.3.0",
 		"@types/react-dom": "19.3.0",
 		"@vitest/coverage-v8": "5.1.0",
+		"babel-plugin-react-compiler": "1.0.0",
 		"jsdom": "27.4.0",
 		"react": "19.3.1",
 		"react-dom": "19.3.1",
 		"tsdown": "0.23.7",
 		"typescript": "7.0.2",
+		"vite": "8.3.8",
 		"vitest": "5.1.0"
 	}
 }

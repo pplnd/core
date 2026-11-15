@@ -19,8 +19,10 @@ allowBuilds:
   dprint: true
   esbuild: true
   tsdown: true
+  "@swc/core": true
 
 onlyBuiltDependencies:
   - dprint
   - esbuild
   - tsdown
+  - "@swc/core" 

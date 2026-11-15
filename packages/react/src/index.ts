@@ -1,7 +1,6 @@
-// @pplnd/react — React bindings for @pplnd/core.
-//
-// Hooks only. This barrel never re-exports @pplnd/core modules — consumers import
-// RemoteData, Op, Machine, and friends from @pplnd/core directly. Hook implementations
-// land per task: useLoad + useOp (pplnd#52), useOpPoll + useEventBus (pplnd#53),
-// useMachine + useActor (pplnd#54), useResource (pplnd#55).
-export {};
+export { useActor, type UseActorResult } from "./useActor.ts";
+export { useEventBus } from "./useEventBus.ts";
+export { useLoad, type UseLoadOptions, type UseLoadResult } from "./useLoad.ts";
+export { useMachine, type UseMachineResult } from "./useMachine.ts";
+export { useOp, type UseOpResult } from "./useOp.ts";
+export { useOpPoll, type UseOpPollOptions } from "./useOpPoll.ts";

@@ -8,6 +8,7 @@
 		"test:watch": "pnpm -r test:watch",
 		"test:types": "pnpm -r test:types",
 		"test:coverage": "pnpm -r test:coverage",
+		"test:compiler": "pnpm --filter @pplnd/react test:compiler",
 		"bench": "pnpm --filter @pplnd/core bench",
 		"bench:ci": "pnpm --filter @pplnd/core build && node --expose-gc scripts/bench-gate.ts && node scripts/bench-coverage.ts",
 		"typecheck": "tsc --noEmit && pnpm -r typecheck",
@@ -28,7 +29,7 @@
 		"check:doc-fixtures": "node scripts/check-doc-fixtures.ts",
 		"check:docs": "pnpm format:check && pnpm size:check && pnpm check:doc-links && pnpm check:doc-snippets && pnpm check:doc-fixtures && pnpm docs:build",
 		"check": "pnpm lint && pnpm format:check && pnpm test:types && pnpm typecheck && pnpm typecheck:min",
-		"check:pr": "pnpm check && pnpm build && pnpm test:coverage && pnpm check:docs"
+		"check:pr": "pnpm check && pnpm build && pnpm test:coverage && pnpm test:compiler && pnpm check:docs"
 	},
 	"devDependencies": {
 		"@types/node": "26.6.6",
