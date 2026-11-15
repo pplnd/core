@@ -1,8 +1,8 @@
 import path from "node:path";
 import { expect, test } from "vitest";
-import { findBrokenDocLinks, scanMarkdown } from "../../scripts/check-doc-links.ts";
+import { findBrokenDocLinks, scanMarkdown } from "../../../../scripts/check-doc-links.ts";
 
-const projectRoot = path.resolve(__dirname, "../../");
+const projectRoot = path.resolve(__dirname, "../../../../");
 const docsRoot = path.join(projectRoot, "docs/src/content/docs");
 const fence = String.fromCharCode(96, 96, 96);
 const tick = String.fromCharCode(96);

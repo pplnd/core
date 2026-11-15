@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { extractCheckSnippets } from "../../scripts/check-doc-snippets.ts";
+import { extractCheckSnippets } from "../../../../scripts/check-doc-snippets.ts";
 
 const fence = String.fromCharCode(96, 96, 96);
 

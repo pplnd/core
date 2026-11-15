@@ -1,8 +1,8 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
-import type * as Api from "../src/index.ts";
+import type * as Api from "../packages/core/src/index.ts";
 
-type RuntimeApi = typeof import("../src/index.ts");
+type RuntimeApi = typeof import("../packages/core/src/index.ts");
 
 type GateCase = {
 	readonly id: string;
@@ -26,8 +26,8 @@ type Row = {
 };
 
 const ROUNDS = 9;
-const baselineUrl = new URL("../benchmarks/baseline.json", import.meta.url);
-const distUrl = new URL("../dist/index.mjs", import.meta.url).href;
+const baselineUrl = new URL("../packages/core/benchmarks/baseline.json", import.meta.url);
+const distUrl = new URL("../packages/core/dist/index.mjs", import.meta.url).href;
 const update = process.argv.includes("--update");
 
 const api = (await import(distUrl)) as RuntimeApi;

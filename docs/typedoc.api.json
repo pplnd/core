@@ -1,8 +1,8 @@
 {
 	"entryPoints": [
-		"../src/index.ts"
+		"../packages/core/src/index.ts"
 	],
-	"tsconfig": "../tsconfig.typedoc.json",
+	"tsconfig": "../packages/core/tsconfig.typedoc.json",
 	"excludePrivate": true,
 	"excludeInternal": true,
 	"json": "public/typedoc.json"

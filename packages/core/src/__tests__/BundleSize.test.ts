@@ -2,10 +2,11 @@ import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { expect, test } from "vitest";
-import { GUIDE_MANIFEST } from "../../scripts/docs-manifest.ts";
+import { GUIDE_MANIFEST } from "../../../../scripts/docs-manifest.ts";
 
-const projectRoot = path.resolve(__dirname, "../../");
-const guidesDir = path.join(projectRoot, "docs/src/content/docs/guides");
+const repoRoot = path.resolve(__dirname, "../../../../");
+const coreRoot = path.join(repoRoot, "packages/core");
+const guidesDir = path.join(repoRoot, "docs/src/content/docs/guides");
 
 interface SizeItem {
 	name: string;
@@ -23,10 +24,10 @@ function formatBytes(bytes: number): string {
 
 function getMeasuredSizes(): Map<string, SizeItem> {
 	// Always rebuild: a stale dist would report sizes for code that is no longer in the tree.
-	execSync("pnpm build", { cwd: projectRoot, stdio: "pipe" });
+	execSync("pnpm build", { cwd: coreRoot, stdio: "pipe" });
 	let raw: string;
 	try {
-		raw = execSync("npx size-limit --json", { cwd: projectRoot, encoding: "utf8" });
+		raw = execSync("npx size-limit --json", { cwd: coreRoot, encoding: "utf8" });
 	} catch (error) {
 		// size-limit exits non-zero when a budget fails; its stdout still carries the JSON report,
 		// so measure from it and let the assertions name the failing targets instead of crashing
@@ -96,7 +97,7 @@ test("BundleSize: enforces size-limit budgets across all targets", () => {
 });
 
 test("BundleSize: every entry measures the published entry file", () => {
-	const pkg = JSON.parse(fs.readFileSync(path.join(projectRoot, "package.json"), "utf8")) as {
+	const pkg = JSON.parse(fs.readFileSync(path.join(coreRoot, "package.json"), "utf8")) as {
 		"size-limit": Array<{ name: string; path: string; }>;
 	};
 	const nonPublished = pkg["size-limit"].filter((item) => item.path !== "dist/index.mjs").map((item) =>
@@ -106,7 +107,7 @@ test("BundleSize: every entry measures the published entry file", () => {
 });
 
 test("BundleSize: verifies README.md reflects current measured sizes", () => {
-	const content = fs.readFileSync(path.join(projectRoot, "README.md"), "utf8");
+	const content = fs.readFileSync(path.join(coreRoot, "README.md"), "utf8");
 
 	expect(content).toContain("<!-- BUNDLE_TABLE:START -->");
 	expect(content).toContain("<!-- BUNDLE_TABLE:END -->");
@@ -119,7 +120,7 @@ test("BundleSize: verifies README.md reflects current measured sizes", () => {
 });
 
 test("BundleSize: verifies installation.mdx reflects current measured sizes", () => {
-	const content = fs.readFileSync(path.join(projectRoot, "docs/src/content/docs/basics/installation.mdx"), "utf8");
+	const content = fs.readFileSync(path.join(repoRoot, "docs/src/content/docs/basics/installation.mdx"), "utf8");
 
 	expect(content).toContain("{/* BUNDLE_TABLE:START */}");
 	expect(content).toContain("{/* BUNDLE_TABLE:END */}");
@@ -152,7 +153,7 @@ test("BundleSize: budgeted guides have exactly one current badge", () => {
 });
 
 test("BundleSize: every guide file is in the docs sidebar", () => {
-	const config = fs.readFileSync(path.join(projectRoot, "docs/astro.config.mjs"), "utf8");
+	const config = fs.readFileSync(path.join(repoRoot, "docs/astro.config.mjs"), "utf8");
 	for (const file of guideFiles()) {
 		const base = file.replace(/\.(?:md|mdx)$/iu, "");
 		expect(config).toContain(`slug: "guides/${base}"`);

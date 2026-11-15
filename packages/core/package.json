@@ -1,0 +1,410 @@
+{
+	"name": "@pplnd/core",
+	"version": "0.106.0",
+	"description": "Typed errors, explicit optional values, and composable pipelines for TypeScript",
+	"keywords": [
+		"async",
+		"branded-types",
+		"concurrency",
+		"error-handling",
+		"flow",
+		"lens",
+		"maybe",
+		"pipe",
+		"remotedata",
+		"result",
+		"retry",
+		"typed-errors",
+		"typescript",
+		"validation"
+	],
+	"homepage": "https://pplnd.dev/",
+	"license": "BSD-3-Clause",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/pplnd/pipelined.git"
+	},
+	"files": [
+		"dist"
+	],
+	"type": "module",
+	"sideEffects": false,
+	"types": "./dist/index.d.ts",
+	"imports": {
+		"#core": "./src/Core/index.ts",
+		"#data": "./src/Data/index.ts",
+		"#types": "./src/Types/index.ts",
+		"#composition": "./src/Composition/index.ts",
+		"#internal": "./src/internal/index.ts",
+		"#test-utils": "./test-utils.ts"
+	},
+	"exports": {
+		".": {
+			"import": {
+				"types": "./dist/index.d.ts",
+				"default": "./dist/index.mjs"
+			},
+			"require": {
+				"types": "./dist/index.d.cts",
+				"default": "./dist/index.cjs"
+			}
+		}
+	},
+	"scripts": {
+		"build": "tsdown",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"test:types": "vitest run --typecheck.only",
+		"test:coverage": "vitest run --coverage",
+		"bench": "NODE_OPTIONS=--expose-gc vitest bench --config vitest.bench.config.ts",
+		"size": "size-limit",
+		"size:check": "vitest run src/__tests__/BundleSize.test.ts",
+		"typecheck": "tsc --noEmit",
+		"typecheck:dev": "tsc --noEmit --watch",
+		"typecheck:min": "node node_modules/typescript-5.5/bin/tsc -p tsconfig.lib.json --noEmit --skipLibCheck",
+		"check": "pnpm test:types && pnpm typecheck && pnpm typecheck:min"
+	},
+	"devDependencies": {
+		"@arethetypeswrong/core": "0.18.5",
+		"@size-limit/esbuild": "14.3.0",
+		"@size-limit/file": "14.3.0",
+		"@types/node": "26.6.6",
+		"@vitest/coverage-v8": "5.1.0",
+		"dprint": "0.64.3",
+		"esbuild": "0.28.2",
+		"fast-check": "4.10.2",
+		"oxlint": "1.93.0",
+		"oxlint-tsgolint": "7.0.2007",
+		"publint": "0.3.25",
+		"size-limit": "14.3.0",
+		"tsdown": "0.23.7",
+		"typescript": "7.0.2",
+		"typescript-5.5": "npm:typescript@5.5",
+		"vitest": "5.1.0"
+	},
+	"size-limit": [
+		{
+			"name": "Index (Monolithic import *)",
+			"import": "*",
+			"path": "dist/index.mjs",
+			"limit": "30 KB",
+			"gzip": true,
+			"ignore": [
+				"util",
+				"node:util"
+			]
+		},
+		{
+			"name": "pipe",
+			"import": "{ pipe }",
+			"path": "dist/index.mjs",
+			"limit": "200 B",
+			"gzip": true
+		},
+		{
+			"name": "flow",
+			"import": "{ flow }",
+			"path": "dist/index.mjs",
+			"limit": "200 B",
+			"gzip": true
+		},
+		{
+			"name": "Brand",
+			"import": "{ Brand }",
+			"path": "dist/index.mjs",
+			"limit": "40 B",
+			"gzip": true
+		},
+		{
+			"name": "Duration",
+			"import": "{ Duration }",
+			"path": "dist/index.mjs",
+			"limit": "200 B",
+			"gzip": true
+		},
+		{
+			"name": "Maybe",
+			"import": "{ Maybe }",
+			"path": "dist/index.mjs",
+			"limit": "2 KB",
+			"gzip": true
+		},
+		{
+			"name": "Result",
+			"import": "{ Result }",
+			"path": "dist/index.mjs",
+			"limit": "2 KB",
+			"gzip": true
+		},
+		{
+			"name": "Validation",
+			"import": "{ Validation }",
+			"path": "dist/index.mjs",
+			"limit": "2 KB",
+			"gzip": true
+		},
+		{
+			"name": "RemoteData",
+			"import": "{ RemoteData }",
+			"path": "dist/index.mjs",
+			"limit": "3 KB",
+			"gzip": true
+		},
+		{
+			"name": "Task",
+			"import": "{ Task }",
+			"path": "dist/index.mjs",
+			"limit": "5 KB",
+			"gzip": true
+		},
+		{
+			"name": "Transaction",
+			"import": "{ Transaction }",
+			"path": "dist/index.mjs",
+			"limit": "3 KB",
+			"gzip": true
+		},
+		{
+			"name": "Deferred",
+			"import": "{ Deferred }",
+			"path": "dist/index.mjs",
+			"limit": "200 B",
+			"gzip": true
+		},
+		{
+			"name": "Aborted",
+			"import": "{ Aborted }",
+			"path": "dist/index.mjs",
+			"limit": "100 B",
+			"gzip": true
+		},
+		{
+			"name": "Machine",
+			"import": "{ Machine }",
+			"path": "dist/index.mjs",
+			"limit": "3 KB",
+			"gzip": true
+		},
+		{
+			"name": "EventBus",
+			"import": "{ EventBus }",
+			"path": "dist/index.mjs",
+			"limit": "2 KB",
+			"gzip": true
+		},
+		{
+			"name": "Resource",
+			"import": "{ Resource }",
+			"path": "dist/index.mjs",
+			"limit": "3 KB",
+			"gzip": true
+		},
+		{
+			"name": "Pool",
+			"import": "{ Pool }",
+			"path": "dist/index.mjs",
+			"limit": "3 KB",
+			"gzip": true
+		},
+		{
+			"name": "Graph",
+			"import": "{ Graph }",
+			"path": "dist/index.mjs",
+			"limit": "7 KB",
+			"gzip": true
+		},
+		{
+			"name": "Op",
+			"import": "{ Op }",
+			"path": "dist/index.mjs",
+			"limit": "7 KB",
+			"gzip": true
+		},
+		{
+			"name": "CircuitBreaker",
+			"import": "{ CircuitBreaker }",
+			"path": "dist/index.mjs",
+			"limit": "4 KB",
+			"gzip": true
+		},
+		{
+			"name": "RateLimiter",
+			"import": "{ RateLimiter }",
+			"path": "dist/index.mjs",
+			"limit": "3 KB",
+			"gzip": true
+		},
+		{
+			"name": "Supervisor",
+			"import": "{ Supervisor }",
+			"path": "dist/index.mjs",
+			"limit": "3 KB",
+			"gzip": true
+		},
+		{
+			"name": "Batcher",
+			"import": "{ Batcher }",
+			"path": "dist/index.mjs",
+			"limit": "4 KB",
+			"gzip": true
+		},
+		{
+			"name": "Cache",
+			"import": "{ Cache }",
+			"path": "dist/index.mjs",
+			"limit": "2.5 KB",
+			"gzip": true
+		},
+		{
+			"name": "Lens",
+			"import": "{ Lens }",
+			"path": "dist/index.mjs",
+			"limit": "300 B",
+			"gzip": true
+		},
+		{
+			"name": "Optional",
+			"import": "{ Optional }",
+			"path": "dist/index.mjs",
+			"limit": "2 KB",
+			"gzip": true
+		},
+		{
+			"name": "Reader",
+			"import": "{ Reader }",
+			"path": "dist/index.mjs",
+			"limit": "200 B",
+			"gzip": true
+		},
+		{
+			"name": "State",
+			"import": "{ State }",
+			"path": "dist/index.mjs",
+			"limit": "300 B",
+			"gzip": true
+		},
+		{
+			"name": "Logged",
+			"import": "{ Logged }",
+			"path": "dist/index.mjs",
+			"limit": "300 B",
+			"gzip": true
+		},
+		{
+			"name": "These",
+			"import": "{ These }",
+			"path": "dist/index.mjs",
+			"limit": "3 KB",
+			"gzip": true
+		},
+		{
+			"name": "Equality",
+			"import": "{ Equality }",
+			"path": "dist/index.mjs",
+			"limit": "300 B",
+			"gzip": true
+		},
+		{
+			"name": "Ordering",
+			"import": "{ Ordering }",
+			"path": "dist/index.mjs",
+			"limit": "300 B",
+			"gzip": true
+		},
+		{
+			"name": "Predicate",
+			"import": "{ Predicate }",
+			"path": "dist/index.mjs",
+			"limit": "200 B",
+			"gzip": true
+		},
+		{
+			"name": "Refinement",
+			"import": "{ Refinement }",
+			"path": "dist/index.mjs",
+			"limit": "2 KB",
+			"gzip": true
+		},
+		{
+			"name": "Combinable",
+			"import": "{ Combinable }",
+			"path": "dist/index.mjs",
+			"limit": "2 KB",
+			"gzip": true
+		},
+		{
+			"name": "Pair",
+			"import": "{ Pair }",
+			"path": "dist/index.mjs",
+			"limit": "200 B",
+			"gzip": true
+		},
+		{
+			"name": "Arr",
+			"import": "{ Arr }",
+			"path": "dist/index.mjs",
+			"limit": "7 KB",
+			"gzip": true
+		},
+		{
+			"name": "Rec",
+			"import": "{ Rec }",
+			"path": "dist/index.mjs",
+			"limit": "4 KB",
+			"gzip": true
+		},
+		{
+			"name": "Dict",
+			"import": "{ Dict }",
+			"path": "dist/index.mjs",
+			"limit": "3 KB",
+			"gzip": true
+		},
+		{
+			"name": "Uniq",
+			"import": "{ Uniq }",
+			"path": "dist/index.mjs",
+			"limit": "3 KB",
+			"gzip": true
+		},
+		{
+			"name": "Str",
+			"import": "{ Str }",
+			"path": "dist/index.mjs",
+			"limit": "3 KB",
+			"gzip": true
+		},
+		{
+			"name": "Num",
+			"import": "{ Num }",
+			"path": "dist/index.mjs",
+			"limit": "3 KB",
+			"gzip": true
+		},
+		{
+			"name": "BigNum",
+			"import": "{ BigNum }",
+			"path": "dist/index.mjs",
+			"limit": "2 KB",
+			"gzip": true
+		},
+		{
+			"name": "Bool",
+			"import": "{ Bool }",
+			"path": "dist/index.mjs",
+			"limit": "2 KB",
+			"gzip": true
+		},
+		{
+			"name": "Json",
+			"import": "{ Json }",
+			"path": "dist/index.mjs",
+			"limit": "2 KB",
+			"gzip": true
+		}
+	],
+	"engines": {
+		"node": ">=18.0.0"
+	},
+	"packageManager": "pnpm@12.21.0"
+}

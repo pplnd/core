@@ -115,7 +115,7 @@ function compileFixtures(root: string): void {
 			module: "ESNext",
 			moduleResolution: "bundler",
 			noEmit: true,
-			paths: { "@pplnd/core": [toConfigPath(path.join(root, "src/index.ts"))] },
+			paths: { "@pplnd/core": [toConfigPath(path.join(root, "packages/core/src/index.ts"))] },
 			skipLibCheck: true,
 			strict: true,
 			target: "ES2022",

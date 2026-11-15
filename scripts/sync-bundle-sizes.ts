@@ -8,6 +8,7 @@ import { GUIDE_MANIFEST, STANDALONE_MODULES } from "./docs-manifest.ts";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, "..");
+const coreRoot = path.join(projectRoot, "packages/core");
 
 interface SizeItem {
 	name: string;
@@ -26,8 +27,8 @@ export function formatBytes(bytes: number): string {
 
 export function getMeasuredSizes(): Map<string, SizeItem> {
 	// Always rebuild so the synced badges describe the current tree, not a stale dist.
-	execSync("pnpm build", { cwd: projectRoot, stdio: "inherit" });
-	const raw = execSync("pnpm size-limit --json", { cwd: projectRoot, encoding: "utf8" });
+	execSync("pnpm build", { cwd: coreRoot, stdio: "inherit" });
+	const raw = execSync("pnpm size-limit --json", { cwd: coreRoot, encoding: "utf8" });
 	const items = JSON.parse(raw) as SizeItem[];
 	const map = new Map<string, SizeItem>();
 	for (const item of items) {
@@ -64,7 +65,7 @@ ${standaloneRows}
 }
 
 export function updateReadme(sizeMap: Map<string, SizeItem>): string {
-	const readmePath = path.join(projectRoot, "README.md");
+	const readmePath = path.join(coreRoot, "README.md");
 	let content = fs.readFileSync(readmePath, "utf8");
 
 	const standaloneSizes = STANDALONE_MODULES.map((name) => requireSize(sizeMap, name));

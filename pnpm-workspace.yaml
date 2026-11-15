@@ -1,5 +1,5 @@
 packages:
-  - "."
+  - "packages/*"
   - "docs"
 
 minimumReleaseAge: 1440
@@ -18,7 +18,9 @@ ignoredOptionalDependencies:
 allowBuilds:
   dprint: true
   esbuild: true
+  tsdown: true
 
 onlyBuiltDependencies:
   - dprint
   - esbuild
+  - tsdown

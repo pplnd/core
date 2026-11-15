@@ -4,8 +4,8 @@
 // one idempotency key per logical submission.
 import { EventBus } from "@pplnd/core";
 import { expect, test, vi } from "vitest";
-import * as eventsFixture from "../../scripts/doc-fixtures/events-and-state.ts";
-import * as requestFixture from "../../scripts/doc-fixtures/request-lifecycle.ts";
+import * as eventsFixture from "../../../../scripts/doc-fixtures/events-and-state.ts";
+import * as requestFixture from "../../../../scripts/doc-fixtures/request-lifecycle.ts";
 
 test("events-and-state: cancelling the document aborts its in-flight validation", async () => {
 	const { fetchStub, ingestBus, validation, actor } = eventsFixture;

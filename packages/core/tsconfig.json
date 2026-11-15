@@ -1,0 +1,30 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"allowImportingTsExtensions": true,
+		"paths": {
+			"@pplnd/core": [
+				"./src/index.ts"
+			]
+		},
+		"noEmit": true,
+		"strict": true,
+		"lib": [
+			"ESNext",
+			"DOM"
+		],
+		"types": [
+			"node"
+		]
+	},
+	"include": [
+		"src",
+		"test-utils.ts"
+	],
+	"exclude": [
+		"node_modules",
+		"dist"
+	]
+}

@@ -4,7 +4,7 @@ import { expect, test } from "vitest";
 
 // mise.toml is the single source of truth for the development toolchain;
 // `packageManager` in package.json is derived from it (pnpm toolchain:update).
-const projectRoot = path.resolve(__dirname, "../../");
+const projectRoot = path.resolve(__dirname, "../../../../");
 
 test("Toolchain: packageManager matches the pnpm version pinned in mise.toml", () => {
 	const mise = fs.readFileSync(path.join(projectRoot, "mise.toml"), "utf8");

@@ -2,14 +2,14 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-type RuntimeApi = typeof import("../src/index.ts");
+type RuntimeApi = typeof import("../packages/core/src/index.ts");
 
 const benchmarkedModules = ["Arr", "Rec", "Dict", "Uniq", "Str", "Num"] as const;
 type BenchmarkedModule = typeof benchmarkedModules[number];
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const benchDir = join(root, "src/Data/__bench__");
-const manifestUrl = new URL("../benchmarks/coverage.json", import.meta.url);
+const manifestUrl = new URL("../packages/core/benchmarks/coverage.json", import.meta.url);
 
 const sources = [
 	...readdirSync(benchDir).filter((file) => file.endsWith(".bench.ts")).map((file) =>
@@ -18,7 +18,7 @@ const sources = [
 	readFileSync(new URL("./bench-gate.ts", import.meta.url), "utf8"),
 ].join("\n");
 
-const api = (await import(new URL("../dist/index.mjs", import.meta.url).href)) as RuntimeApi;
+const api = (await import(new URL("../packages/core/dist/index.mjs", import.meta.url).href)) as RuntimeApi;
 
 const leavesOf = (moduleName: BenchmarkedModule): string[] => {
 	const module = api[moduleName] as Record<string, unknown>;
