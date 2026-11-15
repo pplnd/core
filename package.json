@@ -13,7 +13,7 @@
 		"typecheck": "tsc --noEmit && pnpm -r typecheck",
 		"typecheck:dev": "tsc --noEmit --watch",
 		"typecheck:min": "pnpm --filter @pplnd/core typecheck:min",
-		"build": "pnpm --filter '@pplnd/*' build",
+		"build": "pnpm --filter @pplnd/core --filter @pplnd/react build",
 		"size": "pnpm --filter @pplnd/core size",
 		"size:update": "node scripts/sync-bundle-sizes.ts",
 		"size:check": "pnpm --filter @pplnd/core size:check",
