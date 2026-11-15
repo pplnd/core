@@ -1,7 +1,7 @@
 // =============================================================================
 // Imports
 // =============================================================================
-import type { KeysOfUnion, WithKind, WithValue } from "../internal/InternalTypes";
+import type { KeysOfUnion, MatchHandlerReturn, WithKind, WithValue } from "../internal/InternalTypes";
 import type { Predicate } from "./Predicate.ts";
 import type { Refinement } from "./Refinement.ts";
 import { type Result, Result as CoreResult } from "./Result.ts";
@@ -48,6 +48,24 @@ type StructValueOf<T> = T extends Maybe.Some<infer A> ? A : never;
 // =============================================================================
 // Public Export
 // =============================================================================
+const matchMaybeCases = <A, B>(cases: { none: () => B; some: (value: A) => B; }) => (maybe: Maybe<A>): B =>
+	isSome(maybe) ? cases.some(maybe.value) : cases.none();
+
+type MatchMaybeCases<A> = { none: () => unknown; some: (value: A) => unknown; };
+
+function matchMaybe<A, B>(cases: { none: () => B; some: (value: A) => B; }): (maybe: Maybe<A>) => B;
+function matchMaybe(cases: any): any {
+	return matchMaybeCases(cases);
+}
+
+function matchValueMaybe<A, const Cases extends MatchMaybeCases<A>>(
+	maybe: Maybe<A>,
+	cases: Cases,
+): MatchHandlerReturn<Cases>;
+function matchValueMaybe(maybe: Maybe<any>, cases: any): any {
+	return matchMaybeCases(cases)(maybe);
+}
+
 export const Maybe = {
 	make: {
 		/**
@@ -297,6 +315,13 @@ export const Maybe = {
 	/**
 	 * Pattern matches on a Maybe, returning the result of the matching case.
 	 *
+	 * The curried form infers payload types inside `pipe`; a standalone curried mapper requires
+	 * annotated handler parameters. All handlers share one return type: when handlers return
+	 * unrelated types, give one handler an explicit union return annotation — TypeScript unifies
+	 * the shared return on it.
+	 *
+	 * @see {@link Maybe.matchValue} to dispatch on a value directly and return the union of handler
+	 * returns.
 	 * @see {@link Maybe.getOrElse} to extract the value with a fallback.
 	 *
 	 * @example
@@ -310,8 +335,24 @@ export const Maybe = {
 	 * );
 	 * ```
 	 */
-	match: <A, B>(cases: { none: () => B; some: (value: A) => B; }) => (maybe: Maybe<A>): B =>
-		isSome(maybe) ? cases.some(maybe.value) : cases.none(),
+	match: matchMaybe,
+
+	/**
+	 * Dispatches on a Maybe value directly, returning the union of handler returns.
+	 *
+	 * Unlike {@link Maybe.match}, handlers do not need to agree on one return type — unrelated
+	 * handler returns widen to their union. Prefer this form for direct elimination outside
+	 * pipelines (render bodies, one-off branches); use {@link Maybe.match} inside `pipe`.
+	 *
+	 * @example
+	 * ```ts
+	 * const label = Maybe.matchValue(optionUser, {
+	 *   some: user => user.name,
+	 *   none: () => null,
+	 * }); // string | null
+	 * ```
+	 */
+	matchValue: matchValueMaybe,
 
 	/**
 	 * Returns the value inside a Maybe, or a default value if None.

@@ -253,3 +253,94 @@ test("struct: accepts interface-typed records of containers", () => {
 		RemoteData<string, { user: { id: string; }; alerts: number; }>
 	>();
 });
+
+test("matchValue: keeps handler payload channels typed", () => {
+	type Profile = { id: string; };
+	type ApiError = { status: number; };
+	const profile = { id: "u_1" };
+	const apiError = { status: 503 };
+	const naturalUnion = constTruthyBool() ? RemoteData.make.success(profile) : RemoteData.make.failure(apiError);
+
+	const out = RemoteData.matchValue(naturalUnion, {
+		notAsked: () => "not asked",
+		loading: () => "loading",
+		failure: (error) => {
+			expectTypeOf(error).toEqualTypeOf<ApiError>();
+			return `status: ${error.status}`;
+		},
+		success: (value) => {
+			expectTypeOf(value).toEqualTypeOf<Profile>();
+			return `user: ${value.id}`;
+		},
+	});
+	expectTypeOf(out).toEqualTypeOf<string>();
+});
+
+test("matchValue: collapses same-type handler returns", () => {
+	const naturalUnion = constTruthyBool() ? RemoteData.make.success("u_1") : RemoteData.make.failure(503);
+
+	const label = RemoteData.matchValue(naturalUnion, {
+		notAsked: () => "not asked",
+		loading: () => "loading",
+		failure: (error) => `status: ${error}`,
+		success: (value) => `user: ${value}`,
+	});
+	expectTypeOf(label).toEqualTypeOf<string>();
+});
+
+test("match: pipe form unifies disjoint handler returns when one return is annotated", () => {
+	type Profile = { id: string; };
+	type ApiError = { status: number; };
+	const profile = { id: "u_1" };
+	const apiError = { status: 503 };
+	const naturalUnion = constTruthyBool() ? RemoteData.make.success(profile) : RemoteData.make.failure(apiError);
+
+	const out = pipe(
+		naturalUnion,
+		RemoteData.match({
+			notAsked: (): Profile | ApiError | null => null,
+			loading: () => null,
+			failure: (error) => error,
+			success: (value) => value,
+		}),
+	);
+	expectTypeOf(out).toEqualTypeOf<Profile | ApiError | null>();
+});
+
+test("matchValue: widens unrelated handler returns to their union", () => {
+	type Profile = { id: string; };
+	type ApiError = { status: number; };
+	const profile = { id: "u_1" };
+	const apiError = { status: 503 };
+	const naturalUnion = constTruthyBool() ? RemoteData.make.success(profile) : RemoteData.make.failure(apiError);
+
+	const out = RemoteData.matchValue(naturalUnion, {
+		notAsked: () => null,
+		loading: () => null,
+		failure: (error) => error,
+		success: (value) => value,
+	});
+	expectTypeOf(out).toEqualTypeOf<Profile | ApiError | null>();
+});
+
+test("match: curried pipe form infers payload channels from the piped data", () => {
+	const naturalUnion = constTruthyBool() ? RemoteData.make.success("u_1") : RemoteData.make.failure(503);
+
+	const label = pipe(
+		naturalUnion,
+		RemoteData.match({
+			notAsked: () => "not asked",
+			loading: () => "loading",
+			failure: (error) => `status: ${error}`,
+			success: (value) => `user: ${value}`,
+		}),
+	);
+	expectTypeOf(label).toEqualTypeOf<string>();
+});
+
+test("negative: matchValue cases must be exhaustive", () => {
+	const data = constTruthyBool() ? RemoteData.make.success("u_1") : RemoteData.make.failure(503);
+
+	// @ts-expect-error Missing 'success' handler in matchValue cases
+	expectTypeOf(RemoteData.matchValue(data, { notAsked: () => 0, loading: () => 0, failure: (e) => e })).toBeNumber();
+});

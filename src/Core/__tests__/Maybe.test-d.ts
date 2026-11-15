@@ -281,3 +281,57 @@ test("struct: accepts interface-typed records of containers", () => {
 	const form: Form = { name: Maybe.make.some("a"), age: Maybe.make.some(1) };
 	expectTypeOf(Maybe.struct(form)).toEqualTypeOf<Maybe<{ name: string; age: number; }>>();
 });
+
+test("matchValue: keeps handler payload channels typed", () => {
+	type User = { name: string; };
+	const user = { name: "Alice" };
+	const naturalUnion = constTruthyBool() ? Maybe.make.some(user) : Maybe.make.none();
+
+	const out = Maybe.matchValue(naturalUnion, {
+		some: (value) => {
+			expectTypeOf(value).toEqualTypeOf<User>();
+			return value.name;
+		},
+		none: () => "guest",
+	});
+	expectTypeOf(out).toEqualTypeOf<string>();
+});
+
+test("matchValue: collapses same-type handler returns", () => {
+	const naturalUnion = constTruthyBool() ? Maybe.make.some("alice") : Maybe.make.none();
+
+	const upper = Maybe.matchValue(naturalUnion, { some: (value) => value.toUpperCase(), none: () => "guest" });
+	expectTypeOf(upper).toEqualTypeOf<string>();
+});
+
+test("match: pipe form unifies disjoint handler returns when one return is annotated", () => {
+	type User = { name: string; };
+	const user = { name: "Alice" };
+	const naturalUnion = constTruthyBool() ? Maybe.make.some(user) : Maybe.make.none();
+
+	const out = pipe(naturalUnion, Maybe.match({ some: (value): User | null => value, none: () => null }));
+	expectTypeOf(out).toEqualTypeOf<User | null>();
+});
+
+test("matchValue: widens unrelated handler returns to their union", () => {
+	type User = { name: string; };
+	const user = { name: "Alice" };
+	const naturalUnion = constTruthyBool() ? Maybe.make.some(user) : Maybe.make.none();
+
+	const out = Maybe.matchValue(naturalUnion, { some: (value) => value, none: () => null });
+	expectTypeOf(out).toEqualTypeOf<User | null>();
+});
+
+test("match: curried pipe form infers the value channel from the piped data", () => {
+	const naturalUnion = constTruthyBool() ? Maybe.make.some(42) : Maybe.make.none();
+
+	const rendered = pipe(naturalUnion, Maybe.match({ some: (value) => `id: ${value}`, none: () => "no id" }));
+	expectTypeOf(rendered).toEqualTypeOf<string>();
+});
+
+test("negative: matchValue cases must be exhaustive", () => {
+	const naturalUnion = constTruthyBool() ? Maybe.make.some(42) : Maybe.make.none();
+
+	// @ts-expect-error Missing 'none' handler in matchValue cases
+	expectTypeOf(Maybe.matchValue(naturalUnion, { some: (value) => value })).toBeNumber();
+});

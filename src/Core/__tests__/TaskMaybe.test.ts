@@ -202,6 +202,43 @@ test("match: calls none handler for None", async () => {
 	).resolves.toBe("empty");
 });
 
+test("matchValue: calls some handler for Some", async () => {
+	const result = await Task.Maybe.matchValue(Task.Maybe.make.some(5), {
+		some: (n) => `got:${n}`,
+		none: () => "empty",
+	})();
+	expect(result).toBe("got:5");
+});
+
+test("matchValue: calls only the none handler for None", async () => {
+	let someCalled = false;
+	const result = await Task.Maybe.matchValue(Task.Maybe.make.none(), {
+		some: (n) => {
+			someCalled = true;
+			return `got:${n}`;
+		},
+		none: () => "empty",
+	})();
+	expect(result).toBe("empty");
+	expect(someCalled).toBe(false);
+});
+
+test("matchValue: returns a lazy Task that runs on invocation", async () => {
+	let ran = false;
+	const matched = Task.Maybe.matchValue(
+		pipe(
+			Task.Maybe.make.some(5),
+			Task.Maybe.tap(() => {
+				ran = true;
+			}),
+		),
+		{ some: (n) => `got:${n}`, none: () => "empty" },
+	);
+	expect(ran).toBe(false);
+	await expect(matched()).resolves.toBe("got:5");
+	expect(ran).toBe(true);
+});
+
 // ---------------------------------------------------------------------------
 // getOrElse
 // ---------------------------------------------------------------------------

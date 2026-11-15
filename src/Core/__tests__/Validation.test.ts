@@ -1,4 +1,4 @@
-import { constFalseBool } from "#test-utils";
+import { constFalseBool, constTruthyBool } from "#test-utils";
 import { expect, test } from "vitest";
 import { pipe } from "../../Composition/pipe.ts";
 import { Maybe } from "../Maybe.ts";
@@ -266,6 +266,58 @@ test("match: is data-last (returns a function first)", () => {
 	});
 	expect(handler(Validation.make.passed(3))).toBe("val: 3");
 	expect(handler(Validation.make.failed("x"))).toBe("err: x");
+});
+
+// ---------------------------------------------------------------------------
+// matchValue
+// ---------------------------------------------------------------------------
+
+test("matchValue: accepts the data as the first argument", () => {
+	expect(
+		Validation.matchValue(Validation.make.passed(5), {
+			passed: (n) => `got ${n}`,
+			failed: (errors) => `failed: ${errors.join(", ")}`,
+		}),
+	).toBe("got 5");
+
+	expect(
+		Validation.matchValue(Validation.make.failed("oops"), {
+			passed: (n) => `got ${n}`,
+			failed: (errors) => `failed: ${errors.join(", ")}`,
+		}),
+	).toBe("failed: oops");
+});
+
+test("matchValue: isolates side effects to the matching branch", () => {
+	let passedCalled = false;
+	const failedValue: Validation<string, number> = constFalseBool()
+		? Validation.make.passed(1)
+		: Validation.make.failed("ERR_A");
+	const outcome = Validation.matchValue(failedValue, {
+		passed: (n: number) => {
+			passedCalled = true;
+			return n;
+		},
+		failed: (errors) => errors.length,
+	});
+	expect(outcome).toBe(1);
+	expect(passedCalled).toBe(false);
+});
+
+test("matchValue: operates on un-narrowed union type without CFA narrowing", () => {
+	const naturalPassed: Validation<string, number> = constTruthyBool()
+		? Validation.make.passed(42)
+		: Validation.make.failed("err");
+	expect(
+		Validation.matchValue(naturalPassed, { passed: (n) => `val: ${n}`, failed: (errors) => `err: ${errors.join(";")}` }),
+	).toBe("val: 42");
+
+	const naturalFailed: Validation<string, number> = constFalseBool()
+		? Validation.make.passed(42)
+		: Validation.make.failed("err");
+	expect(
+		Validation.matchValue(naturalFailed, { passed: (n) => `val: ${n}`, failed: (errors) => `err: ${errors.join(";")}` }),
+	).toBe("err: err");
 });
 
 // ---------------------------------------------------------------------------

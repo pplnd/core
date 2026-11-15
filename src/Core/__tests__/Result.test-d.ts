@@ -310,3 +310,72 @@ test("ensure: accepts declared Refinement values", () => {
 	const ensured = pipe(input, Result.ensure(isString, () => "NOT_STRING" as const));
 	expectTypeOf(ensured).toEqualTypeOf<Result<"ERR_INIT" | "NOT_STRING", string>>();
 });
+
+test("matchValue: keeps handler payload channels typed", () => {
+	type User = { name: string; };
+	type FetchError = { code: number; message: string; };
+	const user = { name: "Alice" };
+	const fetchError = { code: 404, message: "Not Found" };
+	const result = constTruthyBool() ? Result.make.ok(user) : Result.make.err(fetchError);
+
+	const out = Result.matchValue(result, {
+		ok: (value) => {
+			expectTypeOf(value).toEqualTypeOf<User>();
+			return value.name;
+		},
+		err: (error) => {
+			expectTypeOf(error).toEqualTypeOf<FetchError>();
+			return error.message;
+		},
+	});
+	expectTypeOf(out).toEqualTypeOf<string>();
+});
+
+test("matchValue: collapses same-type handler returns", () => {
+	const user = { name: "Alice" };
+	const fetchError = { code: 404, message: "Not Found" };
+	const result = constTruthyBool() ? Result.make.ok(user) : Result.make.err(fetchError);
+
+	const message = Result.matchValue(result, { ok: (value) => value.name, err: (error) => error.message });
+	expectTypeOf(message).toEqualTypeOf<string>();
+});
+
+test("match: pipe form unifies disjoint handler returns when one return is annotated", () => {
+	type User = { name: string; };
+	type FetchError = { code: number; message: string; };
+	const user = { name: "Alice" };
+	const fetchError = { code: 404, message: "Not Found" };
+	const result = constTruthyBool() ? Result.make.ok(user) : Result.make.err(fetchError);
+
+	const out = pipe(result, Result.match({ ok: (value): FetchError | User => value, err: (error) => error }));
+	expectTypeOf(out).toEqualTypeOf<FetchError | User>();
+});
+
+test("matchValue: widens unrelated handler returns to their union", () => {
+	type User = { name: string; };
+	type FetchError = { code: number; message: string; };
+	const user = { name: "Alice" };
+	const fetchError = { code: 404, message: "Not Found" };
+	const result = constTruthyBool() ? Result.make.ok(user) : Result.make.err(fetchError);
+
+	const out = Result.matchValue(result, { ok: (value) => value, err: (error) => error });
+	expectTypeOf(out).toEqualTypeOf<FetchError | User>();
+});
+
+test("match: curried pipe form infers payload channels from the piped data", () => {
+	const user = { name: "Alice" };
+	const fetchError = { code: 404, message: "Not Found" };
+	const result = constTruthyBool() ? Result.make.ok(user) : Result.make.err(fetchError);
+
+	const rendered = pipe(result, Result.match({ ok: (value) => value.name, err: (error) => error.message }));
+	expectTypeOf(rendered).toEqualTypeOf<string>();
+});
+
+test("negative: matchValue cases must be exhaustive", () => {
+	const user = { name: "Alice" };
+	const fetchError = { code: 404, message: "Not Found" };
+	const result = constTruthyBool() ? Result.make.ok(user) : Result.make.err(fetchError);
+
+	// @ts-expect-error Missing 'err' handler in matchValue cases
+	expectTypeOf(Result.matchValue(result, { ok: (value) => value })).toBeObject();
+});

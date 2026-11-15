@@ -160,3 +160,82 @@ test("Outcome.map, mapError, and getOrElse: combinator type transformations", ()
 	const widened = pipe(outcome, Batcher.Outcome.getOrElse(() => null));
 	expectTypeOf(widened).toEqualTypeOf<number | null>();
 });
+
+test("Outcome.matchValue: infers value, key, and error channels", () => {
+	const outcome = constTruthyBool()
+		? Batcher.Outcome.make.ok(42)
+		: constTruthyBool()
+		? Batcher.Outcome.make.missing("k1")
+		: Batcher.Outcome.make.err("ERR_A");
+
+	const unified = Batcher.Outcome.matchValue(outcome, {
+		ok: (value) => {
+			expectTypeOf(value).toEqualTypeOf<number>();
+			return `ok:${value}`;
+		},
+		missing: (key) => {
+			expectTypeOf(key).toEqualTypeOf<string>();
+			return `missing:${key}`;
+		},
+		err: (error) => {
+			expectTypeOf(error).toEqualTypeOf<"ERR_A">();
+			return `err:${error}`;
+		},
+	});
+	expectTypeOf(unified).toEqualTypeOf<string>();
+});
+
+test("Outcome.matchValue: unifies distinct handler returns into one type", () => {
+	const outcome = constTruthyBool()
+		? Batcher.Outcome.make.ok(42)
+		: constTruthyBool()
+		? Batcher.Outcome.make.missing("k1")
+		: Batcher.Outcome.make.err("ERR_A");
+
+	const code = Batcher.Outcome.matchValue(outcome, {
+		ok: (value) => value,
+		missing: (key) => key.length,
+		err: (error) => error.length,
+	});
+	expectTypeOf(code).toEqualTypeOf<number>();
+});
+
+test("Outcome.match: pipe form unifies disjoint handler returns when one handler annotates the union", () => {
+	const outcome = constTruthyBool()
+		? Batcher.Outcome.make.ok(42)
+		: constTruthyBool()
+		? Batcher.Outcome.make.missing("k1")
+		: Batcher.Outcome.make.err("ERR_A");
+
+	const payload = pipe(
+		outcome,
+		Batcher.Outcome.match({
+			ok: (value): number | string | "ERR_A" => value,
+			missing: (key) => key,
+			err: (error) => error,
+		}),
+	);
+	expectTypeOf(payload).toEqualTypeOf<number | string | "ERR_A">();
+});
+
+test("Outcome.matchValue: negative — requires every handler", () => {
+	const outcome = constTruthyBool()
+		? Batcher.Outcome.make.ok(42)
+		: constTruthyBool()
+		? Batcher.Outcome.make.missing("k1")
+		: Batcher.Outcome.make.err("ERR_A");
+
+	// @ts-expect-error Missing 'missing' handler in matchValue cases
+	expectTypeOf(Batcher.Outcome.matchValue(outcome, { ok: () => 0, err: () => 0 })).toBeNumber();
+});
+
+test("Outcome.matchValue: auto-unifies disjoint handler returns into their union", () => {
+	const outcome = constTruthyBool()
+		? Batcher.Outcome.make.ok(42)
+		: constTruthyBool()
+		? Batcher.Outcome.make.missing("k1")
+		: Batcher.Outcome.make.err("ERR_A");
+
+	const out = Batcher.Outcome.matchValue(outcome, { ok: (v) => v, missing: (k) => k, err: (e) => e });
+	expectTypeOf(out).toEqualTypeOf<number | string | "ERR_A">();
+});

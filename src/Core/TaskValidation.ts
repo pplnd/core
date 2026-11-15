@@ -1,4 +1,4 @@
-import { isNonEmptyArr, type NonEmptyArr, type Thenable } from "../internal/InternalTypes";
+import { isNonEmptyArr, type MatchHandlerReturn, type NonEmptyArr, type Thenable } from "../internal/InternalTypes";
 import { Deferred } from "./Deferred.ts";
 import { type Maybe, Maybe as CoreMaybe } from "./Maybe.ts";
 import type { Predicate } from "./Predicate.ts";
@@ -14,6 +14,27 @@ const makeFailedAll = <E>(errors: NonEmptyArr<E>): Task.Validation<E, never> =>
 	Task.make(CoreValidation.make.failedAll(errors));
 
 type TaskValidationErrOf<T> = T extends Task.Validation<infer E, unknown> ? E : never;
+
+const matchTaskValidationCases =
+	<E, A, B>(cases: { passed: (value: A) => B; failed: (errors: NonEmptyArr<E>) => B; }) =>
+	(task: Task.Validation<E, A>): Task<B> => Task.map(CoreValidation.match<E, A, B>(cases))(task);
+
+type MatchTaskValidationCases<E, A> = { passed: (value: A) => unknown; failed: (errors: NonEmptyArr<E>) => unknown; };
+
+function matchTaskValidation<E, A, B>(
+	cases: { passed: (value: A) => B; failed: (errors: NonEmptyArr<E>) => B; },
+): (task: Task.Validation<E, A>) => Task<B>;
+function matchTaskValidation(cases: any): any {
+	return matchTaskValidationCases(cases);
+}
+
+function matchValueTaskValidation<E, A, const Cases extends MatchTaskValidationCases<E, A>>(
+	task: Task.Validation<E, A>,
+	cases: Cases,
+): Task<MatchHandlerReturn<Cases>>;
+function matchValueTaskValidation(task: Task.Validation<any, any>, cases: any): any {
+	return matchTaskValidationCases(cases)(task);
+}
 
 export const TaskValidation = {
 	make: {
@@ -207,6 +228,14 @@ export const TaskValidation = {
 	/**
 	 * Pattern matches on a Task.Validation, returning a Task of the result.
 	 *
+	 * The curried form infers payload types inside `pipe`; a standalone curried mapper requires
+	 * annotated handler parameters. All handlers share one return type: when handlers return
+	 * unrelated types, give one handler an explicit union return annotation — TypeScript unifies
+	 * the shared return on it.
+	 *
+	 * @see {@link Task.Validation.matchValue} to dispatch on a Task directly and return the union
+	 * of handler returns.
+	 *
 	 * @example
 	 * ```ts
 	 * pipe(
@@ -218,9 +247,26 @@ export const TaskValidation = {
 	 * )();
 	 * ```
 	 */
-	match:
-		<E, A, B>(cases: { passed: (value: A) => B; failed: (errors: NonEmptyArr<E>) => B; }) =>
-		(task: Task.Validation<E, A>): Task<B> => Task.map(CoreValidation.match<E, A, B>(cases))(task),
+	match: matchTaskValidation,
+
+	/**
+	 * Dispatches on a Task.Validation value directly, returning a Task of the union of handler
+	 * returns.
+	 *
+	 * Unlike {@link Task.Validation.match}, handlers do not need to agree on one return type —
+	 * unrelated handler returns widen to their union. Prefer this form for direct elimination
+	 * outside pipelines; use {@link Task.Validation.match} inside `pipe`. The returned Task stays
+	 * lazy.
+	 *
+	 * @example
+	 * ```ts
+	 * const label = Task.Validation.matchValue(validateForm(input), {
+	 *   passed: data => data,
+	 *   failed: errors => errors,
+	 * }); // Task resolving to the union of handler returns
+	 * ```
+	 */
+	matchValue: matchValueTaskValidation,
 
 	/**
 	 * Returns the success value or a default value if the Task.Validation is failed.

@@ -272,3 +272,54 @@ test("poll: accepts combinator-built Predicate values", () => {
 	const polled = pipe(task, Task.Result.poll({ until: ready }));
 	expectTypeOf(polled).toEqualTypeOf<Task.Result<"offline", number>>();
 });
+
+test("matchValue: infers payload channels from the task", () => {
+	const task = constTruthyBool() ? Task.Result.make.ok(42) : Task.Result.make.err("ERR_A");
+
+	const unified = Task.Result.matchValue(task, {
+		ok: (value) => {
+			expectTypeOf(value).toEqualTypeOf<number>();
+			return `ok:${value}`;
+		},
+		err: (error) => {
+			expectTypeOf(error).toEqualTypeOf<"ERR_A">();
+			return `err:${error}`;
+		},
+	});
+	expectTypeOf(unified).toEqualTypeOf<Task<string>>();
+});
+
+test("matchValue: unifies distinct handler returns into one type", () => {
+	const task = constTruthyBool() ? Task.Result.make.ok(42) : Task.Result.make.err("ERR_A");
+
+	const code = Task.Result.matchValue(task, { ok: (value) => value, err: (error) => error.length });
+	expectTypeOf(code).toEqualTypeOf<Task<number>>();
+});
+
+test("match: pipe form unifies disjoint handler returns when one handler annotates the union", () => {
+	const task: Task.Result<"ERR_A", number> = constTruthyBool() ? Task.Result.make.ok(42) : Task.Result.make.err("ERR_A");
+
+	const payload = pipe(task, Task.Result.match({ ok: (value): number | "ERR_A" => value, err: (error) => error }));
+	expectTypeOf(payload).toEqualTypeOf<Task<number | "ERR_A">>();
+});
+
+test("match: curried pipe form unifies handler returns into one type", () => {
+	const task: Task.Result<"ERR_A", number> = constTruthyBool() ? Task.Result.make.ok(42) : Task.Result.make.err("ERR_A");
+
+	const piped = pipe(task, Task.Result.match({ ok: (v) => `ok:${v}`, err: (e) => `err:${e}` }));
+	expectTypeOf(piped).toEqualTypeOf<Task<string>>();
+});
+
+test("matchValue: negative — requires every handler", () => {
+	const task = constTruthyBool() ? Task.Result.make.ok(42) : Task.Result.make.err("ERR_A");
+
+	// @ts-expect-error Missing 'err' handler in matchValue cases
+	expectTypeOf(Task.Result.matchValue(task, { ok: () => 0 })).toBeFunction();
+});
+
+test("matchValue: auto-unifies disjoint handler returns into their union", () => {
+	const task = constTruthyBool() ? Task.Result.make.ok(42) : Task.Result.make.err("ERR_A");
+
+	const out = Task.Result.matchValue(task, { ok: (v) => v, err: (e) => e });
+	expectTypeOf(out).toEqualTypeOf<Task<number | "ERR_A">>();
+});

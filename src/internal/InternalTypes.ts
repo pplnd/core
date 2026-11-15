@@ -23,6 +23,14 @@ export const isNonEmptyArr = <A>(list: readonly A[]): list is NonEmptyArr<A> => 
  */
 export type KeysOfUnion<T> = T extends unknown ? keyof T : never;
 
+/**
+ * Extracts the union of handler return types from a match cases object.
+ *
+ * Shared-`B` match signatures reconcile related handler returns into one type; the mapped-union
+ * fallback overloads use this extractor to widen unrelated handler returns to their union.
+ */
+export type MatchHandlerReturn<Cases> = Cases[keyof Cases] extends (...args: any[]) => infer R ? R : never;
+
 export type WithKind<K extends string> = { readonly kind: K; };
 
 export type WithValue<T> = { readonly value: T; };

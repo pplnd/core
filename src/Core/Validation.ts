@@ -3,6 +3,7 @@
 // =============================================================================
 import {
 	isNonEmptyArr,
+	type MatchHandlerReturn,
 	type NonEmptyArr,
 	type WithErrors,
 	type WithKind,
@@ -124,6 +125,28 @@ function makeKeyed(validators: Record<PropertyKey, (value: any) => Validation<an
 // =============================================================================
 // Public Export
 // =============================================================================
+const matchValidationCases =
+	<E, A, B>(cases: { passed: (value: A) => B; failed: (errors: NonEmptyArr<E>) => B; }) =>
+	(validation: Validation<E, A>): B =>
+		isPassed(validation) ? cases.passed(validation.value) : cases.failed(validation.errors);
+
+type MatchValidationCases<E, A> = { passed: (value: A) => unknown; failed: (errors: NonEmptyArr<E>) => unknown; };
+
+function matchValidation<E, A, B>(
+	cases: { passed: (value: A) => B; failed: (errors: NonEmptyArr<E>) => B; },
+): (validation: Validation<E, A>) => B;
+function matchValidation(cases: any): any {
+	return matchValidationCases(cases);
+}
+
+function matchValueValidation<E, A, const Cases extends MatchValidationCases<E, A>>(
+	validation: Validation<E, A>,
+	cases: Cases,
+): MatchHandlerReturn<Cases>;
+function matchValueValidation(validation: Validation<any, any>, cases: any): any {
+	return matchValidationCases(cases)(validation);
+}
+
 export const Validation = {
 	make: {
 		/**
@@ -342,6 +365,13 @@ export const Validation = {
 	/**
 	 * Pattern matches on a Validation, returning the result of the matching case.
 	 *
+	 * The curried form infers payload types inside `pipe`; a standalone curried mapper requires
+	 * annotated handler parameters. All handlers share one return type: when handlers return
+	 * unrelated types, give one handler an explicit union return annotation — TypeScript unifies
+	 * the shared return on it.
+	 *
+	 * @see {@link Validation.matchValue} to dispatch on a value directly and return the union of
+	 * handler returns.
 	 * @see {@link Validation.getOrElse} to extract the success value with a default fallback.
 	 *
 	 * @example
@@ -355,10 +385,24 @@ export const Validation = {
 	 * );
 	 * ```
 	 */
-	match:
-		<E, A, B>(cases: { passed: (value: A) => B; failed: (errors: NonEmptyArr<E>) => B; }) =>
-		(validation: Validation<E, A>): B =>
-			isPassed(validation) ? cases.passed(validation.value) : cases.failed(validation.errors),
+	match: matchValidation,
+
+	/**
+	 * Dispatches on a Validation value directly, returning the union of handler returns.
+	 *
+	 * Unlike {@link Validation.match}, handlers do not need to agree on one return type — unrelated
+	 * handler returns widen to their union. Prefer this form for direct elimination outside
+	 * pipelines (render bodies, one-off branches); use {@link Validation.match} inside `pipe`.
+	 *
+	 * @example
+	 * ```ts
+	 * const outcome = Validation.matchValue(validation, {
+	 *   passed: value => value,
+	 *   failed: errors => errors,
+	 * }); // union of handler returns
+	 * ```
+	 */
+	matchValue: matchValueValidation,
 
 	/**
 	 * Returns the success value or a default value if the Validation is failed.

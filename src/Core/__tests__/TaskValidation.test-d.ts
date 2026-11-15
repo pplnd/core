@@ -110,3 +110,64 @@ test("negative: flags invalid transforms and non-Task.Validation struct fields",
 test("struct: empty fields collapse the error channel to never", () => {
 	expectTypeOf(Task.Validation.struct({})).toEqualTypeOf<Task.Validation<never, {}>>();
 });
+
+test("matchValue: infers payload channels from the task", () => {
+	const task = constTruthyBool() ? Task.Validation.make.passed(42) : Task.Validation.make.failed("ERR_A");
+
+	const unified = Task.Validation.matchValue(task, {
+		passed: (value) => {
+			expectTypeOf(value).toEqualTypeOf<number>();
+			return `passed:${value}`;
+		},
+		failed: (errors) => {
+			expectTypeOf(errors[0]).toEqualTypeOf<"ERR_A">();
+			return `failed:${errors.length}`;
+		},
+	});
+	expectTypeOf(unified).toEqualTypeOf<Task<string>>();
+});
+
+test("matchValue: unifies distinct handler returns into one type", () => {
+	const task = constTruthyBool() ? Task.Validation.make.passed(42) : Task.Validation.make.failed("ERR_A");
+
+	const code = Task.Validation.matchValue(task, { passed: (value) => value, failed: (errors) => errors.length });
+	expectTypeOf(code).toEqualTypeOf<Task<number>>();
+});
+
+test("match: pipe form unifies disjoint handler returns when one handler annotates the union", () => {
+	const task: Task.Validation<"ERR_A", number> = constTruthyBool()
+		? Task.Validation.make.passed(42)
+		: Task.Validation.make.failed("ERR_A");
+
+	const payload = pipe(
+		task,
+		Task.Validation.match({ passed: (value) => value, failed: (errors): number | "ERR_A" => errors[0] }),
+	);
+	expectTypeOf(payload).toEqualTypeOf<Task<number | "ERR_A">>();
+});
+
+test("match: curried pipe form unifies handler returns into one type", () => {
+	const task: Task.Validation<"ERR_A", number> = constTruthyBool()
+		? Task.Validation.make.passed(42)
+		: Task.Validation.make.failed("ERR_A");
+
+	const piped = pipe(
+		task,
+		Task.Validation.match({ passed: (v) => `passed:${v}`, failed: (errs) => `failed:${errs.length}` }),
+	);
+	expectTypeOf(piped).toEqualTypeOf<Task<string>>();
+});
+
+test("matchValue: negative — requires every handler", () => {
+	const task = constTruthyBool() ? Task.Validation.make.passed(42) : Task.Validation.make.failed("ERR_A");
+
+	// @ts-expect-error Missing 'failed' handler in matchValue cases
+	expectTypeOf(Task.Validation.matchValue(task, { passed: () => 0 })).toBeFunction();
+});
+
+test("matchValue: auto-unifies disjoint handler returns into their union", () => {
+	const task = constTruthyBool() ? Task.Validation.make.passed(42) : Task.Validation.make.failed("ERR_A");
+
+	const out = Task.Validation.matchValue(task, { passed: (v) => v, failed: (errs) => errs[0] });
+	expectTypeOf(out).toEqualTypeOf<Task<number | "ERR_A">>();
+});

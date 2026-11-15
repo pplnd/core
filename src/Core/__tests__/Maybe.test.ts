@@ -340,6 +340,37 @@ test("match: operates on un-narrowed union type without CFA narrowing", () => {
 });
 
 // ---------------------------------------------------------------------------
+// matchValue
+// ---------------------------------------------------------------------------
+
+test("matchValue: accepts the data as the first argument", () => {
+	expect(Maybe.matchValue(Maybe.make.some(5), { some: (n) => `got ${n}`, none: () => "nothing" })).toBe("got 5");
+	expect(Maybe.matchValue(Maybe.make.none(), { some: (n) => `got ${n}`, none: () => "nothing" })).toBe("nothing");
+});
+
+test("matchValue: isolates side effects to the matching branch", () => {
+	let someCalled = false;
+	const noneValue: Maybe<number> = constFalseBool() ? Maybe.make.some(5) : Maybe.make.none();
+	const outcome = Maybe.matchValue(noneValue, {
+		some: (n: number) => {
+			someCalled = true;
+			return `got ${n}`;
+		},
+		none: () => "nothing",
+	});
+	expect(outcome).toBe("nothing");
+	expect(someCalled).toBe(false);
+});
+
+test("matchValue: operates on un-narrowed union type without CFA narrowing", () => {
+	const naturalSome: Maybe<number> = constTruthyBool() ? Maybe.make.some(5) : Maybe.make.none();
+	expect(Maybe.matchValue(naturalSome, { some: (n) => `val: ${n}`, none: () => "empty" })).toBe("val: 5");
+
+	const naturalNone: Maybe<number> = constFalseBool() ? Maybe.make.some(5) : Maybe.make.none();
+	expect(Maybe.matchValue(naturalNone, { some: (n) => `val: ${n}`, none: () => "empty" })).toBe("empty");
+});
+
+// ---------------------------------------------------------------------------
 // getOrElse
 // ---------------------------------------------------------------------------
 

@@ -1,7 +1,14 @@
 // =============================================================================
 // Imports
 // =============================================================================
-import type { KeysOfUnion, NonEmptyArr, WithError, WithKind, WithValue } from "../internal/InternalTypes";
+import type {
+	KeysOfUnion,
+	MatchHandlerReturn,
+	NonEmptyArr,
+	WithError,
+	WithKind,
+	WithValue,
+} from "../internal/InternalTypes";
 import { type Maybe, Maybe as CoreMaybe } from "./Maybe.ts";
 import type { Predicate } from "./Predicate.ts";
 import type { Refinement } from "./Refinement.ts";
@@ -51,6 +58,25 @@ type StructValueOf<T> = T extends Result.Ok<infer A> ? A : never;
 // =============================================================================
 // Public Export
 // =============================================================================
+const matchResultCases =
+	<E, A, B>(cases: { ok: (value: A) => B; err: (error: E) => B; }) => (result: Result<E, A>): B =>
+		isOk(result) ? cases.ok(result.value) : cases.err(result.error);
+
+type MatchResultCases<E, A> = { ok: (value: A) => unknown; err: (error: E) => unknown; };
+
+function matchResult<E, A, B>(cases: { ok: (value: A) => B; err: (error: E) => B; }): (result: Result<E, A>) => B;
+function matchResult(cases: any): any {
+	return matchResultCases(cases);
+}
+
+function matchValueResult<E, A, const Cases extends MatchResultCases<E, A>>(
+	result: Result<E, A>,
+	cases: Cases,
+): MatchHandlerReturn<Cases>;
+function matchValueResult(result: Result<any, any>, cases: any): any {
+	return matchResultCases(cases)(result);
+}
+
 export const Result = {
 	make: {
 		/**
@@ -176,6 +202,13 @@ export const Result = {
 	/**
 	 * Pattern matches on a Result, returning the result of the matching case.
 	 *
+	 * The curried form infers payload types inside `pipe`; a standalone curried mapper requires
+	 * annotated handler parameters. All handlers share one return type: when handlers return
+	 * unrelated types, give one handler an explicit union return annotation — TypeScript unifies
+	 * the shared return on it.
+	 *
+	 * @see {@link Result.matchValue} to dispatch on a value directly and return the union of handler
+	 * returns.
 	 * @see {@link Result.getOrElse} to extract the success value with a default fallback.
 	 *
 	 * @example
@@ -189,8 +222,24 @@ export const Result = {
 	 * );
 	 * ```
 	 */
-	match: <E, A, B>(cases: { ok: (value: A) => B; err: (error: E) => B; }) => (result: Result<E, A>): B =>
-		isOk(result) ? cases.ok(result.value) : cases.err(result.error),
+	match: matchResult,
+
+	/**
+	 * Dispatches on a Result value directly, returning the union of handler returns.
+	 *
+	 * Unlike {@link Result.match}, handlers do not need to agree on one return type — unrelated
+	 * handler returns widen to their union. Prefer this form for direct elimination outside
+	 * pipelines (render bodies, one-off branches); use {@link Result.match} inside `pipe`.
+	 *
+	 * @example
+	 * ```ts
+	 * const unwrapped = Result.matchValue(result, {
+	 *   ok: user => user,
+	 *   err: error => error,
+	 * }); // User | FetchError
+	 * ```
+	 */
+	matchValue: matchValueResult,
 
 	/**
 	 * Returns the success value or a default value if the Result is an error.

@@ -514,7 +514,7 @@ test("retry: an exhausted budget settles with the last error without a Retrying 
 
 // --- match ---
 
-const matchCases = { ok: (v: number) => `ok:${v}`, err: (e: string) => `err:${e}`, nil: () => "nil" };
+const matchCases = { ok: (v: unknown) => `ok:${v}`, err: (e: unknown) => `err:${e}`, nil: () => "nil" };
 
 test("match: handles Ok", () => {
 	expect(Op.Outcome.match(matchCases)(Op.Outcome.make.ok(5))).toBe("ok:5");
@@ -526,6 +526,36 @@ test("match: handles Err", () => {
 
 test("match: handles Nil", () => {
 	expect(Op.Outcome.match(matchCases)(Op.Outcome.make.nil("aborted"))).toBe("nil");
+});
+
+test("matchValue: handles Ok, Err, and Nil", () => {
+	expect(Op.Outcome.matchValue(Op.Outcome.make.ok(5), matchCases)).toBe("ok:5");
+	expect(Op.Outcome.matchValue(Op.Outcome.make.err("boom"), matchCases)).toBe("err:boom");
+	expect(Op.Outcome.matchValue(Op.Outcome.make.nil("aborted"), matchCases)).toBe("nil");
+});
+
+test("matchValue: passes the concrete Nil reason to the handler", () => {
+	expect(Op.Outcome.matchValue(Op.Outcome.make.nil("evicted"), { ...matchCases, nil: (reason) => `nil:${reason}` }))
+		.toBe("nil:evicted");
+});
+
+test("matchValue: runs only the matching handler", () => {
+	let okCalled = false;
+	let nilCalled = false;
+	const result = Op.Outcome.matchValue(Op.Outcome.make.err("boom"), {
+		ok: () => {
+			okCalled = true;
+			return "ok";
+		},
+		err: (e) => `err:${e}`,
+		nil: () => {
+			nilCalled = true;
+			return "nil";
+		},
+	});
+	expect(result).toBe("err:boom");
+	expect(okCalled).toBe(false);
+	expect(nilCalled).toBe(false);
 });
 
 // --- getOrElse ---

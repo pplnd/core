@@ -1,4 +1,5 @@
 import {
+	type MatchHandlerReturn,
 	type WithConcurrency,
 	type WithCooldown,
 	type WithDuration,
@@ -525,6 +526,39 @@ function interpretFn<Args extends readonly unknown[], E, A>(
 	}
 }
 
+const matchOutcomeCases =
+	<E, A, B>(cases: { ok: (value: A) => B; err: (error: E) => B; nil: (reason: Op.NilReason) => B; }) =>
+	(outcome: Op.Outcome<E, A>): B => {
+		if (outcome.kind === "OpOk") {
+			return cases.ok(outcome.value);
+		}
+		if (outcome.kind === "OpErr") {
+			return cases.err(outcome.error);
+		}
+		return cases.nil(outcome.reason);
+	};
+
+type MatchOutcomeCases<E, A> = {
+	ok: (value: A) => unknown;
+	err: (error: E) => unknown;
+	nil: (reason: Op.NilReason) => unknown;
+};
+
+function matchOutcome<E, A, B>(
+	cases: { ok: (value: A) => B; err: (error: E) => B; nil: (reason: Op.NilReason) => B; },
+): (outcome: Op.Outcome<E, A>) => B;
+function matchOutcome(cases: any): any {
+	return matchOutcomeCases(cases);
+}
+
+function matchValueOutcome<E, A, const Cases extends MatchOutcomeCases<E, A>>(
+	outcome: Op.Outcome<E, A>,
+	cases: Cases,
+): MatchHandlerReturn<Cases>;
+function matchValueOutcome(outcome: Op.Outcome<any, any>, cases: any): any {
+	return matchOutcomeCases(cases)(outcome);
+}
+
 const OpOutcome = {
 	make: {
 		/**
@@ -617,6 +651,14 @@ const OpOutcome = {
 	/**
 	 * Matches on an Op outcome by providing handlers for each variant.
 	 *
+	 * The curried form infers payload types inside `pipe`; a standalone curried mapper requires
+	 * annotated handler parameters. All handlers share one return type: when handlers return
+	 * unrelated types, give one handler an explicit union return annotation — TypeScript unifies
+	 * the shared return on it.
+	 *
+	 * @see {@link Op.Outcome.matchValue} to dispatch on a value directly and return the union of
+	 * handler returns.
+	 *
 	 * @example
 	 * ```ts
 	 * pipe(
@@ -629,17 +671,25 @@ const OpOutcome = {
 	 * );
 	 * ```
 	 */
-	match:
-		<E, A, B>(cases: { ok: (value: A) => B; err: (error: E) => B; nil: (reason: Op.NilReason) => B; }) =>
-		(outcome: Op.Outcome<E, A>): B => {
-			if (outcome.kind === "OpOk") {
-				return cases.ok(outcome.value);
-			}
-			if (outcome.kind === "OpErr") {
-				return cases.err(outcome.error);
-			}
-			return cases.nil(outcome.reason);
-		},
+	match: matchOutcome,
+
+	/**
+	 * Dispatches on an Op outcome directly, returning the union of handler returns.
+	 *
+	 * Unlike {@link Op.Outcome.match}, handlers do not need to agree on one return type — unrelated
+	 * handler returns widen to their union. Prefer this form for direct elimination outside
+	 * pipelines (render bodies, one-off branches); use {@link Op.Outcome.match} inside `pipe`.
+	 *
+	 * @example
+	 * ```ts
+	 * const unwrapped = Op.Outcome.matchValue(outcome, {
+	 *   ok: (value) => value,
+	 *   err: (error) => error,
+	 *   nil: (reason) => reason,
+	 * }); // union of handler returns
+	 * ```
+	 */
+	matchValue: matchValueOutcome,
 
 	/**
 	 * Returns the value if Ok, otherwise executes the fallback function and returns its result.

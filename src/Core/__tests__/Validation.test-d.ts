@@ -319,3 +319,72 @@ test("struct: accepts interface-typed records of containers", () => {
 	const form: LoginForm = { name: Validation.make.passed("a"), age: Validation.make.passed(1) };
 	expectTypeOf(Validation.struct(form)).toEqualTypeOf<Validation<string, { name: string; age: number; }>>();
 });
+
+test("matchValue: keeps handler payload channels typed", () => {
+	type Profile = { email: string; };
+	const profile = { email: "alice@example.com" };
+	const validation = constTruthyBool() ? Validation.make.passed(profile) : Validation.make.failedAll(["invalid email"]);
+
+	const out = Validation.matchValue(validation, {
+		passed: (value) => {
+			expectTypeOf(value).toEqualTypeOf<Profile>();
+			return value.email;
+		},
+		failed: (errors) => {
+			expectTypeOf(errors).toEqualTypeOf<NonEmptyArr<string>>();
+			return errors.join("; ");
+		},
+	});
+	expectTypeOf(out).toEqualTypeOf<string>();
+});
+
+test("matchValue: collapses same-type handler returns", () => {
+	const profile = { email: "alice@example.com" };
+	const validation = constTruthyBool() ? Validation.make.passed(profile) : Validation.make.failedAll(["invalid email"]);
+
+	const summary = Validation.matchValue(validation, {
+		passed: (value) => value.email,
+		failed: (errors) => errors.join("; "),
+	});
+	expectTypeOf(summary).toEqualTypeOf<string>();
+});
+
+test("match: pipe form unifies disjoint handler returns when one return is annotated", () => {
+	type Profile = { email: string; };
+	const profile = { email: "alice@example.com" };
+	const validation = constTruthyBool() ? Validation.make.passed(profile) : Validation.make.failedAll(["invalid email"]);
+
+	const out = pipe(
+		validation,
+		Validation.match({ passed: (value): Profile | NonEmptyArr<string> => value, failed: (errors) => errors }),
+	);
+	expectTypeOf(out).toEqualTypeOf<Profile | NonEmptyArr<string>>();
+});
+
+test("matchValue: widens unrelated handler returns to their union", () => {
+	type Profile = { email: string; };
+	const profile = { email: "alice@example.com" };
+	const validation = constTruthyBool() ? Validation.make.passed(profile) : Validation.make.failedAll(["invalid email"]);
+
+	const out = Validation.matchValue(validation, { passed: (value) => value, failed: (errors) => errors });
+	expectTypeOf(out).toEqualTypeOf<Profile | NonEmptyArr<string>>();
+});
+
+test("match: curried pipe form infers payload channels from the piped data", () => {
+	const profile = { email: "alice@example.com" };
+	const validation = constTruthyBool() ? Validation.make.passed(profile) : Validation.make.failedAll(["invalid email"]);
+
+	const rendered = pipe(
+		validation,
+		Validation.match({ passed: (value) => value.email, failed: (errors) => errors.join("; ") }),
+	);
+	expectTypeOf(rendered).toEqualTypeOf<string>();
+});
+
+test("negative: matchValue cases must be exhaustive", () => {
+	const profile = { email: "alice@example.com" };
+	const validation = constTruthyBool() ? Validation.make.passed(profile) : Validation.make.failedAll(["invalid email"]);
+
+	// @ts-expect-error Missing 'failed' handler in matchValue cases
+	expectTypeOf(Validation.matchValue(validation, { passed: (value) => value })).toBeObject();
+});

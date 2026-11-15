@@ -280,6 +280,47 @@ test("Outcome.match: correctly matches ok, missing, and err cases", () => {
 	expect(matcher(errOutcome)).toBe("err:Boom");
 });
 
+test("Outcome.matchValue: matches ok, missing, and err cases", () => {
+	expect(
+		Batcher.Outcome.matchValue(Batcher.Outcome.make.ok("hello"), {
+			ok: (v) => `value:${v}`,
+			missing: (k) => `missing:${k}`,
+			err: (e) => `err:${e}`,
+		}),
+	).toBe("value:hello");
+	expect(
+		Batcher.Outcome.matchValue(Batcher.Outcome.make.missing("missing_id"), {
+			ok: (v) => `value:${v}`,
+			missing: (k) => `missing:${k}`,
+			err: (e) => `err:${e}`,
+		}),
+	).toBe("missing:missing_id");
+	expect(
+		Batcher.Outcome.matchValue(Batcher.Outcome.make.err(new Error("Boom")), {
+			ok: (v) => `value:${v}`,
+			missing: (k) => `missing:${k}`,
+			err: (e) => `err:${e.message}`,
+		}),
+	).toBe("err:Boom");
+});
+
+test("Outcome.matchValue: runs only the matching handler", () => {
+	let called = false;
+	const result = Batcher.Outcome.matchValue(Batcher.Outcome.make.err(new Error("Boom")), {
+		ok: () => {
+			called = true;
+			return "ok";
+		},
+		missing: () => {
+			called = true;
+			return "missing";
+		},
+		err: (e) => `err:${e.message}`,
+	});
+	expect(result).toBe("err:Boom");
+	expect(called).toBe(false);
+});
+
 test("Outcome.map: transforms value on ok and leaves missing and err untouched", () => {
 	const ok = Batcher.Outcome.make.ok(10);
 	const missing = Batcher.Outcome.make.missing("k");

@@ -1,3 +1,4 @@
+import { constFalseBool, constTruthyBool } from "#test-utils";
 import { expect, expectTypeOf, test } from "vitest";
 import { pipe } from "../../Composition/pipe.ts";
 import { Pair } from "../Pair.ts";
@@ -280,6 +281,59 @@ test("match: calls both handler for Both", () => {
 				both: (a: number, b: string) => `both:${a}/${b}`,
 			}),
 		),
+	).toBe("both:5/w");
+});
+
+// ---------------------------------------------------------------------------
+// matchValue
+// ---------------------------------------------------------------------------
+
+test("matchValue: accepts the data as the first argument", () => {
+	const toLabel = {
+		first: (a: number) => `first:${a}`,
+		second: (b: string) => `second:${b}`,
+		both: (a: number, b: string) => `both:${a}/${b}`,
+	};
+	const theseFor = (variant: "first" | "second" | "both"): These<number, string> =>
+		variant === "first" ? These.make.first(5) : variant === "second" ? These.make.second("e") : These.make.both(5, "w");
+
+	expect(These.matchValue(theseFor("first"), toLabel)).toBe("first:5");
+	expect(These.matchValue(theseFor("second"), toLabel)).toBe("second:e");
+	expect(These.matchValue(theseFor("both"), toLabel)).toBe("both:5/w");
+});
+
+test("matchValue: isolates side effects to the matching branch", () => {
+	let bothCalled = false;
+	const firstValue: These<number, string> = constFalseBool() ? These.make.second("w") : These.make.first(5);
+	const outcome = These.matchValue(firstValue, {
+		first: (a: number) => a * 2,
+		second: (b: string) => b.length,
+		both: (a: number, b: string) => {
+			bothCalled = true;
+			return a + b.length;
+		},
+	});
+	expect(outcome).toBe(10);
+	expect(bothCalled).toBe(false);
+});
+
+test("matchValue: operates on un-narrowed union type without CFA narrowing", () => {
+	const naturalFirst: These<number, string> = constTruthyBool() ? These.make.first(5) : These.make.second("w");
+	expect(
+		These.matchValue(naturalFirst, {
+			first: (a) => `first:${a}`,
+			second: (b) => `second:${b}`,
+			both: (a, b) => `both:${a}/${b}`,
+		}),
+	).toBe("first:5");
+
+	const naturalBoth: These<number, string> = constFalseBool() ? These.make.first(5) : These.make.both(5, "w");
+	expect(
+		These.matchValue(naturalBoth, {
+			first: (a) => `first:${a}`,
+			second: (b) => `second:${b}`,
+			both: (a, b) => `both:${a}/${b}`,
+		}),
 	).toBe("both:5/w");
 });
 

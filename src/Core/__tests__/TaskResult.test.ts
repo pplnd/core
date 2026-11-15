@@ -170,6 +170,43 @@ test("match: is data-last (returns a function first)", async () => {
 	expect(errResult).toBe("err: x");
 });
 
+test("matchValue: calls ok handler for Ok", async () => {
+	const result = await Task.Result.matchValue(Task.Result.make.ok(5), {
+		ok: (n) => `got ${n}`,
+		err: (e) => `failed: ${e}`,
+	})();
+	expect(result).toBe("got 5");
+});
+
+test("matchValue: calls only the err handler for Err", async () => {
+	let okCalled = false;
+	const result = await Task.Result.matchValue(Task.Result.make.err("bad"), {
+		ok: (n) => {
+			okCalled = true;
+			return `got ${n}`;
+		},
+		err: (e) => `failed: ${e}`,
+	})();
+	expect(result).toBe("failed: bad");
+	expect(okCalled).toBe(false);
+});
+
+test("matchValue: returns a lazy Task that runs on invocation", async () => {
+	let ran = false;
+	const matched = Task.Result.matchValue(
+		pipe(
+			Task.Result.make.ok(5),
+			Task.Result.tap(() => {
+				ran = true;
+			}),
+		),
+		{ ok: (n) => `got ${n}`, err: (e) => `failed: ${e}` },
+	);
+	expect(ran).toBe(false);
+	await expect(matched()).resolves.toBe("got 5");
+	expect(ran).toBe(true);
+});
+
 // ---------------------------------------------------------------------------
 // recover
 // ---------------------------------------------------------------------------

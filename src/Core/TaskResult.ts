@@ -1,4 +1,4 @@
-import { type KeysOfUnion, Thenable } from "../internal/InternalTypes";
+import { type KeysOfUnion, type MatchHandlerReturn, Thenable } from "../internal/InternalTypes";
 import { toPositiveInteger } from "../internal/Numbers.ts";
 import { isBudgetExhausted, normalizeBudgetMs } from "../internal/RetryBudget.ts";
 import { clampTimerDelay } from "../internal/timers.ts";
@@ -37,6 +37,27 @@ const chainTaskResult =
 				? transform(result.value)
 				: Task.make(CoreResult.make.err(result.error) as Result<E1 | E2, B>)
 		)(task);
+
+const matchTaskResultCases =
+	<E, A, B>(cases: { err: (error: E) => B; ok: (value: A) => B; }) => (task: Task.Result<E, A>): Task<B> =>
+		Task.map(CoreResult.match<E, A, B>(cases))(task);
+
+type MatchTaskResultCases<E, A> = { err: (error: E) => unknown; ok: (value: A) => unknown; };
+
+function matchTaskResult<E, A, B>(
+	cases: { err: (error: E) => B; ok: (value: A) => B; },
+): (task: Task.Result<E, A>) => Task<B>;
+function matchTaskResult(cases: any): any {
+	return matchTaskResultCases(cases);
+}
+
+function matchValueTaskResult<E, A, const Cases extends MatchTaskResultCases<E, A>>(
+	task: Task.Result<E, A>,
+	cases: Cases,
+): Task<MatchHandlerReturn<Cases>>;
+function matchValueTaskResult(task: Task.Result<any, any>, cases: any): any {
+	return matchTaskResultCases(cases)(task);
+}
 
 export const TaskResult = {
 	make: {
@@ -210,6 +231,14 @@ export const TaskResult = {
 	/**
 	 * Pattern matches on a Task.Result, returning a Task of the result.
 	 *
+	 * The curried form infers payload types inside `pipe`; a standalone curried mapper requires
+	 * annotated handler parameters. All handlers share one return type: when handlers return
+	 * unrelated types, give one handler an explicit union return annotation — TypeScript unifies
+	 * the shared return on it.
+	 *
+	 * @see {@link Task.Result.matchValue} to dispatch on a Task directly and return the union of
+	 * handler returns.
+	 *
 	 * @example
 	 * ```ts
 	 * pipe(
@@ -221,8 +250,24 @@ export const TaskResult = {
 	 * ); // Task resolving to "Got 42"
 	 * ```
 	 */
-	match: <E, A, B>(cases: { err: (error: E) => B; ok: (value: A) => B; }) => (task: Task.Result<E, A>): Task<B> =>
-		Task.map(CoreResult.match<E, A, B>(cases))(task),
+	match: matchTaskResult,
+
+	/**
+	 * Dispatches on a Task.Result value directly, returning a Task of the union of handler returns.
+	 *
+	 * Unlike {@link Task.Result.match}, handlers do not need to agree on one return type — unrelated
+	 * handler returns widen to their union. Prefer this form for direct elimination outside
+	 * pipelines; use {@link Task.Result.match} inside `pipe`. The returned Task stays lazy.
+	 *
+	 * @example
+	 * ```ts
+	 * const label = Task.Result.matchValue(loadUser, {
+	 *   ok: user => user,
+	 *   err: error => error,
+	 * }); // Task resolving to the union of handler returns
+	 * ```
+	 */
+	matchValue: matchValueTaskResult,
 
 	/**
 	 * Recovers from an error by providing a fallback Task.Result.

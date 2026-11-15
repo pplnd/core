@@ -1,3 +1,4 @@
+import { constTruthyBool } from "#test-utils";
 import { expectTypeOf, test } from "vitest";
 import { pipe } from "../../Composition/pipe.ts";
 import { type Maybe } from "../Maybe.ts";
@@ -66,4 +67,52 @@ test("from.nullable: strips null and undefined from the success channel", () => 
 test("to.Result: absent success channel stays never", () => {
 	const result = Task.Maybe.to.Result(() => "missing")(Task.Maybe.make.none());
 	expectTypeOf(result).toEqualTypeOf<Task.Result<"missing", never>>();
+});
+
+test("matchValue: infers the value channel from the task", () => {
+	const task = constTruthyBool() ? Task.Maybe.make.some(42) : Task.Maybe.make.none<number>();
+
+	const unified = Task.Maybe.matchValue(task, {
+		some: (value) => {
+			expectTypeOf(value).toEqualTypeOf<number>();
+			return `got:${value}`;
+		},
+		none: () => "empty",
+	});
+	expectTypeOf(unified).toEqualTypeOf<Task<string>>();
+});
+
+test("matchValue: unifies distinct handler returns into one type", () => {
+	const task = constTruthyBool() ? Task.Maybe.make.some(42) : Task.Maybe.make.none<number>();
+
+	const code = Task.Maybe.matchValue(task, { some: (value) => value, none: () => 0 });
+	expectTypeOf(code).toEqualTypeOf<Task<number>>();
+});
+
+test("match: pipe form unifies disjoint handler returns when one handler annotates the union", () => {
+	const task: Task.Maybe<number> = constTruthyBool() ? Task.Maybe.make.some(42) : Task.Maybe.make.none<number>();
+
+	const payload = pipe(task, Task.Maybe.match({ some: (value) => value, none: (): number | string => "empty" }));
+	expectTypeOf(payload).toEqualTypeOf<Task<number | string>>();
+});
+
+test("match: curried pipe form unifies handler returns into one type", () => {
+	const task: Task.Maybe<number> = constTruthyBool() ? Task.Maybe.make.some(42) : Task.Maybe.make.none<number>();
+
+	const piped = pipe(task, Task.Maybe.match({ some: (v) => `got:${v}`, none: () => "empty" }));
+	expectTypeOf(piped).toEqualTypeOf<Task<string>>();
+});
+
+test("matchValue: negative — requires every handler", () => {
+	const task = constTruthyBool() ? Task.Maybe.make.some(42) : Task.Maybe.make.none<number>();
+
+	// @ts-expect-error Missing 'some' handler in matchValue cases
+	expectTypeOf(Task.Maybe.matchValue(task, { none: () => 0 })).toBeFunction();
+});
+
+test("matchValue: auto-unifies disjoint handler returns into their union", () => {
+	const task = constTruthyBool() ? Task.Maybe.make.some(42) : Task.Maybe.make.none<number>();
+
+	const out = Task.Maybe.matchValue(task, { some: (v) => v, none: () => "empty" });
+	expectTypeOf(out).toEqualTypeOf<Task<number | string>>();
 });

@@ -186,6 +186,43 @@ test("match: calls invalid handler for Invalid", async () => {
 	).resolves.toBe("errs:oops");
 });
 
+test("matchValue: calls passed handler for Passed", async () => {
+	const result = await Task.Validation.matchValue(Task.Validation.make.passed(5), {
+		passed: (n) => `got:${n}`,
+		failed: (errs) => `errs:${errs.join(",")}`,
+	})();
+	expect(result).toBe("got:5");
+});
+
+test("matchValue: calls only the failed handler for Failed", async () => {
+	let passedCalled = false;
+	const result = await Task.Validation.matchValue(Task.Validation.make.failedAll(["oops", "again"]), {
+		passed: (n) => {
+			passedCalled = true;
+			return `got:${n}`;
+		},
+		failed: (errs) => `errs:${errs.join(",")}`,
+	})();
+	expect(result).toBe("errs:oops,again");
+	expect(passedCalled).toBe(false);
+});
+
+test("matchValue: returns a lazy Task that runs on invocation", async () => {
+	let ran = false;
+	const matched = Task.Validation.matchValue(
+		pipe(
+			Task.Validation.make.passed(5),
+			Task.Validation.tap(() => {
+				ran = true;
+			}),
+		),
+		{ passed: (n) => `got:${n}`, failed: (errs) => `errs:${errs.join(",")}` },
+	);
+	expect(ran).toBe(false);
+	await expect(matched()).resolves.toBe("got:5");
+	expect(ran).toBe(true);
+});
+
 // --- getOrElse ---
 
 test("getOrElse: returns value for Valid", async () => {

@@ -183,3 +183,73 @@ test("getFirstOrElse: an absent first channel yields the fallback type, not unkn
 test("getSecondOrElse: an absent second channel yields the fallback type, not unknown", () => {
 	expectTypeOf(These.getSecondOrElse(() => "none")(These.make.first(5))).toEqualTypeOf<string>();
 });
+
+test("matchValue: keeps handler payload channels typed", () => {
+	const naturalUnion: These<number, string> = constTruthyBool() ? These.make.first(42) : These.make.second("warn");
+
+	const out = These.matchValue(naturalUnion, {
+		first: (value) => {
+			expectTypeOf(value).toEqualTypeOf<number>();
+			return value * 2;
+		},
+		second: (value) => {
+			expectTypeOf(value).toEqualTypeOf<string>();
+			return value.length;
+		},
+		both: (first, second) => {
+			expectTypeOf(first).toEqualTypeOf<number>();
+			expectTypeOf(second).toEqualTypeOf<string>();
+			return first + second.length;
+		},
+	});
+	expectTypeOf(out).toEqualTypeOf<number>();
+});
+
+test("matchValue: collapses same-type handler returns", () => {
+	const naturalUnion: These<number, string> = constTruthyBool() ? These.make.first(42) : These.make.second("warn");
+
+	const size = These.matchValue(naturalUnion, {
+		first: (value) => value,
+		second: (value) => value.length,
+		both: (first, second) => first + second.length,
+	});
+	expectTypeOf(size).toEqualTypeOf<number>();
+});
+
+test("match: pipe form unifies disjoint handler returns when one return is annotated", () => {
+	const naturalUnion: These<number, string> = constTruthyBool() ? These.make.first(42) : These.make.second("warn");
+
+	const out = pipe(
+		naturalUnion,
+		These.match({ first: (value): number | string => value, second: (value) => value, both: (first) => first }),
+	);
+	expectTypeOf(out).toEqualTypeOf<number | string>();
+});
+
+test("matchValue: widens unrelated handler returns to their union", () => {
+	const naturalUnion: These<number, string> = constTruthyBool() ? These.make.first(42) : These.make.second("warn");
+
+	const out = These.matchValue(naturalUnion, {
+		first: (value) => value,
+		second: (value) => value,
+		both: (first, second) => `${first}/${second}`,
+	});
+	expectTypeOf(out).toEqualTypeOf<number | string>();
+});
+
+test("match: curried pipe form infers both channels from the piped data", () => {
+	const naturalUnion: These<number, string> = constTruthyBool() ? These.make.first(42) : These.make.second("warn");
+
+	const rendered = pipe(
+		naturalUnion,
+		These.match({ first: (value) => `n:${value}`, second: (value) => `s:${value}`, both: (f, s) => `${f}-${s}` }),
+	);
+	expectTypeOf(rendered).toEqualTypeOf<string>();
+});
+
+test("negative: matchValue cases must be exhaustive", () => {
+	const naturalUnion: These<number, string> = constTruthyBool() ? These.make.first(42) : These.make.second("warn");
+
+	// @ts-expect-error Missing 'both' handler in matchValue cases
+	expectTypeOf(These.matchValue(naturalUnion, { first: (v) => v, second: (v) => v.length })).toBeNumber();
+});

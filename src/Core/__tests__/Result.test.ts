@@ -223,6 +223,39 @@ test("match: operates on un-narrowed union type without CFA narrowing", () => {
 });
 
 // ---------------------------------------------------------------------------
+// matchValue
+// ---------------------------------------------------------------------------
+
+test("matchValue: accepts the data as the first argument", () => {
+	expect(Result.matchValue(Result.make.ok(5), { ok: (n) => `got ${n}`, err: (e) => `failed: ${e}` })).toBe("got 5");
+	expect(Result.matchValue(Result.make.err("bad"), { ok: (n) => `got ${n}`, err: (e) => `failed: ${e}` })).toBe(
+		"failed: bad",
+	);
+});
+
+test("matchValue: isolates side effects to the matching branch", () => {
+	let okCalled = false;
+	const errValue: Result<string, number> = constFalseBool() ? Result.make.ok(1) : Result.make.err("ERR_A");
+	const outcome = Result.matchValue(errValue, {
+		ok: (n: number) => {
+			okCalled = true;
+			return n;
+		},
+		err: (e) => e.length,
+	});
+	expect(outcome).toBe(5);
+	expect(okCalled).toBe(false);
+});
+
+test("matchValue: operates on un-narrowed union type without CFA narrowing", () => {
+	const naturalOk: Result<string, number> = constTruthyBool() ? Result.make.ok(42) : Result.make.err("e");
+	expect(Result.matchValue(naturalOk, { ok: (n) => `ok:${n}`, err: (e) => `err:${e}` })).toBe("ok:42");
+
+	const naturalErr: Result<string, number> = constFalseBool() ? Result.make.ok(42) : Result.make.err("e");
+	expect(Result.matchValue(naturalErr, { ok: (n) => `ok:${n}`, err: (e) => `err:${e}` })).toBe("err:e");
+});
+
+// ---------------------------------------------------------------------------
 // getOrElse
 // ---------------------------------------------------------------------------
 

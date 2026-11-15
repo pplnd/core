@@ -1,4 +1,4 @@
-import { constTruthyBool } from "#test-utils";
+import { constFalseBool, constTruthyBool } from "#test-utils";
 import { expect, expectTypeOf, test } from "vitest";
 import { pipe } from "../../Composition/pipe.ts";
 import { Maybe } from "../Maybe.ts";
@@ -245,6 +245,76 @@ test("match: works in pipe", () => {
 		}),
 	);
 	expect(result).toBe("s:42");
+});
+
+// ---------------------------------------------------------------------------
+// matchValue
+// ---------------------------------------------------------------------------
+
+test("matchValue: accepts the data as the first argument", () => {
+	const toLabel = {
+		notAsked: () => "na",
+		loading: () => "ld",
+		failure: (e: string) => `f:${e}`,
+		success: (v: number) => `s:${v}`,
+	};
+	const stateFor = (variant: "notAsked" | "loading" | "failure" | "success"): RemoteData<string, number> =>
+		variant === "notAsked"
+			? RemoteData.make.notAsked()
+			: variant === "loading"
+			? RemoteData.make.loading()
+			: variant === "failure"
+			? RemoteData.make.failure("x")
+			: RemoteData.make.success(1);
+
+	expect(RemoteData.matchValue(stateFor("notAsked"), toLabel)).toBe("na");
+	expect(RemoteData.matchValue(stateFor("loading"), toLabel)).toBe("ld");
+	expect(RemoteData.matchValue(stateFor("failure"), toLabel)).toBe("f:x");
+	expect(RemoteData.matchValue(stateFor("success"), toLabel)).toBe("s:1");
+});
+
+test("matchValue: isolates side effects to the matching branch", () => {
+	let successCalled = false;
+	const failedState: RemoteData<string, number> = constFalseBool()
+		? RemoteData.make.success(1)
+		: RemoteData.make.failure("ERR_FETCH");
+	const outcome = RemoteData.matchValue(failedState, {
+		notAsked: () => 0,
+		loading: () => 0,
+		failure: (e) => e.length,
+		success: (v: number) => {
+			successCalled = true;
+			return v;
+		},
+	});
+	expect(outcome).toBe(9);
+	expect(successCalled).toBe(false);
+});
+
+test("matchValue: operates on un-narrowed union type without CFA narrowing", () => {
+	const naturalSuccess: RemoteData<string, number> = constTruthyBool()
+		? RemoteData.make.success(42)
+		: RemoteData.make.failure("err");
+	expect(
+		RemoteData.matchValue(naturalSuccess, {
+			notAsked: () => "na",
+			loading: () => "ld",
+			failure: (e) => `f:${e}`,
+			success: (v) => `s:${v}`,
+		}),
+	).toBe("s:42");
+
+	const naturalFailure: RemoteData<string, number> = constFalseBool()
+		? RemoteData.make.success(42)
+		: RemoteData.make.failure("err");
+	expect(
+		RemoteData.matchValue(naturalFailure, {
+			notAsked: () => "na",
+			loading: () => "ld",
+			failure: (e) => `f:${e}`,
+			success: (v) => `s:${v}`,
+		}),
+	).toBe("f:err");
 });
 
 // ---------------------------------------------------------------------------

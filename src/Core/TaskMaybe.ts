@@ -1,4 +1,4 @@
-import { type KeysOfUnion, type Thenable } from "../internal/InternalTypes";
+import { type KeysOfUnion, type MatchHandlerReturn, type Thenable } from "../internal/InternalTypes";
 import { Deferred } from "./Deferred.ts";
 import { type Maybe, Maybe as CoreMaybe } from "./Maybe.ts";
 import { type Result, Result as CoreResult } from "./Result.ts";
@@ -14,6 +14,25 @@ const chainTaskMaybe = <A, B>(transform: (value: A) => Task.Maybe<B>) => (task: 
 	Task.chain((
 		maybe: Maybe<A>,
 	) => (CoreMaybe.is.some(maybe) ? transform(maybe.value) : Task.make(CoreMaybe.make.none())))(task);
+
+const matchTaskMaybeCases =
+	<A, B>(cases: { none: () => B; some: (value: A) => B; }) => (task: Task.Maybe<A>): Task<B> =>
+		Task.map(CoreMaybe.match(cases))(task);
+
+type MatchTaskMaybeCases<A> = { none: () => unknown; some: (value: A) => unknown; };
+
+function matchTaskMaybe<A, B>(cases: { none: () => B; some: (value: A) => B; }): (task: Task.Maybe<A>) => Task<B>;
+function matchTaskMaybe(cases: any): any {
+	return matchTaskMaybeCases(cases);
+}
+
+function matchValueTaskMaybe<A, const Cases extends MatchTaskMaybeCases<A>>(
+	task: Task.Maybe<A>,
+	cases: Cases,
+): Task<MatchHandlerReturn<Cases>>;
+function matchValueTaskMaybe(task: Task.Maybe<any>, cases: any): any {
+	return matchTaskMaybeCases(cases)(task);
+}
 
 export const TaskMaybe = {
 	/**
@@ -169,6 +188,14 @@ export const TaskMaybe = {
 	/**
 	 * Pattern matches on a Task.Maybe, returning a Task of the result.
 	 *
+	 * The curried form infers payload types inside `pipe`; a standalone curried mapper requires
+	 * annotated handler parameters. All handlers share one return type: when handlers return
+	 * unrelated types, give one handler an explicit union return annotation — TypeScript unifies
+	 * the shared return on it.
+	 *
+	 * @see {@link Task.Maybe.matchValue} to dispatch on a Task directly and return the union of
+	 * handler returns.
+	 *
 	 * @example
 	 * ```ts
 	 * pipe(
@@ -180,8 +207,24 @@ export const TaskMaybe = {
 	 * )();
 	 * ```
 	 */
-	match: <A, B>(cases: { none: () => B; some: (value: A) => B; }) => (task: Task.Maybe<A>): Task<B> =>
-		Task.map(CoreMaybe.match(cases))(task),
+	match: matchTaskMaybe,
+
+	/**
+	 * Dispatches on a Task.Maybe value directly, returning a Task of the union of handler returns.
+	 *
+	 * Unlike {@link Task.Maybe.match}, handlers do not need to agree on one return type — unrelated
+	 * handler returns widen to their union. Prefer this form for direct elimination outside
+	 * pipelines; use {@link Task.Maybe.match} inside `pipe`. The returned Task stays lazy.
+	 *
+	 * @example
+	 * ```ts
+	 * const label = Task.Maybe.matchValue(findUser("123"), {
+	 *   some: user => user.name,
+	 *   none: () => "Anonymous",
+	 * }); // Task resolving to string
+	 * ```
+	 */
+	matchValue: matchValueTaskMaybe,
 
 	/**
 	 * Returns the value or a default if the Task.Maybe resolves to None.

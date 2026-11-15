@@ -1,7 +1,7 @@
 // =============================================================================
 // Imports
 // =============================================================================
-import type { WithError, WithKind, WithValue } from "../internal/InternalTypes";
+import type { MatchHandlerReturn, WithError, WithKind, WithValue } from "../internal/InternalTypes";
 import { type Maybe, Maybe as CoreMaybe } from "./Maybe.ts";
 import type { Op } from "./Op.ts";
 import type { Predicate } from "./Predicate.ts";
@@ -66,6 +66,47 @@ type StructValueOf<T> = T extends RemoteData.Success<infer A> ? A : never;
 // =============================================================================
 // Public Export
 // =============================================================================
+const matchRemoteDataCases =
+	<E, A, B>(cases: { notAsked: () => B; loading: () => B; failure: (error: E) => B; success: (value: A) => B; }) =>
+	(remoteData: RemoteData<E, A>): B => {
+		switch (remoteData.kind) {
+			case "NotAsked": {
+				return cases.notAsked();
+			}
+			case "Loading": {
+				return cases.loading();
+			}
+			case "Failure": {
+				return cases.failure(remoteData.error);
+			}
+			case "Success": {
+				return cases.success(remoteData.value);
+			}
+		}
+	};
+
+type MatchRemoteDataCases<E, A> = {
+	notAsked: () => unknown;
+	loading: () => unknown;
+	failure: (error: E) => unknown;
+	success: (value: A) => unknown;
+};
+
+function matchRemoteData<E, A, B>(
+	cases: { notAsked: () => B; loading: () => B; failure: (error: E) => B; success: (value: A) => B; },
+): (remoteData: RemoteData<E, A>) => B;
+function matchRemoteData(cases: any): any {
+	return matchRemoteDataCases(cases);
+}
+
+function matchValueRemoteData<E, A, const Cases extends MatchRemoteDataCases<E, A>>(
+	remoteData: RemoteData<E, A>,
+	cases: Cases,
+): MatchHandlerReturn<Cases>;
+function matchValueRemoteData(remoteData: RemoteData<any, any>, cases: any): any {
+	return matchRemoteDataCases(cases)(remoteData);
+}
+
 export const RemoteData = {
 	make: {
 		/**
@@ -293,6 +334,14 @@ export const RemoteData = {
 	/**
 	 * Pattern matches on a RemoteData, returning the result of the matching case.
 	 *
+	 * The curried form infers payload types inside `pipe`; a standalone curried mapper requires
+	 * annotated handler parameters. All handlers share one return type: when handlers return
+	 * unrelated types, give one handler an explicit union return annotation — TypeScript unifies
+	 * the shared return on it.
+	 *
+	 * @see {@link RemoteData.matchValue} to dispatch on a value directly and return the union of
+	 * handler returns.
+	 *
 	 * @example
 	 * ```ts
 	 * pipe(
@@ -306,24 +355,26 @@ export const RemoteData = {
 	 * );
 	 * ```
 	 */
-	match:
-		<E, A, B>(cases: { notAsked: () => B; loading: () => B; failure: (error: E) => B; success: (value: A) => B; }) =>
-		(remoteData: RemoteData<E, A>): B => {
-			switch (remoteData.kind) {
-				case "NotAsked": {
-					return cases.notAsked();
-				}
-				case "Loading": {
-					return cases.loading();
-				}
-				case "Failure": {
-					return cases.failure(remoteData.error);
-				}
-				case "Success": {
-					return cases.success(remoteData.value);
-				}
-			}
-		},
+	match: matchRemoteData,
+
+	/**
+	 * Dispatches on a RemoteData value directly, returning the union of handler returns.
+	 *
+	 * Unlike {@link RemoteData.match}, handlers do not need to agree on one return type — unrelated
+	 * handler returns widen to their union. Prefer this form for direct elimination outside
+	 * pipelines (render bodies, one-off branches); use {@link RemoteData.match} inside `pipe`.
+	 *
+	 * @example
+	 * ```ts
+	 * const unwrapped = RemoteData.matchValue(userData, {
+	 *   notAsked: () => null,
+	 *   loading: () => null,
+	 *   failure: error => error,
+	 *   success: user => user,
+	 * }); // Error | User | null
+	 * ```
+	 */
+	matchValue: matchValueRemoteData,
 
 	/**
 	 * Returns the success value or a default value if the RemoteData is not Success.

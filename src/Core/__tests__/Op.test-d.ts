@@ -543,3 +543,85 @@ test("dedupe: accepts combinator-built Equality values", () => {
 	const manager = Op.interpret(op, { strategy: "queue", concurrency: 1, dedupe });
 	expectTypeOf(manager.run).toBeFunction();
 });
+
+test("matchValue: infers payload channels from the outcome", () => {
+	const outcome = constTruthyBool()
+		? Op.Outcome.make.ok(42)
+		: constTruthyBool()
+		? Op.Outcome.make.err("ERR_A")
+		: Op.Outcome.make.nil("aborted");
+
+	const unified = Op.Outcome.matchValue(outcome, {
+		ok: (value) => {
+			expectTypeOf(value).toEqualTypeOf<number>();
+			return `ok:${value}`;
+		},
+		err: (error) => {
+			expectTypeOf(error).toEqualTypeOf<"ERR_A">();
+			return `err:${error}`;
+		},
+		nil: (reason) => {
+			expectTypeOf(reason).toEqualTypeOf<Op.NilReason>();
+			return `nil:${reason}`;
+		},
+	});
+	expectTypeOf(unified).toEqualTypeOf<string>();
+});
+
+test("matchValue: unifies distinct handler returns into one type", () => {
+	const outcome = constTruthyBool()
+		? Op.Outcome.make.ok(42)
+		: constTruthyBool()
+		? Op.Outcome.make.err("ERR_A")
+		: Op.Outcome.make.nil("aborted");
+
+	const code = Op.Outcome.matchValue(outcome, {
+		ok: (value) => value,
+		err: (error) => error.length,
+		nil: (reason) => reason.length,
+	});
+	expectTypeOf(code).toEqualTypeOf<number>();
+});
+
+test("match: pipe form unifies disjoint handler returns when one handler annotates the union", () => {
+	const outcome = constTruthyBool()
+		? Op.Outcome.make.ok(42)
+		: constTruthyBool()
+		? Op.Outcome.make.err("ERR_A")
+		: Op.Outcome.make.nil("aborted");
+
+	const payload = pipe(
+		outcome,
+		Op.Outcome.match({
+			ok: (value) => value,
+			err: (error): number | "ERR_A" | Op.NilReason => error,
+			nil: (reason) => reason,
+		}),
+	);
+	expectTypeOf(payload).toEqualTypeOf<number | "ERR_A" | Op.NilReason>();
+});
+
+test("match: curried pipe form unifies handler returns into one type", () => {
+	const outcome = constTruthyBool() ? Op.Outcome.make.ok(42) : Op.Outcome.make.err("ERR_A");
+
+	const matched = pipe(outcome, Op.Outcome.match({ ok: (v) => `ok:${v}`, err: (e) => `err:${e}`, nil: () => "nil" }));
+	expectTypeOf(matched).toEqualTypeOf<string>();
+});
+
+test("matchValue: negative — requires every handler", () => {
+	const outcome = constTruthyBool() ? Op.Outcome.make.ok(42) : Op.Outcome.make.err("ERR_A");
+
+	// @ts-expect-error Missing 'nil' handler in matchValue cases
+	expectTypeOf(Op.Outcome.matchValue(outcome, { ok: () => 0, err: () => 0 })).toBeNumber();
+});
+
+test("matchValue: auto-unifies disjoint handler returns into their union", () => {
+	const outcome = constTruthyBool()
+		? Op.Outcome.make.ok(42)
+		: constTruthyBool()
+		? Op.Outcome.make.err("ERR_A")
+		: Op.Outcome.make.nil("aborted");
+
+	const out = Op.Outcome.matchValue(outcome, { ok: (v) => v, err: (e) => e, nil: (r) => r });
+	expectTypeOf(out).toEqualTypeOf<number | "ERR_A" | Op.NilReason>();
+});

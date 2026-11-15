@@ -1,4 +1,4 @@
-import type { WithFirst, WithKind, WithSecond } from "../internal/InternalTypes";
+import type { MatchHandlerReturn, WithFirst, WithKind, WithSecond } from "../internal/InternalTypes";
 import { type Maybe, Maybe as CoreMaybe } from "./Maybe.ts";
 import { type Pair, Pair as CorePair } from "./Pair.ts";
 
@@ -46,6 +46,35 @@ const hasFirst = <A, B>(these: These<A, B>): these is These.First<A> | These.Bot
 
 const hasSecond = <A, B>(these: These<A, B>): these is These.Second<B> | These.Both<A, B> =>
 	these.kind === "Second" || these.kind === "Both";
+
+const matchTheseCases =
+	<A, B, C>(cases: { first: (first: A) => C; second: (second: B) => C; both: (first: A, second: B) => C; }) =>
+	(these: These<A, B>): C => {
+		if (isSecond(these)) { return cases.second(these.second); }
+		if (isFirst(these)) { return cases.first(these.first); }
+		return cases.both(these.first, these.second);
+	};
+
+type MatchTheseCases<A, B> = {
+	first: (first: A) => unknown;
+	second: (second: B) => unknown;
+	both: (first: A, second: B) => unknown;
+};
+
+function matchThese<A, B, C>(
+	cases: { first: (first: A) => C; second: (second: B) => C; both: (first: A, second: B) => C; },
+): (these: These<A, B>) => C;
+function matchThese(cases: any): any {
+	return matchTheseCases(cases);
+}
+
+function matchValueThese<A, B, const Cases extends MatchTheseCases<A, B>>(
+	these: These<A, B>,
+	cases: Cases,
+): MatchHandlerReturn<Cases>;
+function matchValueThese(these: These<any, any>, cases: any): any {
+	return matchTheseCases(cases)(these);
+}
 
 export const These = {
 	make: {
@@ -253,6 +282,14 @@ export const These = {
 	/**
 	 * Pattern matches on a These, returning the result of the matching case.
 	 *
+	 * The curried form infers payload types inside `pipe`; a standalone curried mapper requires
+	 * annotated handler parameters. All handlers share one return type: when handlers return
+	 * unrelated types, give one handler an explicit union return annotation — TypeScript unifies
+	 * the shared return on it.
+	 *
+	 * @see {@link These.matchValue} to dispatch on a value directly and return the union of handler
+	 * returns.
+	 *
 	 * @example
 	 * ```ts
 	 * pipe(
@@ -265,13 +302,25 @@ export const These = {
 	 * );
 	 * ```
 	 */
-	match:
-		<A, B, C>(cases: { first: (first: A) => C; second: (second: B) => C; both: (first: A, second: B) => C; }) =>
-		(these: These<A, B>): C => {
-			if (isSecond(these)) { return cases.second(these.second); }
-			if (isFirst(these)) { return cases.first(these.first); }
-			return cases.both(these.first, these.second);
-		},
+	match: matchThese,
+
+	/**
+	 * Dispatches on a These value directly, returning the union of handler returns.
+	 *
+	 * Unlike {@link These.match}, handlers do not need to agree on one return type — unrelated
+	 * handler returns widen to their union. Prefer this form for direct elimination outside
+	 * pipelines (render bodies, one-off branches); use {@link These.match} inside `pipe`.
+	 *
+	 * @example
+	 * ```ts
+	 * const parts = These.matchValue(these, {
+	 *   first: first => first,
+	 *   second: second => second,
+	 *   both: (first, second) => [first, second],
+	 * }); // union of handler returns
+	 * ```
+	 */
+	matchValue: matchValueThese,
 
 	/**
 	 * Returns the first value, or a default if the These has no first value.

@@ -1,4 +1,4 @@
-import type { WithError, WithKind, WithValue } from "../internal/InternalTypes";
+import type { MatchHandlerReturn, WithError, WithKind, WithValue } from "../internal/InternalTypes";
 import { clampTimerDelay } from "../internal/timers.ts";
 import { Duration } from "../Types/Duration.ts";
 import { Aborted } from "./Aborted.ts";
@@ -141,7 +141,7 @@ const isErr = <E, V, K>(outcome: Batcher.Outcome<E, V, K>): outcome is Batcher.E
 const isMissing = <E, V, K>(outcome: Batcher.Outcome<E, V, K>): outcome is Batcher.Missing<K> =>
 	outcome.kind === "BatcherMissing";
 
-const matchOutcome =
+const matchOutcomeCases =
 	<E, V, K, B>(
 		cases: { readonly ok: (value: V) => B; readonly missing: (key: K) => B; readonly err: (error: E) => B; },
 	) =>
@@ -437,6 +437,27 @@ const makeBatcher = <K, E, V>(
 	return { load, loadMany, flush };
 };
 
+type MatchOutcomeCases<E, V, K> = {
+	readonly ok: (value: V) => unknown;
+	readonly missing: (key: K) => unknown;
+	readonly err: (error: E) => unknown;
+};
+
+function matchOutcome<E, V, K, B>(
+	cases: { readonly ok: (value: V) => B; readonly missing: (key: K) => B; readonly err: (error: E) => B; },
+): (outcome: Batcher.Outcome<E, V, K>) => B;
+function matchOutcome(cases: any): any {
+	return matchOutcomeCases(cases);
+}
+
+function matchValueOutcome<E, V, K, const Cases extends MatchOutcomeCases<E, V, K>>(
+	outcome: Batcher.Outcome<E, V, K>,
+	cases: Cases,
+): MatchHandlerReturn<Cases>;
+function matchValueOutcome(outcome: Batcher.Outcome<any, any, any>, cases: any): any {
+	return matchOutcomeCases(cases)(outcome);
+}
+
 export const Batcher = {
 	/**
 	 * Creates a batcher for a bulk load operation and optional batching settings.
@@ -554,11 +575,18 @@ export const Batcher = {
 		/**
 		 * Handles all three outcomes (`ok`, `missing`, `err`) and returns the selected result.
 		 *
+		 * The curried form infers payload types inside `pipe`; a standalone curried mapper requires
+		 * annotated handler parameters. All handlers share one return type: when handlers return
+		 * unrelated types, give one handler an explicit union return annotation — TypeScript unifies
+		 * the shared return on it.
+		 *
+		 * @see {@link Batcher.Outcome.matchValue} to dispatch on a value directly and return the
+		 * union of handler returns.
 		 * @see {@link Batcher.Outcome.getOrElse} to extract the value with a fallback.
 		 *
 		 * @example
 		 * ```ts
-		 * const status = pipe(
+		 * pipe(
 		 *   outcome,
 		 *   Batcher.Outcome.match({
 		 *     ok: (user) => 200,
@@ -569,6 +597,25 @@ export const Batcher = {
 		 * ```
 		 */
 		match: matchOutcome,
+
+		/**
+		 * Dispatches on a Batcher outcome directly, returning the union of handler returns.
+		 *
+		 * Unlike {@link Batcher.Outcome.match}, handlers do not need to agree on one return type —
+		 * unrelated handler returns widen to their union. Prefer this form for direct elimination
+		 * outside pipelines (render bodies, one-off branches); use {@link Batcher.Outcome.match}
+		 * inside `pipe`.
+		 *
+		 * @example
+		 * ```ts
+		 * const status = Batcher.Outcome.matchValue(outcome, {
+		 *   ok: () => 200,
+		 *   missing: () => 404,
+		 *   err: () => 500,
+		 * }); // 200 | 404 | 500
+		 * ```
+		 */
+		matchValue: matchValueOutcome,
 
 		/**
 		 * Transforms the value inside a `BatcherOk` outcome. Leaves `Missing` and `Err` unchanged.
