@@ -34,6 +34,7 @@
 		"build": "tsdown",
 		"test": "vitest run",
 		"test:coverage": "vitest run --coverage",
+		"test:types": "vitest run --typecheck.only",
 		"test:compiler": "vitest run --config vitest.compiler.config.ts && vitest run --config vitest.compiler-swc.config.ts",
 		"typecheck": "tsc --noEmit",
 		"check": "pnpm typecheck"

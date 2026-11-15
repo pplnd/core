@@ -28,7 +28,7 @@
 		"check:doc-snippets": "node scripts/check-doc-snippets.ts",
 		"check:doc-fixtures": "node scripts/check-doc-fixtures.ts",
 		"check:docs": "pnpm format:check && pnpm size:check && pnpm check:doc-links && pnpm check:doc-snippets && pnpm check:doc-fixtures && pnpm docs:build",
-		"check": "pnpm lint && pnpm format:check && pnpm test:types && pnpm typecheck && pnpm typecheck:min",
+		"check": "pnpm --filter @pplnd/core build && pnpm lint && pnpm format:check && pnpm test:types && pnpm typecheck && pnpm typecheck:min",
 		"check:pr": "pnpm check && pnpm build && pnpm test:coverage && pnpm test:compiler && pnpm check:docs"
 	},
 	"devDependencies": {
