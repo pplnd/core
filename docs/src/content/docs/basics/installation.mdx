@@ -26,7 +26,7 @@ All modules are grouped into four logical domains:
 
 ### Tree-Shaking & Bundle Impact
 
-All entry points are published with `"sideEffects": false` and structured as static constant objects without class prototypes or closure side-effects. Modern bundlers (Vite, Rollup, webpack, esbuild, Next.js) automatically tree-shake unused functions and modules, bundling only the specific symbols imported by your application.
+All entry points are published with `"sideEffects": false` and structured as static constant objects without class prototypes or closure side-effects. Modern bundlers (Vite, Rollup, webpack, esbuild, Next.js) automatically remove unused modules, bundling only the modules your application actually imports. [Design Notes](/appendix/design-notes/) explains how this granularity keeps the package small.
 
 {/* BUNDLE_TABLE:START */}
 ### Standalone Module Footprint (Tree-Shaken)

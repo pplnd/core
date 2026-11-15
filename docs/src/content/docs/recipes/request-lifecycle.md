@@ -149,7 +149,8 @@ A validation failure never reaches the network. A rejected request settles the m
 and the error produced by `Task.Result.tryCatch`. A timeout is an `OpErr` from `onTimeout`, not a
 cancellation: the deadline covers the whole retry sequence. Replacement and dropping are `OpNil`
 with a reason, and they are not request failures. If the caller aborts, the signal reaches the
-`fetch` call and the manager settles with [`Aborted`](/guides/aborted/).
+`fetch` call and cancels the request, while the manager settles with `OpNil("aborted")` — the same
+nil channel, also not a request failure.
 
 If the API can stay down for a while, wrap the same task in a
 [`CircuitBreaker`](/guides/circuit-breaker/) before the manager so repeated failures fail fast

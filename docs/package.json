@@ -5,7 +5,7 @@
 	"scripts": {
 		"dev": "astro dev",
 		"start": "astro dev",
-		"build": "astro build",
+		"build": "typedoc --options typedoc.api.json && astro build",
 		"preview": "astro preview",
 		"astro": "astro"
 	},

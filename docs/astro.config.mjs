@@ -68,12 +68,7 @@ export default defineConfig({
 					],
 					tsconfig: "../tsconfig.typedoc.json",
 					output: "api",
-					typeDoc: {
-						entryPointStrategy: "expand",
-						excludePrivate: true,
-						excludeInternal: true,
-						json: "public/typedoc.json",
-					},
+					typeDoc: { entryPointStrategy: "expand", excludePrivate: true, excludeInternal: true },
 					sidebar: { label: "API Reference", collapsed: true },
 				}),
 			],

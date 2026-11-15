@@ -185,9 +185,9 @@ boundary instead of corrupting the view.
 ## Failure behavior
 
 A rejected validation settles the manager with `OpErr` and emits `rejected`, which moves the machine
-to `failed`. A cancellation settles the manager with [`Aborted`](/guides/aborted/) and the document
-moves to `cancelled` only if that event is emitted. Subscriber callbacks must not throw: an
-exception escapes `emit` and stops delivery to the remaining subscribers.
+to `failed`. A cancellation settles the manager with `OpNil("aborted")` and the document moves to
+`cancelled` only if that event is emitted. Subscriber callbacks must not throw: an exception escapes
+`emit` and stops delivery to the remaining subscribers.
 
 The machine aborts the previous state's entry scope on every transition, so an asynchronous effect
 started by `validating` cannot write into `indexed`. If the ingestion pipeline also needs durable
