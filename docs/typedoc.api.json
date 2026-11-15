@@ -1,11 +1,7 @@
 {
 	"entryPoints": [
-		"../src/Core/index.ts",
-		"../src/Types/index.ts",
-		"../src/Composition/index.ts",
-		"../src/Data/index.ts"
+		"../src/index.ts"
 	],
-	"entryPointStrategy": "expand",
 	"tsconfig": "../tsconfig.typedoc.json",
 	"excludePrivate": true,
 	"excludeInternal": true,

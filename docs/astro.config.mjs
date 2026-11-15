@@ -60,15 +60,10 @@ export default defineConfig({
 					nav: [{ label: "Docs", href: "/basics/installation" }, { label: "Contributing", href: "/contributing/" }],
 				}),
 				starlightTypeDoc({
-					entryPoints: [
-						"../src/Core/index.ts",
-						"../src/Types/index.ts",
-						"../src/Composition/index.ts",
-						"../src/Data/index.ts",
-					],
+					entryPoints: ["../src/index.ts"],
 					tsconfig: "../tsconfig.typedoc.json",
 					output: "api",
-					typeDoc: { entryPointStrategy: "expand", excludePrivate: true, excludeInternal: true },
+					typeDoc: { excludePrivate: true, excludeInternal: true },
 					sidebar: { label: "API Reference", collapsed: true },
 				}),
 			],
