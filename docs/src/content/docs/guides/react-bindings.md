@@ -1,13 +1,14 @@
 ---
-title: React Bindings — Every Update Is Declared
-description: What the hooks guarantee, where the control knobs are, and how to keep render granularity under your command.
+title: React Bindings
+description: What the hooks guarantee, where the control knobs are, and how render granularity works.
 ---
 
-Start with the guarantees. A component re-renders because something you wrote ran: a machine
-transition you declared in a table, an acquisition you requested, an event you emitted onto a bus
-with a schema. Nothing notifies a component because a value it read once might change somewhere —
-state changes only through typed transitions, and every notification can be traced to a call site in
-a `Component.state.ts` file.
+The `@pplnd/react` hooks attach stateful `@pplnd/core` objects — machines, `Op` managers, actors,
+resources — to React components. One binding rule: hooks bind, they never create. The stateful
+objects are built in plain TypeScript with zero React imports, unit-tested without a renderer, and
+portable to any future adapter — React is one consumer of them, not their home. State changes only
+through declared transitions, one writer per invariant, so a stale async result can never overwrite
+a newer one and every re-render traces back to a transition you declared.
 
 ## The Control Knobs
 
@@ -54,8 +55,9 @@ SWC) so a bail-out fails CI instead of silently degrading memoization.
 
 ## Where the State Lives
 
-The binding rule: hooks bind, they never create. Machines, actors, `Op` managers, buses, and
-resources are built in plain `Component.state.ts` files with zero React imports, unit-tested without
-a renderer, and portable to any future adapter. Per-instance state is the deliberate exception —
-[`useMachine`](/guides/use-machine/) and [`useResource`](/guides/use-resource/) create per mount and
-tear down with the component. Start with [useLoad](/guides/use-load/) for the simplest case.
+The layout the package targets: state logic in a `Component.state.ts` file, rendering in the
+component that imports from it. Machines, actors, `Op` managers, buses, and resources are built
+there in plain TypeScript with zero React imports and unit-tested without a renderer. Per-instance
+state is the deliberate exception — [`useMachine`](/guides/use-machine/) and
+[`useResource`](/guides/use-resource/) create per mount and tear down with the component. Start with
+[useLoad](/guides/use-load/) for the simplest case.
