@@ -159,6 +159,20 @@ export default defineConfig({
 						{ slug: "guides/json" },
 					],
 				},
+				{
+					label: "React bindings",
+					collapsed: false,
+					items: [
+						{ slug: "guides/react-bindings" },
+						{ slug: "guides/use-load" },
+						{ slug: "guides/use-op" },
+						{ slug: "guides/use-op-poll" },
+						{ slug: "guides/use-machine" },
+						{ slug: "guides/use-actor" },
+						{ slug: "guides/use-event-bus" },
+						{ slug: "guides/use-resource" },
+					],
+				},
 				{ label: "Appendix", items: [{ slug: "appendix/design-notes" }, { slug: "appendix/benchmarks" }] },
 				{
 					label: "Contributing",
