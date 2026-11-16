@@ -1131,3 +1131,151 @@ test("interpret: listener removal and abort take effect during notification", ()
 	expect(calls).toStrictEqual(["first", "abort"]);
 	expect(actor.isRunning()).toBe(false);
 });
+
+test("fragment: attaches provided-event handlers onto prior states and keeps prior handlers", async () => {
+	type PayingState = Machine.State<"paying", { readonly session: string; }>;
+	type FaultState = Machine.State<"fault", { readonly fault: string; }>;
+	type BaseState = Machine.State<"selecting"> | Machine.State<"halted">;
+	type PaymentEvents = {
+		readonly CARD_INSERTED: void;
+		readonly PAYMENT_DECLINED: void;
+		readonly PAYMENT_APPROVED: { readonly session: string; };
+		readonly TERMINAL_FAULT: { readonly fault: string; };
+	};
+
+	const base = Machine.make<BaseState, { readonly RESET: void; }>({
+		selecting: { on: { RESET: () => Machine.state("halted") } },
+		halted: { on: {} },
+	});
+
+	const withPayment = <States extends { readonly kind: string; }, Events extends { readonly RESET: void; }>(
+		machine: Machine<States, Events>,
+	): Machine<States | PayingState | FaultState, Events & PaymentEvents> =>
+		Machine.merge(
+			machine,
+			Machine.fragment<PayingState | FaultState, PaymentEvents & { readonly RESET: void; }>({
+				selecting: { on: { CARD_INSERTED: () => Machine.state("paying", { session: "t-1" }) } },
+				paying: {
+					on: {
+						PAYMENT_APPROVED: () => Machine.state("paying", { session: "approved" }),
+						PAYMENT_DECLINED: () => Machine.state("selecting"),
+					},
+				},
+				fault: { on: { RESET: () => Machine.state("halted") } },
+			}),
+		);
+
+	const composed = pipe(base, withPayment);
+	const actor = Machine.interpret(composed, { initial: Machine.state("selecting") });
+
+	// The provided event was attached onto the prior "selecting" state.
+	const afterInsert = actor.send({ kind: "CARD_INSERTED", value: undefined });
+	expect(afterInsert.kind).toBe("paying");
+
+	// A fragment handler routes back to a prior state.
+	const backToSelecting = actor.send({ kind: "PAYMENT_DECLINED", value: undefined });
+	expect(backToSelecting.kind).toBe("selecting");
+
+	// The base's own handler on "selecting" survives the per-kind merge.
+	const halted = actor.send({ kind: "RESET", value: undefined });
+	expect(halted.kind).toBe("halted");
+});
+
+test("fragment: new states can react to prior events", async () => {
+	const exits: number[] = [];
+	type PayingState = Machine.State<"paying">;
+	const base = Machine.make<Machine.State<"selecting"> | Machine.State<"halted">, { readonly RESET: void; }>({
+		selecting: { on: { RESET: () => Machine.state("halted") } },
+		halted: { on: {} },
+	});
+
+	const withPaying = <States extends { readonly kind: string; }, Events extends { readonly RESET: void; }>(
+		machine: Machine<States, Events>,
+	): Machine<States | PayingState, Events & { readonly ENTER_PAYING: void; }> =>
+		Machine.merge(
+			machine,
+			Machine.fragment<PayingState, Events & { readonly ENTER_PAYING: void; }>({
+				selecting: { on: { ENTER_PAYING: () => Machine.state("paying") } },
+				paying: { on: { RESET: () => Machine.state("halted") } },
+			}),
+		);
+
+	const composed = pipe(base, withPaying);
+	const actor = Machine.interpret(composed, { initial: Machine.state("selecting") });
+	const paying = actor.send({ kind: "ENTER_PAYING", value: undefined });
+	expect(paying.kind).toBe("paying");
+
+	// RESET is a base event; the new "paying" state reacts to it via the merged fragment.
+	const halted = actor.send({ kind: "RESET", value: undefined });
+	expect(halted.kind).toBe("halted");
+});
+
+test("block: a Machine.block builder composes through pipe at runtime", async () => {
+	const released: string[] = [];
+	type PayingState = Machine.State<"paying", { readonly session: string; }>;
+	type FaultState = Machine.State<"fault", { readonly fault: string; }>;
+	const base = Machine.make<Machine.State<"selecting"> | Machine.State<"halted">, { readonly RESET: void; }>({
+		selecting: { on: { RESET: () => Machine.state("halted") } },
+		halted: { on: {} },
+	});
+
+	const withPayment = Machine.block<
+		PayingState | FaultState,
+		{ readonly CARD_INSERTED: void; readonly PAYMENT_DECLINED: void; },
+		{ readonly RESET: void; }
+	>({
+		selecting: { on: { CARD_INSERTED: () => Machine.state("paying", { session: "t-1" }) } },
+		paying: {
+			on: {
+				PAYMENT_DECLINED: () => Machine.state("selecting"),
+				TERMINAL_FAULT: () => Machine.state("fault", { fault: "reader offline" }),
+			},
+		},
+		fault: { on: { RESET: () => Machine.state("halted") } },
+	});
+
+	const composed = pipe(base, withPayment);
+	const actor = Machine.interpret(composed, { initial: Machine.state("selecting") });
+	const paying = actor.send({ kind: "CARD_INSERTED", value: undefined });
+	expect(paying.kind).toBe("paying");
+
+	const declined = actor.send({ kind: "PAYMENT_DECLINED", value: undefined });
+	expect(declined.kind).toBe("selecting");
+
+	const halted = actor.send({ kind: "RESET", value: undefined });
+	expect(halted.kind).toBe("halted");
+	expect(released).toStrictEqual([]);
+});
+
+test("fragment: entry hooks on merged local states run with cleanup", async () => {
+	const entries: number[] = [];
+	type PayingState = Machine.State<"paying">;
+	const base = Machine.make<Machine.State<"selecting">, { readonly ENTER: void; }>({
+		selecting: { on: { ENTER: () => Machine.state("selecting") } },
+	});
+
+	const withPaying = <States extends { readonly kind: string; }, Events extends { readonly ENTER: void; }>(
+		machine: Machine<States, Events>,
+	): Machine<States | PayingState, Events> =>
+		Machine.merge(
+			machine,
+			Machine.fragment<PayingState, Events>({
+				selecting: { on: { ENTER: () => Machine.state("paying") } },
+				paying: {
+					entry: () => {
+						entries.push(1);
+						return () => {
+							entries.push(-1);
+						};
+					},
+				},
+			}),
+		);
+
+	const composed = pipe(base, withPaying);
+	const actor = Machine.interpret(composed, { initial: Machine.state("selecting") });
+	actor.send({ kind: "ENTER", value: undefined });
+	expect(entries).toStrictEqual([1]);
+	actor.abort();
+	expect(entries).toStrictEqual([1, -1]);
+});

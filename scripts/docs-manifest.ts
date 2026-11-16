@@ -51,6 +51,14 @@ export const GUIDE_MANIFEST = {
 	"these.md": { module: "These" },
 	"uniq.md": { module: "Uniq" },
 	"validation.md": { module: "Validation" },
+	"react-bindings.md": { module: null },
+	"use-actor.md": { module: null },
+	"use-event-bus.md": { module: null },
+	"use-load.md": { module: null },
+	"use-machine.md": { module: null },
+	"use-op-poll.md": { module: null },
+	"use-op.md": { module: null },
+	"use-resource.md": { module: null },
 } as const satisfies Record<string, GuideManifestEntry>;
 
 export const STANDALONE_MODULES = [

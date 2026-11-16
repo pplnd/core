@@ -25,7 +25,7 @@ work reads top to bottom in a `pipe`.
 <!-- BUNDLE_OVERVIEW:START -->
 
 It has zero dependencies, ships ESM and CommonJS builds, and tree-shakes down to ~27 B–6.97 kB
-gzipped for individual modules and 28.85 kB for the entire package.
+gzipped for individual modules and 28.93 kB for the entire package.
 
 <!-- BUNDLE_OVERVIEW:END -->
 
@@ -315,6 +315,15 @@ from several modules, read the [recipes](https://pplnd.dev/recipes/request-lifec
 
 ---
 
+## React Bindings
+
+The engines in this package bind to React through
+[`@pplnd/react`](https://github.com/pplnd/pipelined/tree/main/packages/react): `useLoad` renders a
+`Task.Result` lifecycle as `RemoteData`, `useOp`/`useOpPoll` bind `Op` managers,
+`useMachine`/`useActor` bind machine actors, `useEventBus` subscribes buses, and `useResource` holds
+a `Resource` open for the component's lifetime. Same objects, same guarantees — React renders, the
+engines own concurrency. Guides live under [React bindings](https://pplnd.dev/guides/use-load/).
+
 ## Package Architecture and Performance
 
 The package declares `"sideEffects": false`, allowing supported bundlers to remove unused exports.
@@ -348,7 +357,7 @@ These measurements include each listed import and its dependencies, minified and
 | `Aborted`        | **62 B**           |
 | `Deferred`       | **142 B**          |
 | `Logged`         | **266 B**          |
-| `Machine`        | **2.43 kB**        |
+| `Machine`        | **2.52 kB**        |
 | `EventBus`       | **1.62 kB**        |
 | `Batcher`        | **3.16 kB**        |
 | `Cache`          | **2.48 kB**        |
@@ -371,7 +380,7 @@ These measurements include each listed import and its dependencies, minified and
 | `Num`            | **2.12 kB**        |
 | `BigNum`         | **1.93 kB**        |
 | `Bool`           | **1.91 kB**        |
-| `Json`           | **1.78 kB**        |
+| `Json`           | **1.77 kB**        |
 
 <!-- BUNDLE_TABLE:END -->
 

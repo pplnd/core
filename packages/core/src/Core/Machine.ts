@@ -75,6 +75,26 @@ type MachineEntryContext<Events extends Record<string, unknown>> = {
 	readonly signal: AbortSignal;
 };
 
+type MachineFragmentStateConfig<LocalStates extends AnyMachineState, Events extends Record<string, unknown>> = {
+	readonly on?: { readonly [E in keyof Events & string]?: (state: LocalStates, payload: Events[E]) => AnyMachineState; };
+	readonly entry?: (state: LocalStates, context: MachineEntryContext<Events>) => void | (() => void);
+	readonly exit?: (state: LocalStates) => void;
+};
+
+type MachineFragmentAttachConfig<LocalStates extends AnyMachineState, Events extends Record<string, unknown>> = {
+	readonly on?: {
+		readonly [
+			// `state` is never: a block attaching handlers onto a state it does not own cannot rely
+			// on that state's payload, so the param accepts any handler's state annotation.
+			E in keyof Events & string
+		]?: (state: never, payload: Events[E]) => AnyMachineState;
+	};
+	// Lifecycle hooks a fragment may carry for its own states; never-typed params keep any
+	// real hook assignable when the same key is checked against the owned-state config.
+	readonly entry?: (state: never, context: never) => void | (() => void);
+	readonly exit?: (state: never) => void;
+};
+
 /**
  * Configuration for a single state variant.
  */
@@ -202,6 +222,38 @@ export namespace Machine {
 		Data,
 		AllowedTargets
 	>;
+
+	/**
+	 * A partial transition-table fragment for compositional machines.
+	 *
+	 * A fragment declares handlers for the events its block provides, attached onto its own
+	 * states (full state and payload typing) or onto states provided by earlier blocks
+	 * (payload-typed `on` handlers; the prior state's payload is not readable from a block
+	 * that does not own it). Fragments are combined with `Machine.merge` and chained through
+	 * `pipe` — each builder constrains the accumulated machine's events, so omitting an
+	 * earlier step fails at that pipe position.
+	 *
+	 * @see {@link Machine.merge} to apply a fragment to a machine.
+	 * @example
+	 * ```ts
+	 * const withPayment = <States extends AnyMachineState, Events extends { readonly RESET: void }>(
+	 *   machine: Machine<States, Events>,
+	 * ): Machine<States | PayingState | FaultState, Events & PaymentEvents> =>
+	 *   Machine.merge(machine, Machine.fragment<PayingState | FaultState, PaymentEvents & { readonly RESET: void }>({
+	 *     selecting: { on: { CARD_INSERTED: () => Machine.state("paying", { session: "t-1" }) } },
+	 *     paying: { on: { PAYMENT_APPROVED: () => Machine.state("paying", { session: "approved" }) } },
+	 *     fault: { on: { RESET: () => Machine.state("halted") } },
+	 *   }));
+	 * ```
+	 */
+	export type Fragment<LocalStates extends AnyMachineState, Events extends Record<string, unknown>> =
+		& {
+			readonly [K in LocalStates["kind"]]?: MachineFragmentStateConfig<
+				Extract<LocalStates, { readonly kind: K; }>,
+				Events
+			>;
+		}
+		& { readonly [K in string]?: MachineFragmentAttachConfig<LocalStates, Events>; };
 
 	export type EventMessage<Events extends Record<string, unknown>> = MachineEventMessage<Events>;
 
@@ -509,6 +561,89 @@ function interpretMachine<
 	};
 }
 
+/**
+ * Applies a fragment to a machine: per-state `on` handlers from the fragment are merged into
+ * the machine's transition table (prior handlers on the same state are preserved), and the
+ * result is returned as a machine widened by the fragment's states and events.
+ *
+ * Composition chains through `pipe`: each builder constrains the accumulated machine's events,
+ * so omitting an earlier step fails at that pipe position.
+ *
+ * @see {@link Machine.fragment} to type a fragment.
+ * @example
+ * ```ts
+ * const withPayment = <States extends AnyMachineState, Events extends { readonly RESET: void }>(
+ *   machine: Machine<States, Events>,
+ * ): Machine<States | PayingState | FaultState, Events & PaymentEvents> =>
+ *   Machine.merge(machine, paymentFragment);
+ * ```
+ */
+function mergeMachine<
+	States extends AnyMachineState,
+	LocalStates extends AnyMachineState,
+	Events extends Record<string, unknown>,
+	FragmentEvents extends Record<string, unknown>,
+>(
+	machine: Machine<States, Events>,
+	fragment: Machine.Fragment<LocalStates, FragmentEvents>,
+): Machine<States | LocalStates, Events & FragmentEvents> {
+	const table = machine.states as Record<
+		string,
+		{ readonly on?: Record<string, unknown>; readonly entry?: unknown; readonly exit?: unknown; }
+	>;
+	const fragmentTable = fragment as Record<
+		string,
+		{ readonly on?: Record<string, unknown>; readonly entry?: unknown; readonly exit?: unknown; }
+	>;
+	const merged: Record<string, unknown> = { ...table };
+	for (const kind in fragmentTable) {
+		merged[kind] = { ...table[kind], ...fragmentTable[kind], on: { ...table[kind]?.on, ...fragmentTable[kind]?.on } };
+	}
+	return Machine.make<States | LocalStates, Events & FragmentEvents>(
+		merged as unknown as MachineTransitionTable<States | LocalStates, Events & FragmentEvents>,
+	);
+}
+
+const fragmentMachine = <LocalStates extends AnyMachineState, Events extends Record<string, unknown>>(
+	fragment: Machine.Fragment<LocalStates, Events>,
+): Machine.Fragment<LocalStates, Events> => fragment;
+
+/**
+ * Builds a pipe-compatible machine block from a typed fragment. The returned builder consumes
+ * the accumulated machine and returns it widened by the block's states and events.
+ *
+ * `Requires` is the contract: the accumulated machine's events must include every event the
+ * fragment reacts to, so omitting an earlier step from the pipe fails to compile at that
+ * position, naming the missing event.
+ *
+ * @see {@link Machine.fragment} to type a fragment standalone.
+ * @example
+ * ```ts
+ * const withPayment = Machine.block<
+ *   PayingState | FaultState,
+ *   PaymentEvents,
+ *   { readonly RESET: void },
+ * >({
+ *   selecting: { on: { CARD_INSERTED: () => Machine.state("paying", { session: "t-1" }) } },
+ *   paying: { on: { PAYMENT_APPROVED: () => Machine.state("paying", { session: "approved" }) } },
+ *   fault: { on: { RESET: () => Machine.state("halted") } },
+ * });
+ *
+ * const kiosk = pipe(baseMachine, withPayment, withCheckout);
+ * ```
+ */
+function blockMachine<
+	LocalStates extends AnyMachineState,
+	LocalEvents extends Record<string, unknown>,
+	Requires extends Record<string, unknown> = Record<string, unknown>,
+>(
+	fragment: Machine.Fragment<LocalStates, LocalEvents & Requires>,
+): <States extends AnyMachineState, Events extends Requires>(
+	machine: Machine<States, Events>,
+) => Machine<States | LocalStates, Events & LocalEvents> {
+	return (machine) => Machine.merge(machine, fragment as Machine.Fragment<LocalStates, LocalEvents>);
+}
+
 export const Machine = {
 	/**
 	 * Creates a state machine definition from state configurations and event handlers.
@@ -686,4 +821,29 @@ export const Machine = {
 	 * ```
 	 */
 	interpret: interpretMachine,
+
+	/**
+	 * Typing helper for compositional machine fragments. Returns the fragment unchanged — the
+	 * type parameters drive handler payload checking at authoring time.
+	 *
+	 * @see {@link Machine.merge} to apply a fragment to a machine.
+	 * @example
+	 * ```ts
+	 * const paymentFragment = Machine.fragment<PayingState | FaultState, PaymentEvents>({
+	 *   paying: { on: { PAYMENT_APPROVED: () => Machine.state("paying", { session: "approved" }) } },
+	 *   fault: { on: {} },
+	 * });
+	 * ```
+	 */
+	fragment: fragmentMachine,
+
+	/** Implementation namespace for {@link Machine.merge} — see the function's JSDoc. */
+	merge: mergeMachine,
+
+	/**
+	 * Builds a pipe-compatible machine block from a typed fragment. See the function's JSDoc.
+	 *
+	 * @see {@link Machine.fragment} for the fragment typing helper.
+	 */
+	block: blockMachine,
 };

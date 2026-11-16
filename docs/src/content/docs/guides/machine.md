@@ -5,7 +5,7 @@ description: Define explicit states, route events by state, and run lifecycle ef
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.43 kB minified + gzipped
+> 2.52 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -182,6 +182,32 @@ branch results; the curried form needs both type arguments because it cannot see
 `Machine.transition(machine, event)(state)` is data-last. `Machine.to.reducer` is uncurried and fits
 `useReducer` directly. `Machine.interpret` runs the initial entry immediately, so an entry effect
 that fetches starts before the first `send`.
+
+### Composing Machines From Blocks
+
+| Signature                          | What it does                                                      | Behavior                                                  |
+| :--------------------------------- | :---------------------------------------------------------------- | :-------------------------------------------------------- |
+| `Machine.fragment(states, events)` | Types a partial table for one block of a larger machine.          | Handler payloads are checked against the declared events. |
+| `Machine.merge(machine, fragment)` | Applies a fragment: per-state `on` handlers merge into the table. | Prior handlers on the same state are preserved.           |
+
+Large machines compose from blocks chained through `pipe`. Each block owns the events it provides
+and may attach their handlers onto any state — new or prior — so a base machine never
+forward-references states that do not exist yet. A builder constrains the events earlier steps must
+have provided: omit a step and the pipe fails to compile at that position, naming the missing event.
+
+```ts
+const withPayment = Machine.block<
+	PayingState | FaultState,
+	PaymentEvents,
+	{ readonly RESET: void },
+>({
+	selecting: { on: { CARD_INSERTED: () => Machine.state("paying", { session: "t-1" }) } },
+	paying: { on: { PAYMENT_APPROVED: () => Machine.state("paying", { session: "approved" }) } },
+	fault: { on: { RESET: () => Machine.state("halted") } },
+});
+
+const kiosk = pipe(baseMachine, withPayment, withCheckout);
+```
 
 ## Failure Behavior and Edge Cases
 

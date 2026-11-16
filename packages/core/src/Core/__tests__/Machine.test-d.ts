@@ -1,4 +1,5 @@
 import { expectTypeOf, test } from "vitest";
+import { pipe } from "../../Composition/pipe.ts";
 import { EventBus } from "../EventBus.ts";
 import { Machine } from "../Machine.ts";
 
@@ -267,4 +268,99 @@ test("interpret: accepts shared subset EventBus, superset EventBus, and Machine.
 	type OptionalPayloadEvents = { RESET: { readonly reason?: string; } | undefined; };
 	const optionalMsg: Machine.EventMessage<OptionalPayloadEvents> = { kind: "RESET" };
 	expectTypeOf(optionalMsg).toMatchTypeOf<Machine.EventMessage<OptionalPayloadEvents>>();
+});
+
+type PaymentState =
+	| Machine.State<"paying", { readonly session: string; }>
+	| Machine.State<"fault", { readonly fault: string; }>;
+type PaymentEvents = {
+	readonly CARD_INSERTED: void;
+	readonly PAYMENT_APPROVED: { readonly session: string; };
+	readonly TERMINAL_FAULT: { readonly fault: string; };
+};
+type CheckoutState = Machine.State<"checkout", { readonly authorized: boolean; }>;
+
+const paymentBase = Machine.make<Machine.State<"selecting"> | Machine.State<"halted">, { readonly RESET: void; }>({
+	selecting: { on: { RESET: () => Machine.state("halted") } },
+	halted: { on: {} },
+});
+
+const withPayment = <States extends { readonly kind: string; }, Events extends { readonly RESET: void; }>(
+	machine: Machine<States, Events>,
+): Machine<States | PaymentState, Events & PaymentEvents> =>
+	Machine.merge(
+		machine,
+		Machine.fragment<PaymentState, PaymentEvents & { readonly RESET: void; }>({
+			selecting: { on: { CARD_INSERTED: () => Machine.state("paying", { session: "t-1" }) } },
+			paying: { on: { PAYMENT_APPROVED: () => Machine.state("paying", { session: "approved" }) } },
+			fault: { on: { RESET: () => Machine.state("halted") } },
+		}),
+	);
+
+const withCheckout = <
+	States extends { readonly kind: string; },
+	Events extends { readonly PAYMENT_APPROVED: { readonly session: string; }; },
+>(machine: Machine<States, Events>): Machine<States | CheckoutState, Events & { readonly CHECKOUT_DONE: void; }> =>
+	Machine.merge(
+		machine,
+		Machine.fragment<CheckoutState, Events & { readonly CHECKOUT_DONE: void; }>({
+			paying: { on: { CHECKOUT_DONE: () => Machine.state("checkout", { authorized: true }) } },
+			checkout: { on: {} },
+		}),
+	);
+
+test("blocks: the composed pipe typechecks and the send surface widens", () => {
+	const composed = pipe(paymentBase, withPayment, withCheckout);
+	const actor = Machine.interpret(composed, { initial: Machine.state("selecting") });
+	const next = actor.send({ kind: "CARD_INSERTED", value: undefined });
+	expectTypeOf(next.kind).toEqualTypeOf<"selecting" | "halted" | "paying" | "fault" | "checkout">();
+});
+
+test("blocks: the contract chain fails when a prior step is omitted", () => {
+	expectTypeOf(pipe(paymentBase, withPayment, withCheckout)).not.toBeNever();
+
+	// @ts-expect-error omitting withPayment breaks withCheckout's PAYMENT_APPROVED requirement
+	pipe(paymentBase, withCheckout);
+});
+
+test("blocks: sending an event no step provides is rejected", () => {
+	const composed = pipe(paymentBase, withPayment, withCheckout);
+	const actor = Machine.interpret(composed, { initial: Machine.state("selecting") });
+	actor.send({ kind: "CARD_INSERTED", value: undefined });
+	// @ts-expect-error an event no step provides is not in the send surface
+	actor.send({ kind: "REFUND", value: undefined });
+});
+
+test("blocks: fragment handler payloads are typed from the declared events", () => {
+	Machine.fragment<
+		Machine.State<"paying", { readonly session: string; }>,
+		{ readonly PAYMENT_APPROVED: { readonly session: string; }; }
+	>({
+		paying: {
+			on: {
+				PAYMENT_APPROVED: (state, payload) => {
+					expectTypeOf(payload.session).toEqualTypeOf<string>();
+					expectTypeOf(state.kind).toEqualTypeOf<"paying">();
+					return Machine.state("paying", { session: payload.session });
+				},
+			},
+		},
+	});
+});
+
+test("blocks: fragment payloads are checked against the declared events", () => {
+	Machine.fragment<
+		Machine.State<"paying", { readonly session: string; }>,
+		{ readonly PAYMENT_APPROVED: { readonly session: string; }; }
+	>({
+		paying: {
+			on: {
+				// @ts-expect-error the handler payload must match the declared event's payload type
+				PAYMENT_APPROVED: (_state, payload: { readonly wrong: true; }) => {
+					void payload;
+					return Machine.state("paying", { session: "" });
+				},
+			},
+		},
+	});
 });
