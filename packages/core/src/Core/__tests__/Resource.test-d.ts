@@ -147,10 +147,13 @@ test("use: the run callback's parameter is inferred from the resource", () => {
 });
 
 test("Scope: make returns the opaque scope and acquire preserves the result channels", () => {
-	const dbResource = Resource.make(Task.Result.tryCatch(async () => 42, { onError: () => "db down" }), (value) => {
-		void value;
-		return Task.make(undefined);
-	});
+	const dbResource = Resource.make(
+		Task.Result.tryCatch(() => Promise.resolve(42), { onError: () => "db down" }),
+		(value) => {
+			void value;
+			return Task.make(undefined);
+		},
+	);
 	const scope = Resource.Scope.make();
 	expectTypeOf(scope).toEqualTypeOf<Resource.Scope>();
 	expectTypeOf(Resource.acquire(dbResource, scope)).toEqualTypeOf<Deferred<Result<"db down", number>>>();
@@ -163,5 +166,5 @@ test("Scope: internals are invisible on the public type", () => {
 	const scope = Resource.Scope.make();
 	expectTypeOf(scope.dispose).toBeFunction();
 	// @ts-expect-error the finalizer stack is internal and never appears in autocomplete
-	scope.addFinalizer;
+	void scope.addFinalizer;
 });

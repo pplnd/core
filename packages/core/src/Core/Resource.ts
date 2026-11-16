@@ -39,20 +39,20 @@ const _allocate = Symbol("Resource.allocate");
 
 type Finalizer = (signal?: AbortSignal) => Deferred<unknown>;
 
-type Scope = {
+type AllocationScope = {
 	readonly addFinalizer: (finalizer: Finalizer) => void;
 	readonly close: (signal?: AbortSignal) => Promise<void>;
 };
 
 type InternalResource<E, A> = Resource<E, A> & {
-	readonly [_allocate]: (scope: Scope, signal?: AbortSignal) => Promise<Result<E, A>>;
+	readonly [_allocate]: (scope: AllocationScope, signal?: AbortSignal) => Promise<Result<E, A>>;
 };
 
 const toInternal = <E, A>(resource: Resource<E, A>): InternalResource<E, A> =>
 	resource as unknown as InternalResource<E, A>;
 
 const makeInternalResource = <E, A>(
-	allocate: (scope: Scope, signal?: AbortSignal) => Promise<Result<E, A>>,
+	allocate: (scope: AllocationScope, signal?: AbortSignal) => Promise<Result<E, A>>,
 ): Resource<E, A> => ({ kind: "Resource", [_allocate]: allocate }) as unknown as Resource<E, A>;
 
 type InferError<T> = [T] extends [readonly []] ? never
@@ -81,7 +81,7 @@ const makeResource = <E, A>(acquire: Task.Result<E, A>, release: (value: A) => T
 const _scopeBrand = Symbol("Resource.scope");
 const _scopeState = Symbol("Resource.scopeState");
 
-type ScopeState = Scope & {
+type ScopeState = AllocationScope & {
 	queue: Promise<unknown>;
 	readonly isClosed: () => boolean;
 	readonly markClosed: () => void;
@@ -94,6 +94,15 @@ type InternalScope = Resource.Scope & {
 };
 
 const toInternalScope = (scope: Resource.Scope): InternalScope => scope as unknown as InternalScope;
+
+const disposeScope = (state: ScopeState, options?: { readonly signal?: AbortSignal; }): Deferred<void> => {
+	if (state.isClosed()) {
+		// Idempotent: a scope releases each finalizer exactly once, like Deferred settles once.
+		return Deferred.from.Promise(Promise.resolve());
+	}
+	state.markClosed();
+	return Deferred.from.Promise(state.close(options?.signal));
+};
 
 const makeScope = (): Resource.Scope => {
 	let finalizers: Finalizer[] = [];
@@ -133,15 +142,6 @@ const makeScope = (): Resource.Scope => {
 	scope.dispose = (options?: { readonly signal?: AbortSignal; }) => disposeScope(state, options);
 	scope[Symbol.asyncDispose] = () => Deferred.to.Promise(disposeScope(state));
 	return scope;
-};
-
-const disposeScope = (state: ScopeState, options?: { readonly signal?: AbortSignal; }): Deferred<void> => {
-	if (state.isClosed()) {
-		// Idempotent: a scope releases each finalizer exactly once, like Deferred settles once.
-		return Deferred.from.Promise(Promise.resolve());
-	}
-	state.markClosed();
-	return Deferred.from.Promise(state.close(options?.signal));
 };
 
 const acquireResource = <E, A>(

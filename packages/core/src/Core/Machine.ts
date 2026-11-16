@@ -81,7 +81,7 @@ type MachineFragmentStateConfig<LocalStates extends AnyMachineState, Events exte
 	readonly exit?: (state: LocalStates) => void;
 };
 
-type MachineFragmentAttachConfig<LocalStates extends AnyMachineState, Events extends Record<string, unknown>> = {
+type MachineFragmentAttachConfig<Events extends Record<string, unknown>> = {
 	readonly on?: {
 		readonly [
 			// `state` is never: a block attaching handlers onto a state it does not own cannot rely
@@ -253,7 +253,7 @@ export namespace Machine {
 				Events
 			>;
 		}
-		& { readonly [K in string]?: MachineFragmentAttachConfig<LocalStates, Events>; };
+		& { readonly [K in string]?: MachineFragmentAttachConfig<Events>; };
 
 	export type EventMessage<Events extends Record<string, unknown>> = MachineEventMessage<Events>;
 
@@ -596,7 +596,7 @@ function mergeMachine<
 		{ readonly on?: Record<string, unknown>; readonly entry?: unknown; readonly exit?: unknown; }
 	>;
 	const merged: Record<string, unknown> = { ...table };
-	for (const kind in fragmentTable) {
+	for (const kind of Object.keys(fragmentTable)) {
 		merged[kind] = { ...table[kind], ...fragmentTable[kind], on: { ...table[kind]?.on, ...fragmentTable[kind]?.on } };
 	}
 	return Machine.make<States | LocalStates, Events & FragmentEvents>(

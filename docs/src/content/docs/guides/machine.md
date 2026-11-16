@@ -5,7 +5,7 @@ description: Define explicit states, route events by state, and run lifecycle ef
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.52 kB minified + gzipped
+> 2.53 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 

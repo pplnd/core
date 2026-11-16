@@ -1,4 +1,4 @@
-import { RemoteData, Resource, Task } from "@pplnd/core";
+import { RemoteData, Resource } from "@pplnd/core";
 import { expectTypeOf, test } from "vitest";
 import { useResource, type UseResourceResult } from "../useResource.ts";
 

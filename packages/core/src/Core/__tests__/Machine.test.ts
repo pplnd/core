@@ -1132,7 +1132,7 @@ test("interpret: listener removal and abort take effect during notification", ()
 	expect(actor.isRunning()).toBe(false);
 });
 
-test("fragment: attaches provided-event handlers onto prior states and keeps prior handlers", async () => {
+test("fragment: attaches provided-event handlers onto prior states and keeps prior handlers", () => {
 	type PayingState = Machine.State<"paying", { readonly session: string; }>;
 	type FaultState = Machine.State<"fault", { readonly fault: string; }>;
 	type BaseState = Machine.State<"selecting"> | Machine.State<"halted">;
@@ -1181,8 +1181,7 @@ test("fragment: attaches provided-event handlers onto prior states and keeps pri
 	expect(halted.kind).toBe("halted");
 });
 
-test("fragment: new states can react to prior events", async () => {
-	const exits: number[] = [];
+test("fragment: new states can react to prior events", () => {
 	type PayingState = Machine.State<"paying">;
 	const base = Machine.make<Machine.State<"selecting"> | Machine.State<"halted">, { readonly RESET: void; }>({
 		selecting: { on: { RESET: () => Machine.state("halted") } },
@@ -1210,7 +1209,7 @@ test("fragment: new states can react to prior events", async () => {
 	expect(halted.kind).toBe("halted");
 });
 
-test("block: a Machine.block builder composes through pipe at runtime", async () => {
+test("block: a Machine.block builder composes through pipe at runtime", () => {
 	const released: string[] = [];
 	type PayingState = Machine.State<"paying", { readonly session: string; }>;
 	type FaultState = Machine.State<"fault", { readonly fault: string; }>;
@@ -1221,7 +1220,11 @@ test("block: a Machine.block builder composes through pipe at runtime", async ()
 
 	const withPayment = Machine.block<
 		PayingState | FaultState,
-		{ readonly CARD_INSERTED: void; readonly PAYMENT_DECLINED: void; },
+		{
+			readonly CARD_INSERTED: void;
+			readonly PAYMENT_DECLINED: void;
+			readonly TERMINAL_FAULT: { readonly fault: string; };
+		},
 		{ readonly RESET: void; }
 	>({
 		selecting: { on: { CARD_INSERTED: () => Machine.state("paying", { session: "t-1" }) } },
@@ -1247,7 +1250,7 @@ test("block: a Machine.block builder composes through pipe at runtime", async ()
 	expect(released).toStrictEqual([]);
 });
 
-test("fragment: entry hooks on merged local states run with cleanup", async () => {
+test("fragment: entry hooks on merged local states run with cleanup", () => {
 	const entries: number[] = [];
 	type PayingState = Machine.State<"paying">;
 	const base = Machine.make<Machine.State<"selecting">, { readonly ENTER: void; }>({

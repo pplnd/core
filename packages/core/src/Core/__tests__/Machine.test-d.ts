@@ -326,13 +326,14 @@ test("blocks: the contract chain fails when a prior step is omitted", () => {
 test("blocks: sending an event no step provides is rejected", () => {
 	const composed = pipe(paymentBase, withPayment, withCheckout);
 	const actor = Machine.interpret(composed, { initial: Machine.state("selecting") });
-	actor.send({ kind: "CARD_INSERTED", value: undefined });
+	const next = actor.send({ kind: "CARD_INSERTED", value: undefined });
+	expectTypeOf(next.kind).toEqualTypeOf<"selecting" | "halted" | "paying" | "fault" | "checkout">();
 	// @ts-expect-error an event no step provides is not in the send surface
 	actor.send({ kind: "REFUND", value: undefined });
 });
 
 test("blocks: fragment handler payloads are typed from the declared events", () => {
-	Machine.fragment<
+	const fragment = Machine.fragment<
 		Machine.State<"paying", { readonly session: string; }>,
 		{ readonly PAYMENT_APPROVED: { readonly session: string; }; }
 	>({
@@ -346,10 +347,16 @@ test("blocks: fragment handler payloads are typed from the declared events", () 
 			},
 		},
 	});
+	expectTypeOf(fragment).toEqualTypeOf<
+		Machine.Fragment<
+			Machine.State<"paying", { readonly session: string; }>,
+			{ readonly PAYMENT_APPROVED: { readonly session: string; }; }
+		>
+	>();
 });
 
 test("blocks: fragment payloads are checked against the declared events", () => {
-	Machine.fragment<
+	const fragment = Machine.fragment<
 		Machine.State<"paying", { readonly session: string; }>,
 		{ readonly PAYMENT_APPROVED: { readonly session: string; }; }
 	>({
@@ -363,4 +370,10 @@ test("blocks: fragment payloads are checked against the declared events", () => 
 			},
 		},
 	});
+	expectTypeOf(fragment).toEqualTypeOf<
+		Machine.Fragment<
+			Machine.State<"paying", { readonly session: string; }>,
+			{ readonly PAYMENT_APPROVED: { readonly session: string; }; }
+		>
+	>();
 });
