@@ -5,7 +5,7 @@ description: Acquire a handle, run work with it, and release it in reverse order
 
 <!-- BUNDLE_SIZE:START -->
 
-> 2.13 kB minified + gzipped
+> 2.35 kB minified + gzipped
 
 <!-- BUNDLE_SIZE:END -->
 
@@ -207,12 +207,33 @@ value type, so no annotation is needed. The optional `signal` is forwarded to ac
 release. `run` must return a `Task.Result`; a plain `Task` cannot express the work's error. The
 result error type is the union of the acquisition and work errors.
 
+### Long-Lived Scopes
+
+| Signature                                  | What it does                                             | Behavior                                           |
+| :----------------------------------------- | :------------------------------------------------------- | :------------------------------------------------- |
+| `Resource.Scope.make()`                    | Builds an empty batch finalizer stack.                   | Starts nothing.                                    |
+| `Resource.acquire(resource, scope, opts?)` | Acquires into the scope.                                 | Settles a deferred `Result<E, A>`; FIFO per scope. |
+| `scope.dispose({ signal? })`               | Releases everything in reverse (LIFO) acquisition order. | Idempotent; async-disposal protocol supported.     |
+
+`Resource.use` ties a resource's lifetime to a single callback. When a consumer must acquire once
+and hold the asset across its own lifetime — a component, a server, a test harness — a scope is the
+release mechanism: acquire into it with `Resource.acquire`, and dispose releases every asset in
+reverse acquisition order. Acquisitions into one scope serialize FIFO, so LIFO order is a guarantee.
+Disposal is idempotent, and disposal racing an in-flight acquisition is deterministic: the
+acquisition settles normally and the resource is released immediately, so no asset is ever held past
+disposal. The scope implements the async-disposal protocol, so
+`using await scope = Resource.Scope.make()` releases everything at block exit.
+
 ## Failure Behavior and Edge Cases
 
 Only a successful acquisition registers a release. A failed acquisition returns its error, the work
 callback is skipped, and the releases already registered run in reverse order. A release that
 returns an error is invisible to `use`, because release is a `Task`; handle expected release
 failures inside that task.
+
+The same rules govern scopes. Double disposal is a no-op, a disposal that races an in-flight
+acquisition releases the asset as soon as it settles, and acquiring into a disposed scope still
+settles with the resource's own result — the release simply runs immediately.
 
 Acquisition, work, and release must not throw or reject. `Deferred.from.Promise` never settles when
 its promise rejects, so a rejected work task stops the scope before cleanup and a rejected release

@@ -68,20 +68,6 @@ type InferValue<T> = T extends readonly Resource<any, any>[]
 		? { readonly [K in keyof T]: T[K] extends Resource<any, infer A> ? A : never; }
 	: never;
 
-const createScope = (): Scope => {
-	const finalizers: Finalizer[] = [];
-	return {
-		addFinalizer: (finalizer) => {
-			finalizers.push(finalizer);
-		},
-		close: async (signal) => {
-			for (let i = finalizers.length - 1; i >= 0; i--) {
-				await Deferred.to.Promise(finalizers[i](signal));
-			}
-		},
-	};
-};
-
 const makeResource = <E, A>(acquire: Task.Result<E, A>, release: (value: A) => Task<unknown>): Resource<E, A> =>
 	makeInternalResource(async (scope, signal) => {
 		const acquired = await Deferred.to.Promise(acquire(signal));
@@ -92,16 +78,99 @@ const makeResource = <E, A>(acquire: Task.Result<E, A>, release: (value: A) => T
 		return acquired;
 	});
 
+const _scopeBrand = Symbol("Resource.scope");
+const _scopeState = Symbol("Resource.scopeState");
+
+type ScopeState = Scope & {
+	queue: Promise<unknown>;
+	readonly isClosed: () => boolean;
+	readonly markClosed: () => void;
+};
+
+type InternalScope = Resource.Scope & {
+	readonly [_scopeState]: ScopeState;
+	dispose: (options?: { readonly signal?: AbortSignal; }) => Deferred<void>;
+	[Symbol.asyncDispose]: () => Promise<void>;
+};
+
+const toInternalScope = (scope: Resource.Scope): InternalScope => scope as unknown as InternalScope;
+
+const makeScope = (): Resource.Scope => {
+	let finalizers: Finalizer[] = [];
+	let closed = false;
+	const state: ScopeState = {
+		addFinalizer: (finalizer) => {
+			if (closed) {
+				// Late registration: disposal raced an in-flight acquisition (e.g. StrictMode's
+				// mount → unmount → remount). The caller must never observe a held resource
+				// past disposal, so the finalizer runs immediately.
+				void Deferred.to.Promise(finalizer());
+				return;
+			}
+			finalizers.push(finalizer);
+		},
+		close: async (signal) => {
+			for (let i = finalizers.length - 1; i >= 0; i--) {
+				await Deferred.to.Promise(finalizers[i](signal));
+			}
+			finalizers = [];
+		},
+		queue: Promise.resolve(),
+		isClosed: () => closed,
+		markClosed: () => {
+			closed = true;
+		},
+	};
+	// Methods are attached as member assignments rather than object-literal members: v8's
+	// block coverage fails to attribute arrows created inside cast-built computed-key
+	// literals, which would leave them permanently "uncovered" despite being exercised by
+	// the protocol tests.
+	const scope = {
+		kind: "ResourceScope",
+		[_scopeBrand]: { _scope: true },
+		[_scopeState]: state,
+	} as unknown as InternalScope;
+	scope.dispose = (options?: { readonly signal?: AbortSignal; }) => disposeScope(state, options);
+	scope[Symbol.asyncDispose] = () => Deferred.to.Promise(disposeScope(state));
+	return scope;
+};
+
+const disposeScope = (state: ScopeState, options?: { readonly signal?: AbortSignal; }): Deferred<void> => {
+	if (state.isClosed()) {
+		// Idempotent: a scope releases each finalizer exactly once, like Deferred settles once.
+		return Deferred.from.Promise(Promise.resolve());
+	}
+	state.markClosed();
+	return Deferred.from.Promise(state.close(options?.signal));
+};
+
+const acquireResource = <E, A>(
+	resource: Resource<E, A>,
+	scope: Resource.Scope,
+	options?: { readonly signal?: AbortSignal; },
+): Deferred<Result<E, A>> => {
+	const state = toInternalScope(scope)[_scopeState];
+	// Acquisitions into one scope serialize FIFO: concurrent allocations would make "reverse
+	// acquisition order" ill-defined, so LIFO is a guarantee rather than a convention.
+	const run: Promise<Result<E, A>> = state.queue.then(async () => {
+		const acquired = await toInternal(resource)[_allocate](state, options?.signal);
+		return acquired;
+	});
+	state.queue = run;
+	return Deferred.from.Promise(run);
+};
+
 const use = <E1, A, E2, B>(
 	resource: Resource<E1, A>,
 	options: { readonly run: (value: A) => Task.Result<E2, B>; readonly signal?: AbortSignal; },
 ): Deferred<Result<E1 | E2, B>> =>
 	Deferred.from.Promise((async () => {
 		const { signal } = options;
-		const scope = createScope();
-		const acquired = await toInternal(resource)[_allocate](scope, signal);
+		const scope = makeScope();
+		const state = toInternalScope(scope)[_scopeState];
+		const acquired = await toInternal(resource)[_allocate](state, signal);
 		const outcome = Result.is.err(acquired) ? acquired : await Deferred.to.Promise(options.run(acquired.value)(signal));
-		await scope.close(signal);
+		await state.close(signal);
 		return outcome;
 	})());
 
@@ -156,6 +225,40 @@ const all = <const R extends Readonly<Record<string, Resource<any, any>>> | read
 		}
 		return Result.make.ok(results) as Result<InferError<R>, InferValue<R>>;
 	});
+
+export namespace Resource {
+	/**
+	 * A batch finalizer stack for long-lived consumers — components, servers, test harnesses,
+	 * workers — that must acquire resources once, hold them across an arbitrary lifetime, and
+	 * release them together. Disposal runs every acquired resource's release finalizer in
+	 * reverse (LIFO) acquisition order.
+	 *
+	 * The scope is opaque: state lives on an internal symbol and never appears in the public
+	 * surface. Build one with `Resource.Scope.make`; acquire into it with `Resource.acquire`.
+	 *
+	 * @example
+	 * ```ts
+	 * using await scope = Resource.Scope.make();
+	 * const conn = await Deferred.to.Promise(Resource.acquire(dbResource, scope));
+	 * // everything acquired into the scope is released LIFO at block exit
+	 * ```
+	 */
+	export type Scope = WithKind<"ResourceScope"> & {
+		/**
+		 * Releases all acquired resources in reverse (LIFO) acquisition order. Idempotent —
+		 * each finalizer runs exactly once, like `Deferred` settles once. Disposal racing an
+		 * in-flight acquisition is deterministic: the acquisition settles normally and its
+		 * resource is released immediately after.
+		 */
+		readonly dispose: (options?: { readonly signal?: AbortSignal; }) => Deferred<void>;
+		/**
+		 * TC39 async-disposal protocol: `using await scope = Resource.Scope.make()` releases
+		 * everything at block exit.
+		 */
+		readonly [Symbol.asyncDispose]: () => PromiseLike<void>;
+		readonly [_scopeBrand]: { readonly _scope: true; };
+	};
+}
 
 export const Resource = {
 	/**
@@ -275,4 +378,48 @@ export const Resource = {
 	 * ```
 	 */
 	all,
+
+	/**
+	 * Long-lived acquisition primitives. A scope is a batch finalizer stack: acquire into it
+	 * with `Resource.acquire`, release everything in reverse (LIFO) acquisition order on
+	 * disposal. Build with `Resource.Scope.make` when a consumer must hold resources across
+	 * an arbitrary lifetime — a component, a server, a test harness — where the
+	 * `Resource.use` bracket's single-callback lifetime does not fit.
+	 *
+	 * @see {@link Resource.use} for the single-resource bracket with a fixed lifetime.
+	 * @example
+	 * ```ts
+	 * const scope = Resource.Scope.make();
+	 * const conn = await Deferred.to.Promise(Resource.acquire(dbResource, scope));
+	 * const bucket = await Deferred.to.Promise(Resource.acquire(s3Resource, scope));
+	 * // ... hold both for as long as needed ...
+	 * await Deferred.to.Promise(scope.dispose());
+	 * // released LIFO: bucket first, then conn
+	 * ```
+	 */
+	Scope: { make: makeScope },
+
+	/**
+	 * Acquires the resource into the scope. Settles with the resource's own acquisition
+	 * result — the same error channel, no new variants. The release finalizer is registered
+	 * on success and runs at scope disposal in reverse (LIFO) acquisition order.
+	 *
+	 * Acquisitions into one scope serialize FIFO, so LIFO order is a guarantee. If the scope
+	 * is disposed while an acquisition is still in flight, the acquisition settles normally
+	 * and the resource is released immediately — no held resource is ever observed past
+	 * disposal.
+	 *
+	 * @see {@link Resource.use} for the single-resource bracket with a fixed lifetime.
+	 * @example
+	 * ```ts
+	 * const scope = Resource.Scope.make();
+	 * const acquired = Resource.acquire(docLock, scope, { signal: controller.signal });
+	 * const result = await Deferred.to.Promise(acquired);
+	 * Result.matchValue(result, {
+	 *   ok: (lock) => holdLock(lock),
+	 *   err: (error) => reportLockFailure(error),
+	 * });
+	 * ```
+	 */
+	acquire: acquireResource,
 };

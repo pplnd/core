@@ -25,7 +25,7 @@ work reads top to bottom in a `pipe`.
 <!-- BUNDLE_OVERVIEW:START -->
 
 It has zero dependencies, ships ESM and CommonJS builds, and tree-shakes down to ~27 B–6.97 kB
-gzipped for individual modules and 28.63 kB for the entire package.
+gzipped for individual modules and 28.85 kB for the entire package.
 
 <!-- BUNDLE_OVERVIEW:END -->
 
@@ -354,7 +354,7 @@ These measurements include each listed import and its dependencies, minified and
 | `Cache`          | **2.48 kB**        |
 | `CircuitBreaker` | **2.90 kB**        |
 | `RateLimiter`    | **2.60 kB**        |
-| `Resource`       | **2.13 kB**        |
+| `Resource`       | **2.35 kB**        |
 | `Pool`           | **2.99 kB**        |
 | `Graph`          | **2.96 kB**        |
 | `Task`           | **4.95 kB**        |
@@ -371,7 +371,7 @@ These measurements include each listed import and its dependencies, minified and
 | `Num`            | **2.12 kB**        |
 | `BigNum`         | **1.93 kB**        |
 | `Bool`           | **1.91 kB**        |
-| `Json`           | **1.77 kB**        |
+| `Json`           | **1.78 kB**        |
 
 <!-- BUNDLE_TABLE:END -->
 

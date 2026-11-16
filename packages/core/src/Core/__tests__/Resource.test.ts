@@ -1,8 +1,9 @@
 import { constTruthyBool } from "#test-utils";
 import { expect, expectTypeOf, test } from "vitest";
 import { pipe } from "../../Composition/pipe.ts";
+import { Deferred } from "../Deferred.ts";
 import { Resource } from "../Resource.ts";
-import type { Result } from "../Result.ts";
+import { Result } from "../Result.ts";
 import { Task } from "../Task.ts";
 
 test("use: starts immediately and each use has its own scope", async () => {
@@ -796,4 +797,205 @@ test("pipe: end-to-end multi-layer infrastructure pipeline", async () => {
 		"close-pg:pg-127.0.0.1:5433",
 		"close-tunnel:5433",
 	]);
+});
+
+function deferredResource(released: string[]) {
+	const settles: Array<(result: Result<string, string>) => void> = [];
+	const resource = Resource.make(() =>
+		Deferred.from.Promise(
+			new Promise<Result<string, string>>((resolve) => {
+				settles.push(resolve);
+			}),
+		), (value) => {
+		released.push(value);
+		return Task.make(undefined);
+	});
+	// Acquire tasks are invoked on a microtask (the scope's FIFO queue), so settling waits
+	// until the requested invocation's resolver exists instead of racing a fixed hop count.
+	const settle = async (index: number, value: string) => {
+		while (settles.length <= index) {
+			await Promise.resolve();
+		}
+		settles[index]?.(Result.make.ok(value));
+	};
+	return { resource, settle };
+}
+
+test("Scope: acquires into a scope and releases LIFO on dispose", async () => {
+	const released: string[] = [];
+	const { resource, settle } = deferredResource(released);
+	const scope = Resource.Scope.make();
+	const first = Resource.acquire(resource, scope);
+	const second = Resource.acquire(resource, scope);
+	await Promise.resolve();
+	await settle(0, "db");
+	await settle(1, "redis");
+	const outcomes = await Promise.all([Deferred.to.Promise(first), Deferred.to.Promise(second)]);
+	expect(outcomes.map((outcome) => (Result.is.ok(outcome) ? outcome.value : null))).toStrictEqual(["db", "redis"]);
+	expect(released).toStrictEqual([]);
+
+	await Deferred.to.Promise(scope.dispose());
+	expect(released).toStrictEqual(["redis", "db"]);
+});
+
+test("Scope: double dispose is a no-op and finalizers run once", async () => {
+	const released: string[] = [];
+	const { resource, settle } = deferredResource(released);
+	const scope = Resource.Scope.make();
+	const acquired = Resource.acquire(resource, scope);
+	await Promise.resolve();
+	await settle(0, "db");
+	await Deferred.to.Promise(acquired);
+
+	await Deferred.to.Promise(scope.dispose());
+	await Deferred.to.Promise(scope.dispose());
+	expect(released).toStrictEqual(["db"]);
+});
+
+test("Scope: disposal racing an in-flight acquisition settles then releases immediately", async () => {
+	const released: string[] = [];
+	const { resource, settle } = deferredResource(released);
+	const scope = Resource.Scope.make();
+	const acquired = Resource.acquire(resource, scope);
+	await Promise.resolve();
+
+	await Deferred.to.Promise(scope.dispose());
+	expect(released).toStrictEqual([]);
+
+	await settle(0, "late");
+	const outcome = await Deferred.to.Promise(acquired);
+	expect(Result.is.ok(outcome)).toBe(true);
+	expect(released).toStrictEqual(["late"]);
+});
+
+test("Scope: acquisitions into one scope serialize FIFO", async () => {
+	const released: string[] = [];
+	const invocations: Array<() => void> = [];
+	let started = 0;
+	const resource = Resource.make(() =>
+		Deferred.from.Promise(
+			new Promise<Result<string, string>>((resolve) => {
+				started += 1;
+				invocations.push(() => resolve(Result.make.ok(`v${started}`)));
+			}),
+		), (value) => {
+		released.push(value);
+		return Task.make(undefined);
+	});
+	const scope = Resource.Scope.make();
+	const first = Resource.acquire(resource, scope);
+	const second = Resource.acquire(resource, scope);
+	await Promise.resolve();
+	expect(started).toBe(1);
+
+	invocations[0]?.();
+	const outcomeFirst = await Deferred.to.Promise(first);
+	expect(started).toBe(2);
+
+	invocations[1]?.();
+	await Deferred.to.Promise(second);
+	expect(Result.is.ok(outcomeFirst)).toBe(true);
+
+	await Deferred.to.Promise(scope.dispose());
+	expect(released).toStrictEqual(["v2", "v1"]);
+});
+
+test("Scope: acquire after dispose settles and releases immediately", async () => {
+	const released: string[] = [];
+	const { resource, settle } = deferredResource(released);
+	const scope = Resource.Scope.make();
+	await Deferred.to.Promise(scope.dispose());
+	expect(released).toStrictEqual([]);
+
+	const acquired = Resource.acquire(resource, scope);
+	await settle(0, "after");
+	const outcome = await Deferred.to.Promise(acquired);
+	expect(Result.is.ok(outcome)).toBe(true);
+	expect(released).toStrictEqual(["after"]);
+});
+
+test("Scope: failed acquisition registers no finalizer and releases nothing on dispose", async () => {
+	const released: string[] = [];
+	const settles: Array<(result: Result<string, string>) => void> = [];
+	const resource = Resource.make(() =>
+		Deferred.from.Promise(
+			new Promise<Result<string, string>>((resolve) => {
+				settles.push(resolve);
+			}),
+		), (value) => {
+		released.push(value);
+		return Task.make(undefined);
+	});
+	const scope = Resource.Scope.make();
+	const acquired = Resource.acquire(resource, scope);
+	await Promise.resolve();
+	settles[0]?.(Result.make.err("db down"));
+	const outcome = await Deferred.to.Promise(acquired);
+	expect(Result.is.err(outcome)).toBe(true);
+	expect(released).toStrictEqual([]);
+
+	await Deferred.to.Promise(scope.dispose());
+	expect(released).toStrictEqual([]);
+});
+
+test("Scope: dispose forwards its signal to release finalizers", async () => {
+	const released: string[] = [];
+	const seenSignals: Array<AbortSignal | undefined> = [];
+	const settles: Array<(result: Result<string, string>) => void> = [];
+	const resource = Resource.make(() =>
+		Deferred.from.Promise(
+			new Promise<Result<string, string>>((resolve) => {
+				settles.push(resolve);
+			}),
+		), (value) => {
+		released.push(value);
+		return Task.tryCatch((signal) => {
+			seenSignals.push(signal);
+			return Promise.resolve(undefined);
+		}, { onError: () => undefined });
+	});
+	const scope = Resource.Scope.make();
+	const acquired = Resource.acquire(resource, scope);
+	await Promise.resolve();
+	settles[0]?.(Result.make.ok("db"));
+	await Deferred.to.Promise(acquired);
+
+	const controller = new AbortController();
+	controller.abort();
+	await Deferred.to.Promise(scope.dispose({ signal: controller.signal }));
+	expect(released).toStrictEqual(["db"]);
+	expect(seenSignals[0]).toBe(controller.signal);
+});
+
+test("Scope: the async-disposal protocol releases LIFO and is idempotent", async () => {
+	const released: string[] = [];
+	const { resource, settle } = deferredResource(released);
+	const scope = Resource.Scope.make();
+	const acquired = Resource.acquire(resource, scope);
+	await settle(0, "db");
+	await Deferred.to.Promise(acquired);
+	expect(released).toStrictEqual([]);
+
+	await scope[Symbol.asyncDispose]();
+	expect(released).toStrictEqual(["db"]);
+
+	await scope[Symbol.asyncDispose]();
+	expect(released).toStrictEqual(["db"]);
+});
+
+test("Scope: supports await using via Symbol.asyncDispose", async () => {
+	const released: string[] = [];
+	const { resource, settle } = deferredResource(released);
+	let acquiredOk = false;
+	{
+		await using scope = Resource.Scope.make();
+		const acquired = Resource.acquire(resource, scope);
+		await Promise.resolve();
+		await settle(0, "db");
+		const outcome = await Deferred.to.Promise(acquired);
+		acquiredOk = Result.is.ok(outcome);
+		expect(released).toStrictEqual([]);
+	}
+	expect(acquiredOk).toBe(true);
+	expect(released).toStrictEqual(["db"]);
 });

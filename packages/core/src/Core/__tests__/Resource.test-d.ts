@@ -1,5 +1,5 @@
 import { constTruthyBool } from "#test-utils";
-import { expectTypeOf, test } from "vitest";
+import { expect, expectTypeOf, test } from "vitest";
 import { pipe } from "../../Composition/pipe.ts";
 import type { Deferred } from "../Deferred.ts";
 import { Resource } from "../Resource.ts";
@@ -144,4 +144,24 @@ test("use: the run callback's parameter is inferred from the resource", () => {
 		},
 	});
 	expectTypeOf(program).toEqualTypeOf<Deferred<Result<Error, string>>>();
+});
+
+test("Scope: make returns the opaque scope and acquire preserves the result channels", () => {
+	const dbResource = Resource.make(Task.Result.tryCatch(async () => 42, { onError: () => "db down" }), (value) => {
+		void value;
+		return Task.make(undefined);
+	});
+	const scope = Resource.Scope.make();
+	expectTypeOf(scope).toEqualTypeOf<Resource.Scope>();
+	expectTypeOf(Resource.acquire(dbResource, scope)).toEqualTypeOf<Deferred<Result<"db down", number>>>();
+	expectTypeOf(scope.dispose()).toEqualTypeOf<Deferred<void>>();
+	expectTypeOf(scope.dispose({ signal: new AbortController().signal })).toEqualTypeOf<Deferred<void>>();
+	expect(scope[Symbol.asyncDispose]).toBeInstanceOf(Function);
+});
+
+test("Scope: internals are invisible on the public type", () => {
+	const scope = Resource.Scope.make();
+	expectTypeOf(scope.dispose).toBeFunction();
+	// @ts-expect-error the finalizer stack is internal and never appears in autocomplete
+	scope.addFinalizer;
 });
