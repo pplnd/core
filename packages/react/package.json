@@ -3,7 +3,19 @@
 	"version": "0.0.0",
 	"description": "React bindings for @pplnd/core: hooks that bind Op managers, machine actors, event buses, and fallible loads to the component lifecycle",
 	"homepage": "https://pplnd.dev/",
+	"bugs": {
+		"url": "https://github.com/pplnd/pipelined/issues"
+	},
 	"license": "BSD-3-Clause",
+	"author": "Nikita Lozgachev",
+	"keywords": [
+		"error-handling",
+		"react",
+		"react-hooks",
+		"state-machine",
+		"typed-errors",
+		"typescript"
+	],
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/pplnd/pipelined.git",

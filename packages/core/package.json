@@ -19,10 +19,15 @@
 		"validation"
 	],
 	"homepage": "https://pplnd.dev/",
+	"bugs": {
+		"url": "https://github.com/pplnd/pipelined/issues"
+	},
 	"license": "BSD-3-Clause",
+	"author": "Nikita Lozgachev",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/pplnd/pipelined.git"
+		"url": "git+https://github.com/pplnd/pipelined.git",
+		"directory": "packages/core"
 	},
 	"files": [
 		"dist"
@@ -405,6 +410,5 @@
 	],
 	"engines": {
 		"node": ">=18.0.0"
-	},
-	"packageManager": "pnpm@12.21.0"
+	}
 }

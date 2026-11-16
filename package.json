@@ -1,6 +1,8 @@
 {
 	"name": "pipelined",
+	"version": "0.106.0",
 	"private": true,
+	"license": "BSD-3-Clause",
 	"type": "module",
 	"packageManager": "pnpm@12.21.0",
 	"scripts": {
