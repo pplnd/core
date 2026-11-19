@@ -3,19 +3,13 @@ title: Aborted — Cancellation Outcomes
 description: Recognise a cancelled run with one shared outcome shape across async engines.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 62 B minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 An operator closes a dashboard while an export is running. The network request stops, the graph
 stops scheduling, and the caller receives... something. Without a shared shape, every engine reports
 that stop differently, and the handler that logs it grows a branch per engine.
 
 ## Core Behavior
 
-`Aborted` describes work that stopped because its caller cancelled it:
+`Aborted` describes work that stopped because its caller cancelled it.
 
 ```ts
 type Aborted = { readonly kind: "Aborted"; readonly reason: unknown };
@@ -40,20 +34,12 @@ stage can stop early when the operator closes the dashboard. Both stages report 
 way, so the outer handler does not need to know which engine cancelled.
 
 `Result.mapError` rewrites domain errors into a single operator-facing message; `Aborted` passes
-through unchanged because it is not an application error:
-
-```mermaid
-flowchart TD
-  Run["Graph or Batcher run settles"] --> Outcome{"Result outcome"}
-  Outcome -->|Ok| Render["Return report data"]
-  Outcome -->|Err Aborted| Cancelled["Log cancellation reason"]
-  Outcome -->|Err domain error| Failed["Log operator-facing message"]
-```
+through unchanged because it is not an application error.
 
 ### Handling Both Stages
 
 The graph and the batcher share the same cancellation contract. A single `Aborted.is` check covers
-either source:
+either source.
 
 ```ts
 import { Aborted, Deferred, Graph, pipe, Result } from "@pplnd/core";
@@ -104,7 +90,7 @@ is involved.
 
 `Task.Result.all` settles the whole batch with `Aborted` as soon as the caller's signal fires, even
 though the individual tasks report their own outcome. The batch result keeps the shared contract, so
-the same `describe` handler works without a second branch:
+the same `describe` handler works without a second branch.
 
 ```ts
 import { Result, Task } from "@pplnd/core";

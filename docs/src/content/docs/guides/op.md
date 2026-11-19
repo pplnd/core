@@ -3,12 +3,6 @@ title: Op — Managing Async Operations
 description: Run asynchronous work through a manager that reports state and settles overlapping calls.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 6.55 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A user types a search query one letter at a time, and the network answers out of order. The response
 for `par` can land after the response for `park`, replacing good results with stale ones, and the
 loading indicator can disappear while the latest call is still running.
@@ -36,22 +30,12 @@ A search field runs a request for every query. With `restartable`, a new call ab
 run and replaces it, so an older response cannot overwrite the results of a newer one.
 
 The new call settles the previous caller as replaced, then runs its own work. Its work can succeed,
-fail, or be aborted:
-
-```mermaid
-flowchart TD
-  Active["A run is pending"] --> Next{"What happens next?"}
-  Next -->|New run| Replaced["Previous caller: OpNil(replaced)"]
-  Replaced --> Active
-  Next -->|Work succeeds| Ok["OpOk(value)"]
-  Next -->|Work fails| Err["OpErr(error)"]
-  Next -->|Abort| Aborted["OpNil(aborted)"]
-```
+fail, or be aborted.
 
 ### Managing Search Requests
 
 The task factory receives the query that `run` was called with and returns a `Task.Result`, so the
-error channel is already typed before the manager sees it:
+error channel is already typed before the manager sees it.
 
 ```ts
 import { Op, pipe, Task } from "@pplnd/core";
@@ -98,7 +82,7 @@ the newer call.
 
 `match` composes in pipes with the outcome last. When the outcome is already in hand — the awaited
 deferred above, a field on some state object — `matchValue` dispatches on it directly. Handler
-returns unify either way: related returns reconcile, and unrelated ones widen to their union:
+returns unify either way: related returns reconcile, and unrelated ones widen to their union.
 
 ```ts
 const settled = await current; // the outcome is already in hand
@@ -113,7 +97,7 @@ const headline = Op.Outcome.matchValue(settled, {
 ### Protecting the Search Behind a Breaker
 
 A search endpoint that starts timing out should stop receiving calls for a while. The breaker runs
-the same task and returns an awaitable result, so it drops in at the task boundary:
+the same task and returns an awaitable result, so it drops in at the task boundary.
 
 ```ts
 import { CircuitBreaker, Duration } from "@pplnd/core";

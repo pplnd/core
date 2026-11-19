@@ -40,19 +40,7 @@ The values are made of [`Duration`](/guides/duration/), which handles unit-safe 
 The sync fetches a price feed, retries transient failures with backoff, gives up within a fixed
 budget so the cached price can serve, and repeats on a cadence. One attempt either succeeds, times
 out, or fails; the retry sequence continues only while the error is retriable and the budget has
-room:
-
-```mermaid
-flowchart TD
-  A["one attempt (timeout by TimeoutPolicy)"] --> B{"Ok?"}
-  B -- "yes" --> C["settle Ok"]
-  B -- "no" --> D{"when(error) and attempts left?"}
-  D -- "no" --> E["settle last Err"]
-  D -- "yes" --> F{"elapsed + next delay over budget?"}
-  F -- "yes" --> E
-  F -- "no" --> G["wait getDelay(attempt), then attempt again"]
-  G --> A
-```
+room.
 
 ### The Attempt and the Sequence
 
@@ -90,7 +78,7 @@ last error without reporting a phantom upcoming delay.
 
 ### Repeating on a Cadence
 
-The sync runs forever, so the lifetime belongs to [`Supervisor`](/guides/supervisor/):
+The sync runs forever, so the lifetime belongs to [`Supervisor`](/guides/supervisor/).
 
 ```ts
 import { Duration, RepeatPolicy, Supervisor, Task } from "@pplnd/core";

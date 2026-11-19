@@ -3,12 +3,6 @@ title: Supervisor — Keeping a Worker Running
 description: Restart a long-running task under a retry policy, repeat it on a cadence, and report its running state.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 2.83 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A worker that drains an outbox runs in a loop for as long as the process lives. One failed iteration
 ends it: a reset connection makes the attempt return an error, the loop stops, and the process keeps
 serving traffic with an outbox that nothing is draining. The failure leaves one log line, so the
@@ -40,22 +34,6 @@ jitter, `when`, and `onRetry` mean what they mean for a single call. Its nearest
 The worker drains an outbox in a loop and returns when its signal aborts. The supervisor restarts it
 when it crashes, waits between attempts, and reports `Running`, `BackingOff`, `Stopped`, or `Failed`
 to the health endpoint.
-
-```mermaid
-stateDiagram-v2
-  direction TB
-  [*] --> Idle
-  Idle --> Running : run starts the lifetime
-  Running --> BackingOff : attempt failed and restart applies
-  BackingOff --> Running : delay elapsed
-  Running --> Stopped : attempt succeeded
-  Running --> Running : repeat delay elapsed
-  Running --> Stopped : abort and the attempt returns
-  BackingOff --> Stopped : abort
-  Running --> Failed : error not restarted
-  Stopped --> Running : run starts another lifetime
-  Failed --> Running : run starts another lifetime
-```
 
 ### Starting the Lifetime
 
@@ -105,7 +83,7 @@ signal, and the lifetime ends when that attempt returns, so `await lifetime` is 
 ### Repeating on a Cadence
 
 The loop above keeps running even when the outbox is empty. A bounded task — drain one batch, then
-return — lets the supervisor own the loop instead:
+return — lets the supervisor own the loop instead.
 
 ```ts
 import { Duration, RepeatPolicy, Supervisor, Task } from "@pplnd/core";
@@ -161,7 +139,7 @@ listener exists for lifecycle telemetry only.
 ### Pacing the Deliveries
 
 The provider allows 60 deliveries a minute, and the loop above does not know that. The limiter is
-created once, outside the task, so a restart does not reset the recorded window:
+created once, outside the task, so a restart does not reset the recorded window.
 
 ```ts
 import { Duration, RateLimiter, Result, Task } from "@pplnd/core";

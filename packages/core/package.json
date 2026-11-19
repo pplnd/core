@@ -63,7 +63,7 @@
 		"test:coverage": "vitest run --coverage",
 		"bench": "NODE_OPTIONS=--expose-gc vitest bench --config vitest.bench.config.ts",
 		"size": "size-limit",
-		"size:check": "vitest run src/__tests__/BundleSize.test.ts",
+		"size:check": "pnpm build && vitest run src/__tests__/BundleSize.test.ts",
 		"typecheck": "tsc --noEmit",
 		"typecheck:dev": "tsc --noEmit --watch",
 		"typecheck:min": "node node_modules/typescript-5.5/bin/tsc -p tsconfig.lib.json --noEmit --skipLibCheck",
@@ -125,6 +125,27 @@
 			"import": "{ Duration }",
 			"path": "dist/index.mjs",
 			"limit": "200 B",
+			"gzip": true
+		},
+		{
+			"name": "RetryPolicy",
+			"import": "{ RetryPolicy }",
+			"path": "dist/index.mjs",
+			"limit": "1 KB",
+			"gzip": true
+		},
+		{
+			"name": "RepeatPolicy",
+			"import": "{ RepeatPolicy }",
+			"path": "dist/index.mjs",
+			"limit": "1 KB",
+			"gzip": true
+		},
+		{
+			"name": "TimeoutPolicy",
+			"import": "{ TimeoutPolicy }",
+			"path": "dist/index.mjs",
+			"limit": "300 B",
 			"gzip": true
 		},
 		{

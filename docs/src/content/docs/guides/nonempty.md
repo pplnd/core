@@ -29,16 +29,7 @@ places the collections beside each other.
 A release configuration maps region names to mirror URLs, and every later step reads a primary
 mirror. The pipeline refuses a configuration with no regions before that read.
 
-`Rec.NonEmpty.from.record` checks the mapping once and the type carries the result:
-
-```mermaid
-flowchart TD
-  Config["Region to mirror URL"] --> Guard{"At least one own key?"}
-  Guard -->|Yes| Present["Some(non-empty object)"]
-  Guard -->|No| Missing["None"]
-  Present --> Keys["Rec.NonEmpty.keys returns a non-empty array"]
-  Missing --> Refuse["No mirror configured"]
-```
+`Rec.NonEmpty.from.record` checks the mapping once and the type carries the result.
 
 ### Describing the Release
 
@@ -71,7 +62,7 @@ type with a first element. No later length check is needed.
 ### Handoff: Reading the Primary Mirror Without a Maybe
 
 The entries of a guarded mapping are also an array whose first element exists. That is enough to
-index it directly:
+index it directly.
 
 ```ts
 import { Arr, Rec } from "@pplnd/core";

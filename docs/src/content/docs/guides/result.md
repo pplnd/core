@@ -3,12 +3,6 @@ title: Result — Modeling Failures
 description: Represent synchronous success and failure as typed values and handle both outcomes at the boundary.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 1.59 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A function throws, and nothing in its signature says it can. The failure travels up the call stack
 until something catches it, usually far from the call that caused it, and the caller's type says
 nothing about what went wrong.
@@ -33,19 +27,7 @@ A server reads its configuration from JSON and checks the host and port before i
 depends on the previous one succeeding.
 
 `chain` passes an `Ok` value to the next check. An existing `Err` bypasses the check, while the
-check can return its own `Err`:
-
-```mermaid
-flowchart TD
-  Input["Result(configuration)"] --> Status{"Ok?"}
-  Status -->|Yes| Check["chain calls configuration check"]
-  Status -->|No| Existing["Existing Err passes through"]
-  Check -->|Valid| Passed["Ok(checked configuration)"]
-  Check -->|Invalid| Failed["Err(check error)"]
-  Passed --> Next["Next check runs"]
-  Existing --> Skip["Next check is skipped"]
-  Failed --> Skip
-```
+check can return its own `Err`.
 
 The first returned error stops dependent checks. `match` can then report that error or use the
 successful value.
@@ -53,7 +35,7 @@ successful value.
 ### Parsing Server Configuration
 
 A direct parser can throw before the caller checks the port. Its return type also does not describe
-that failure:
+that failure.
 
 ```ts
 function readPort(raw: string): number {
@@ -132,7 +114,7 @@ console.log(configResponse('{"host":"example.com","port":80}'));
 `match` composes in pipes with the data last. When the result is already in scope — a local, a
 field, a loop variable — `matchValue` dispatches on it directly. Handler returns unify either way:
 related returns reconcile, and unrelated ones widen to their union; in curried `match`, that
-reconciliation needs one handler-return annotation:
+reconciliation needs one handler-return annotation.
 
 ```ts
 const stored = loadConfig('{"host":"localhost","port":8080}');
@@ -146,7 +128,7 @@ const storedResponse = Result.matchValue(stored, {
 
 The error constructors and error-producing callbacks preserve inline literal types. Inline object
 errors can infer readonly literal properties; choose an explicit wider type if the error must be
-mutable:
+mutable.
 
 ```ts
 import { Result } from "@pplnd/core";
@@ -161,7 +143,7 @@ by callbacks; the full example uses `as const` to retain its exact error union o
 ### When the configuration arrives over the network
 
 The same parser works when the text comes from a config service instead of a file. Only the source
-of the string changes; `loadConfig` stays intact and runs inside the asynchronous task:
+of the string changes; `loadConfig` stays intact and runs inside the asynchronous task.
 
 ```ts
 import { pipe, Task } from "@pplnd/core";
@@ -237,7 +219,7 @@ Wrap a throwing operation explicitly where it enters the pipeline.
 expressions before `struct` sees them. Its first-error behavior does not prevent those expressions
 from running. Use `chain` or `assign` to defer a dependent operation until the previous step passes.
 
-For example, both checks below run, even though `struct` returns the host error:
+For example, both checks below run, even though `struct` returns the host error.
 
 ```ts
 import { Result } from "@pplnd/core";

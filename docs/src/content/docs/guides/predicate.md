@@ -3,12 +3,6 @@ title: Predicate — Combining Checks
 description: Combine, adapt, and branch on reusable boolean checks.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 196 B minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A moderation queue tests each post for two conditions: the status must be pending, and the report
 count must reach a threshold. Each condition is written inline at one call site, then copied with a
 small variation at the next. A later change to the threshold updates one filter and leaves the other
@@ -37,16 +31,7 @@ type, [`Refinement`](/guides/refinement/) carries that proof. The
 A moderation queue selects pending posts that have at least three reports. The status check and the
 report-count check are defined once, then combined into one filter used by every queue view.
 
-`and` evaluates the report check only when the status check passes:
-
-```mermaid
-flowchart TD
-  Post["Post"] --> Pending{"Is it pending?"}
-  Pending -->|No| Reject["false; skip report check"]
-  Pending -->|Yes| Reports["Run report-count check"]
-  Reports -->|No| Fail["false"]
-  Reports -->|Yes| Accept["true"]
-```
+`and` evaluates the report check only when the status check passes.
 
 ### Selecting Posts for Review
 
@@ -79,7 +64,7 @@ filter returns the posts that pass both conditions.
 ### Narrowing the Selected Posts
 
 `needsReview` returns a boolean, so TypeScript still sees every selected post as an ordinary `Post`.
-When the queue needs the pending status in the type, the same status check becomes a type guard:
+When the queue needs the pending status in the type, the same status check becomes a type guard.
 
 ```ts
 import { Refinement } from "@pplnd/core";
@@ -131,7 +116,7 @@ overlap, the earliest branch wins, so put the narrower condition first. The fall
 every branch predicate has failed.
 
 Complementary branch handlers share one result type, so an empty-literal fallback does not collapse
-to `never[]`:
+to `never[]`.
 
 ```ts
 import { Predicate } from "@pplnd/core";

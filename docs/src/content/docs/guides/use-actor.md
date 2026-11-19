@@ -28,16 +28,6 @@ machine, not a helper.
 
 ## Example: Cart Badge and Item List
 
-```mermaid
-flowchart TD
-    A["cart actor: transition"] --> B["header badge projects item count"]
-    A --> C["item list projects items slice"]
-    B --> D{"count reference changed?"}
-    C --> E{"items reference changed?"}
-    D --> "yes" --> F["badge re\-renders"]
-    E --> "no" --> G["list skipped"]
-```
-
 ```tsx
 // Cart.state.ts — module-scope actor + named projections
 const cartActor = Machine.interpret(cartMachine, { initial: Machine.state("empty") });
@@ -111,7 +101,7 @@ calls — visible, schema-checked, and grep-able.
 
 Payment terminals deliver events in a meaningful order: card inserted, then approved. A component
 that reacts to that sequence declares the order, the strictness, and what resets it — the same bus
-API, with options:
+API, with options.
 
 ```tsx
 function CheckoutPanel({ sessionBus }: { sessionBus: EventBus<SessionEvents> }) {

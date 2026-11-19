@@ -3,19 +3,16 @@
 	"type": "module",
 	"version": "0.0.1",
 	"scripts": {
-		"dev": "astro dev",
-		"start": "astro dev",
-		"build": "typedoc --options typedoc.api.json && astro build",
+		"dev": "node scripts/sync-api-docs.mjs --if-missing && astro dev",
+		"start": "node scripts/sync-api-docs.mjs --if-missing && astro dev",
+		"build": "node scripts/sync-api-docs.mjs && astro build",
 		"preview": "astro preview",
-		"astro": "astro"
+		"astro": "astro",
+		"typecheck": "node scripts/sync-api-docs.mjs --if-missing && astro sync && tsc --noEmit"
 	},
 	"dependencies": {
-		"@astrojs/starlight": "0.42.10",
+		"@astrojs/mdx": "8.1.6",
 		"astro": "7.4.10",
-		"astro-mermaid": "2.2.0",
-		"mermaid": "12.3.0",
-		"starlight-theme-nova": "0.12.3",
-		"starlight-typedoc": "0.23.2",
 		"typedoc": "0.28.20",
 		"typedoc-plugin-markdown": "4.14.1"
 	},

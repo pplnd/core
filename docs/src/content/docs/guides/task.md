@@ -3,12 +3,6 @@ title: Task — Lazy Asynchronous Work
 description: Describe asynchronous work now, run it on demand, and keep failures in the type.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 4.95 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A build service prepares two requests: one for the location of a finished artifact and one for the
 artifact itself. When both start while the chain is still being assembled, a retried render
 downloads the artifact twice and the two results can disagree. When nothing starts the chain, the
@@ -39,21 +33,12 @@ The build service reads an artifact location, then reads the artifact from that 
 request needs the value from the first, so it must not start when the first fails.
 
 `Task.Result.chain` passes an `Ok` value to the next request. An existing `Err` skips the next
-request and leaves the error untouched:
-
-```mermaid
-flowchart TD
-  Start["Call the loader"] --> Read["Read the artifact location"]
-  Read --> Outcome{"Result"}
-  Outcome -->|Err| Failed["Return that error"]
-  Outcome -->|Ok| Next["Read the artifact from the location"]
-  Next --> Done["Return the artifact result"]
-```
+request and leaves the error untouched.
 
 ### Loading a Build Artifact
 
 The loader maps each request failure to a string, so the pipeline has one error type. `Task.run()`
-is the line that starts the requests:
+is the line that starts the requests.
 
 ```ts
 import { pipe, Task } from "@pplnd/core";
@@ -95,7 +80,7 @@ console.log(message);
 `Task.run()` starts the pipeline, and a second `Task.run()` would send both requests again.
 
 When the task is already in scope, `Task.Result.matchValue` dispatches on it directly and wraps the
-unified handler return back into a task:
+unified handler return back into a task.
 
 ```ts
 const artifactTask = loadArtifact("build-42"); // already in scope — nothing has run
@@ -109,7 +94,7 @@ const message = await Task.Result.matchValue(artifactTask, {
 ### Running the Same Loader Under a Policy
 
 A build page can request several builds as the user moves between rows. `Op.make` takes the loader
-factory unchanged, and the manager decides what a second call does to the first:
+factory unchanged, and the manager decides what a second call does to the first.
 
 ```ts
 import { Op } from "@pplnd/core";
@@ -200,7 +185,7 @@ options.
 ## Failure Behavior and Edge Cases
 
 `Task.Result.struct` starts every field and waits for all of them, even when one returns `Err`
-early. If several fields fail, the first error in field order wins, regardless of completion order:
+early. If several fields fail, the first error in field order wins, regardless of completion order.
 
 ```ts
 import { Duration, Task, pipe } from "@pplnd/core";

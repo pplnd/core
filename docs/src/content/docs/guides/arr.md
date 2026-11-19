@@ -3,12 +3,6 @@ title: Arr — Array Utilities
 description: Search, split, regroup, and validate readonly arrays with bounds-safe results.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 6.97 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A cold-chain logger writes one temperature sample per line. A failed probe appears in the export as
 the text `FAULT`, so a parser that converts every line produces `NaN` and a later report shows a
 temperature that was never measured. Separating the broken lines from the good ones by hand also
@@ -37,16 +31,7 @@ probe-fault lines, and the quality report needs the accepted readings, the rejec
 coldest accepted samples.
 
 `filterMap` parses lines and drops the faults in one pass; `partition` then splits the parsed
-samples without reordering them:
-
-```mermaid
-flowchart TD
-  Lines["Raw logger lines"] --> Parse["filterMap keeps parsed samples"]
-  Parse --> Range{"Inside accepted range?"}
-  Range -->|Yes| Accepted["Accepted samples"]
-  Range -->|No| Rejected["Rejected samples"]
-  Accepted --> Coldest["sortBy and take"]
-```
+samples without reordering them.
 
 ### Reading the Temperature Log
 
@@ -95,7 +80,7 @@ exceeds its length.
 ### Handoff: Grouping Samples by Container
 
 `Arr.groupBy` returns a record whose values are typed as non-empty arrays, so the first sample of
-each container can be read without unwrapping a `Maybe`:
+each container can be read without unwrapping a `Maybe`.
 
 ```ts
 import { Arr, Rec, pipe } from "@pplnd/core";

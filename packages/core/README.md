@@ -341,6 +341,9 @@ These measurements include each listed import and its dependencies, minified and
 | `flow`           | **158 B**          |
 | `Brand`          | **27 B**           |
 | `Duration`       | **150 B**          |
+| `RetryPolicy`    | **514 B**          |
+| `RepeatPolicy`   | **384 B**          |
+| `TimeoutPolicy`  | **50 B**           |
 | `Maybe`          | **1.59 kB**        |
 | `Result`         | **1.59 kB**        |
 | `Validation`     | **1.59 kB**        |

@@ -3,12 +3,6 @@ title: Logged — Values with a Log
 description: Keep a value and an ordered list of entries together through a pipeline.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 266 B minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 An indexer trims and lowercases a document before it extracts search terms. When a document produces
 bad terms in production, the stored output shows only the final words; nothing records which
 transformation changed them. Reproducing the run means editing the pipeline to print intermediate
@@ -35,21 +29,12 @@ An indexer normalizes document text before creating search terms. It returns the
 a record of the transformations applied, leaving the caller to store or display that record.
 
 Each chained step returns a value and its own entries. `chain` passes the value forward and appends
-the new entries after those already collected:
-
-```mermaid
-flowchart TD
-  Input["Logged(value, existing entries)"] --> Step{"Which operation?"}
-  Step -->|map| Keep["Same entries, transformed value"]
-  Step -->|chain| Append["Next step's entries appended after existing entries"]
-  Append --> Output["Logged(next value, combined entries)"]
-  Keep --> Output
-```
+the new entries after those already collected.
 
 ### Normalizing and Indexing Text
 
 Whitespace normalization, header removal, and term extraction each describe their work. The caller
-reads the terms and entries together:
+reads the terms and entries together.
 
 ```ts
 import { Logged, pipe } from "@pplnd/core";
@@ -105,7 +90,7 @@ are an ordinary array.
 ### Publishing After the Trail Is Stored
 
 Once the entries are persisted, the remaining work has one decision left: whether the index write
-succeeded. That is a two-case outcome, and [`Result`](/guides/result/) carries its reason:
+succeeded. That is a two-case outcome, and [`Result`](/guides/result/) carries its reason.
 
 ```ts
 import { Result } from "@pplnd/core";
@@ -156,7 +141,7 @@ outside the container or place `Logged` inside the success channel of a `Result`
 to asynchronous work: `Logged` does not await anything.
 
 `Logged.from.entry("Started")` has the value `undefined`. Chaining it directly after a value
-replaces that value, so use `map` to keep the value while recording an entry:
+replaces that value, so use `map` to keep the value while recording an entry.
 
 ```ts
 import { pipe, Logged } from "@pplnd/core";

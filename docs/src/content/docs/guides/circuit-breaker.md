@@ -3,12 +3,6 @@ title: CircuitBreaker — Protecting a Dependency
 description: Pause calls to a failing dependency and allow controlled recovery probes.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 2.90 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A package registry starts returning timeouts, and every build that needs metadata waits the full
 timeout before failing. The retries keep arriving while the registry is trying to recover, so the
 outage lasts longer than it would have under no load.
@@ -38,22 +32,12 @@ service pauses requests briefly and then admits one request to check whether the
 recovered.
 
 The breaker opens after the configured number of failures. Once the cooldown has elapsed, the next
-protected call becomes the probe:
-
-```mermaid
-stateDiagram-v2
-  direction TB
-  [*] --> Closed
-  Closed --> Open : failure threshold reached
-  Open --> HalfOpen : cooldown elapsed and a call arrives
-  HalfOpen --> Closed : success threshold reached
-  HalfOpen --> Open : qualifying probe failure
-```
+protected call becomes the probe.
 
 ### Protecting a Registry Request
 
 `Task.Result.tryCatch` turns request failures into strings. `breaker.run` adds
-`CircuitBreaker.OpenError` to the error channel of the result it returns:
+`CircuitBreaker.OpenError` to the error channel of the result it returns.
 
 ```ts
 import { CircuitBreaker, Duration, Result, Task, pipe } from "@pplnd/core";
@@ -96,7 +80,7 @@ carries the last failure and the remaining cooldown in `retryAfter`.
 ### Retrying Under a Manager
 
 A build that needs metadata can retry a transient registry failure without retrying a blocked call,
-because the breaker has already decided that the registry is unavailable:
+because the breaker has already decided that the registry is unavailable.
 
 ```ts
 import { CircuitBreaker, Duration, Op, RetryPolicy } from "@pplnd/core";
@@ -154,7 +138,7 @@ it, and `HalfOpen` reports whether a probe is in flight and how many probes have
 ## Failure Behavior and Edge Cases
 
 A non-tripping error still reaches the caller. During a recovery probe it also counts toward the
-recovery threshold, because `shouldTrip` classifies it as not indicating an unavailable dependency:
+recovery threshold, because `shouldTrip` classifies it as not indicating an unavailable dependency.
 
 ```ts
 import { CircuitBreaker, Duration, Task } from "@pplnd/core";

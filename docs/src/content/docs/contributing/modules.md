@@ -77,15 +77,15 @@ or `Op`.
 4. Add `Foo.prop.test.ts` when the module encodes algebraic laws or stateful sequencing.
 5. Add JSDoc with a realistic example and reciprocal `@see`.
 6. Add `docs/src/content/docs/guides/foo.md` using [the guide anatomy](/contributing/writing/).
-7. Add the guide to the sidebar in `docs/astro.config.mjs`.
+7. Add the guide to `NAV_ENTRIES` in `docs/src/nav.ts`.
 8. Add a `size-limit` entry in `package.json`.
 9. Add the guide to `scripts/docs-manifest.ts`. Use `{ module: "Foo" }` for a module guide and
    `{ module: null }` only for an aggregate guide with no module-specific budget.
 10. Run `pnpm size:update`, review the diff, then run `pnpm check:pr` and `pnpm docs:build`.
 
-The bundle-size test fails when a guide is missing from the manifest, when a badge is missing or
-duplicated, or when the guide is absent from the sidebar. The size budget test fails when a manifest
-entry has no matching `size-limit` target.
+The bundle-size test fails when a guide is missing from the manifest or when the guide is absent
+from `docs/src/nav.ts`. The size budget test fails when a manifest entry has no matching
+`size-limit` target.
 
 ## Performance
 

@@ -2,7 +2,9 @@ import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { expect, test } from "vitest";
-import { GUIDE_MANIFEST } from "../../../../scripts/docs-manifest.ts";
+import { GUIDE_BUNDLE_SIZES } from "../../../../docs/src/data/bundle-sizes.ts";
+import { NAV_ENTRIES, type NavEntry } from "../../../../docs/src/nav.ts";
+import { GUIDE_MANIFEST, resolveGuideModules } from "../../../../scripts/docs-manifest.ts";
 
 const repoRoot = path.resolve(__dirname, "../../../../");
 const coreRoot = path.join(repoRoot, "packages/core");
@@ -23,8 +25,10 @@ function formatBytes(bytes: number): string {
 }
 
 function getMeasuredSizes(): Map<string, SizeItem> {
-	// Always rebuild: a stale dist would report sizes for code that is no longer in the tree.
-	execSync("pnpm build", { cwd: coreRoot, stdio: "pipe" });
+	// Fallback build only when dist has not been produced yet; `size:check` runs `pnpm build` first.
+	if (!fs.existsSync(path.join(coreRoot, "dist/index.mjs"))) {
+		execSync("pnpm build", { cwd: coreRoot, stdio: "pipe" });
+	}
 	let raw: string;
 	try {
 		raw = execSync("npx size-limit --json", { cwd: coreRoot, encoding: "utf8" });
@@ -54,7 +58,7 @@ const sizeMap = getMeasuredSizes();
 function aggregateGuideProblems(): string[] {
 	const problems: string[] = [];
 	for (const [filename, entry] of Object.entries(GUIDE_MANIFEST)) {
-		if (entry.module === null) {
+		if (resolveGuideModules(entry).length === 0) {
 			const content = fs.readFileSync(path.join(guidesDir, filename), "utf8");
 			if (content.includes("BUNDLE_SIZE:START")) {
 				problems.push(`${filename}: aggregate guide has a bundle badge`);
@@ -67,23 +71,13 @@ function aggregateGuideProblems(): string[] {
 function budgetedGuideProblems(): string[] {
 	const problems: string[] = [];
 	for (const [filename, entry] of Object.entries(GUIDE_MANIFEST)) {
-		if (entry.module !== null) {
-			const content = fs.readFileSync(path.join(guidesDir, filename), "utf8");
-			const isMdx = filename.endsWith(".mdx");
-			const startTag = isMdx ? "{/* BUNDLE_SIZE:START */}" : "<!-- BUNDLE_SIZE:START -->";
-			const occurrences = (content.match(/BUNDLE_SIZE:START/gu) || []).length;
-			if (!content.includes(startTag)) {
-				problems.push(`${filename}: missing bundle badge`);
-			}
-			if (occurrences !== 1) {
-				problems.push(`${filename}: expected one bundle badge, found ${occurrences}`);
-			}
-
-			const item = sizeMap.get(entry.module);
-			if (!item) {
-				problems.push(`${filename}: no size-limit target for ${entry.module}`);
-			} else if (!content.includes(`> ${formatBytes(item.size)} minified + gzipped`)) {
-				problems.push(`${filename}: stale bundle size`);
+		const content = fs.readFileSync(path.join(guidesDir, filename), "utf8");
+		if (content.includes("BUNDLE_SIZE:START")) {
+			problems.push(`${filename}: guide still contains a legacy BUNDLE_SIZE badge`);
+		}
+		for (const moduleName of resolveGuideModules(entry)) {
+			if (!sizeMap.has(moduleName)) {
+				problems.push(`${filename}: no size-limit target for ${moduleName}`);
 			}
 		}
 	}
@@ -132,6 +126,34 @@ test("BundleSize: verifies installation.mdx reflects current measured sizes", ()
 	}
 });
 
+test("BundleSize: verifies docs/src/data/bundle-sizes.ts reflects current measured sizes", () => {
+	const expected = Object.entries(GUIDE_MANIFEST).flatMap(([filename, entry]) => {
+		const modules = resolveGuideModules(entry);
+		if (modules.length === 0) {
+			return [];
+		}
+		const slug = `guides/${filename.replace(/\.(?:md|mdx)$/iu, "").toLowerCase()}`;
+		return [{
+			slug,
+			value: {
+				importFrom: "@pplnd/core" as const,
+				entries: modules.map((name) => {
+					const item = sizeMap.get(name);
+					expect(item).toBeDefined();
+					return { module: name, bytes: item!.size, formatted: formatBytes(item!.size) };
+				}),
+			},
+		}];
+	}).toSorted((left, right) => (left.slug < right.slug ? -1 : left.slug > right.slug ? 1 : 0));
+
+	expect(Object.keys(GUIDE_BUNDLE_SIZES).toSorted((left, right) => (left < right ? -1 : left > right ? 1 : 0)))
+		.toStrictEqual(expected.map((item) => item.slug));
+
+	for (const { slug, value } of expected) {
+		expect(GUIDE_BUNDLE_SIZES[slug]).toStrictEqual(value);
+	}
+});
+
 test("BundleSize: every guide file has a manifest entry", () => {
 	for (const file of guideFiles()) {
 		expect(Object.hasOwn(GUIDE_MANIFEST, file)).toBe(true);
@@ -148,14 +170,28 @@ test("BundleSize: aggregate guides do not claim a module size", () => {
 	expect(aggregateGuideProblems()).toStrictEqual([]);
 });
 
-test("BundleSize: budgeted guides have exactly one current badge", () => {
+test("BundleSize: budgeted guides have a size-limit target and no inline badge", () => {
 	expect(budgetedGuideProblems()).toStrictEqual([]);
 });
 
+function collectNavSlugs(entries: readonly NavEntry[]): Set<string> {
+	const slugs = new Set<string>();
+	for (const entry of entries) {
+		if (entry.kind === "link") {
+			slugs.add(entry.slug);
+		} else {
+			for (const item of entry.items) {
+				slugs.add(item.slug);
+			}
+		}
+	}
+	return slugs;
+}
+
 test("BundleSize: every guide file is in the docs sidebar", () => {
-	const config = fs.readFileSync(path.join(repoRoot, "docs/astro.config.mjs"), "utf8");
+	const navSlugs = collectNavSlugs(NAV_ENTRIES);
 	for (const file of guideFiles()) {
 		const base = file.replace(/\.(?:md|mdx)$/iu, "");
-		expect(config).toContain(`slug: "guides/${base}"`);
+		expect(navSlugs.has(`guides/${base}`)).toBe(true);
 	}
 });

@@ -3,12 +3,6 @@ title: Pair — Values That Travel Together
 description: Carry two related values through a pipeline and transform either position without destructuring.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 144 B minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A middleware normalizes an incoming header name, trims its value, and logs both before joining them
 into one line. The two strings travel through every step together, and a function that returns them
 as a bare array makes the positions easy to transpose without a type error.
@@ -32,16 +26,7 @@ Reach for `Pair` when both values are always present and neither is a failure.
 An HTTP middleware normalizes an incoming header before logging and forwarding it. The name and the
 value pass through the same steps and are consumed together at the end.
 
-Mapping changes one position at a time, and `merge` reads both:
-
-```mermaid
-flowchart TD
-  Input["Pair(header name, header value)"] --> First["mapFirst normalizes the name"]
-  Input --> Second["mapSecond trims the value"]
-  First --> Tapped["tap logs both values"]
-  Second --> Tapped
-  Tapped --> Merge["merge builds the header line"]
-```
+Mapping changes one position at a time, and `merge` reads both.
 
 ### Normalizing the Header
 
@@ -77,7 +62,7 @@ the same values that were logged.
 ### Handoff: A Header That Carries a Warning
 
 Some headers are deprecated, and the formatted line needs a warning beside it. A `These` holds a
-value, a note, or both, and converts back to a pair only when both sides are present:
+value, a note, or both, and converts back to a pair only when both sides are present.
 
 ```ts
 import { These } from "@pplnd/core";

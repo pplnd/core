@@ -3,12 +3,6 @@ title: State — Sequential State Updates
 description: Thread an updated state through each step and read the value and final state when the run ends.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 229 B minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 An importer stamps each record with the next sequence number and hands the updated counter to the
 following batch. A module-level counter survives a failed validation: the numbers are burned, and a
 rerun starts higher than the audit log expects. Returning the counter from every function works
@@ -39,23 +33,12 @@ An importer assigns sequence numbers to records. Each allocation needs the next 
 and the caller needs the updated counter for the next batch.
 
 `chain` feeds the next state from one allocation into the next. `assignTo` and `assign` keep each
-allocation's record while the updated counter moves on:
-
-```mermaid
-flowchart TD
-  Initial["Initial counter: 100"] --> North["Allocate north.csv"]
-  North -->|"Record 100"| Accumulate["assignTo north"]
-  North -->|"Next counter: 101"| South["Allocate south.csv"]
-  South -->|"Record 101"| Attach["assign south"]
-  Accumulate --> Attach
-  Attach --> Batch["Batch record"]
-  South -->|"Next counter: 102"| Final["Final counter: 102"]
-```
+allocation's record while the updated counter moves on.
 
 ### Allocating a Batch
 
 A single allocation reads the counter, increments it, and returns a labeled record. `assign` keeps
-both records while passing the updated counter between allocations:
+both records while passing the updated counter between allocations.
 
 ```ts
 import { pipe, State } from "@pplnd/core";
@@ -92,7 +75,7 @@ one, pass `nextSequence` to the next batch.
 
 Running the batch with `100` fixes the starting number in the source. When that number comes from
 deployment settings that stay fixed for the run, [`Reader`](/guides/reader/) supplies it once at the
-edge and leaves the state transitions unchanged:
+edge and leaves the state transitions unchanged.
 
 ```ts
 import { pipe, Reader, State } from "@pplnd/core";

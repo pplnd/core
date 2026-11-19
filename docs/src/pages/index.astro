@@ -1,0 +1,48 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import { HOME_CARDS } from "../nav";
+---
+
+<BaseLayout title="pipelined" isHome={true}>
+	<section slot="hero" class="hero">
+		<div class="hero-brand">
+			<a class="wordmark" href="/">pipelined</a>
+			<svg class="title-arrow" aria-hidden="true" focusable="false">
+				<use class="arrow-right" href="/title-arrow.svg#right" />
+				<use class="arrow-down" href="/title-arrow.svg#down" />
+			</svg>
+		</div>
+		<div class="hero-r">
+			<h1>45 Modules</h1>
+			<a class="aside" href="/basics/quickstart/">Quickstart</a>
+		</div>
+	</section>
+
+	<div class="right">
+		<p class="statement">
+			Typed errors, explicit absence, composable async. <span>Plain TypeScript, tree-shakeable, zero dependencies.</span>
+		</p>
+		<div class="cards">
+			{HOME_CARDS.map((card) => (
+				<a class="card" href={card.href}>
+					<svg
+						class={`specimen ${card.variant}`}
+						viewBox="0 0 270 130"
+						role={card.svgRole}
+						aria-label={card.svgLabel}
+						aria-hidden={card.svgRole ? undefined : "true"}
+						focusable="false"
+						set:html={card.svgBody}
+					/>
+					<span class="card-meta">{card.meta}</span>
+					<span class="card-title">{card.title}</span>
+				</a>
+			))}
+		</div>
+		<a class="choosing-cta" href="/basics/choosing/">
+			<div class="choosing-copy">
+				<p class="choosing-title">Which impossible states does your code still allow?</p>
+			</div>
+		</a>
+	</div>
+</BaseLayout>

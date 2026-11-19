@@ -30,18 +30,6 @@ One canonical way: a mount-triggered request with no strategy belongs in
 
 ## Example: Autosaving a Draft
 
-```mermaid
-stateDiagram-v2
-    direction TB
-    [*] --> Idle
-    Idle --> Pending: run(draft)
-    Pending --> Pending: keystroke (debounced)
-    Pending --> OpOk: save settles
-    OpOk --> Pending: edit
-    Pending --> OpErr: save fails
-    OpErr --> Pending: retry with backoff
-```
-
 ```tsx
 // Component.state.ts — strategy configured outside React
 const saveOp = Op.make((draft: Draft) => persist(draft));

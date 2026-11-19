@@ -32,17 +32,6 @@ event that should *drive* a machine's transition — interpret the machine with 
 
 ## Example: Map and Sidebar Sync
 
-```mermaid
-sequenceDiagram
-    participant Map as MapWidget
-    participant Bus as dashboardBus
-    participant List as SidebarList
-    Map->>Bus: emit({ kind: "pinSelected", value })
-    Bus->>List: handler(value) — row highlights
-    List->>Bus: emit({ kind: "rowFocused", value })
-    Bus->>Map: handler(value) — map pans
-```
-
 ```tsx
 type DashboardEvents = {
 	readonly pinSelected: { readonly rowId: string };

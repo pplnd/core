@@ -1,9 +1,15 @@
 {
-	"entryPoints": [
-		"../packages/core/src/index.ts"
-	],
+	"entryPoints": ["../packages/core/src/index.ts"],
 	"tsconfig": "../packages/core/tsconfig.typedoc.json",
+	"plugin": ["typedoc-plugin-markdown"],
+	"out": ".astro/typedoc-stage",
+	"readme": "none",
 	"excludePrivate": true,
 	"excludeInternal": true,
+	"excludeScopesInPaths": true,
+	"hideBreadcrumbs": true,
+	"hidePageHeader": true,
+	"hidePageTitle": true,
+	"sanitizeComments": true,
 	"json": "public/typedoc.json"
 }

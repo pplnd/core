@@ -29,17 +29,6 @@ The [Machine guide](/guides/machine/) covers transition tables and
 
 ## Example: Kiosk Checkout
 
-```mermaid
-stateDiagram-v2
-    direction TB
-    [*] --> selecting
-    selecting --> paying: CARD_INSERTED
-    paying --> dispensing: payment approved
-    paying --> fault: terminal fault
-    dispensing --> idle: tray empty
-    fault --> selecting: attendant reset
-```
-
 ```tsx
 const kioskMachine = Machine.make<KioskState, KioskEvents>({
 	selecting: { on: { CARD_INSERTED: () => Machine.state("paying") } },
@@ -91,7 +80,7 @@ with [`useActor`](/guides/use-actor/).
 ### Inputs: the Actor Owns the Field State
 
 A component's inputs bind to the actor with one `send` per field — there is no React state in the
-default posture:
+default posture.
 
 ```tsx
 const { state, send } = useActor(formActor, selectEmail);

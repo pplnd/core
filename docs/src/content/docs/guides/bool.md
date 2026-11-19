@@ -3,12 +3,6 @@ title: Bool — Boolean Utilities
 description: Parse flags and defer a second check until the first condition requires it.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 1.91 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 The environment provides a feature flag as text, and the service combines it with a workspace
 eligibility check. When the flag is false, the eligibility check still runs, and a workspace with an
 unusual plan can flip a feature that was never enabled. An empty or misspelled variable must also
@@ -34,17 +28,7 @@ functions. The [choosing guide](/basics/choosing/) lists the primitives side by 
 A service reads a feature flag and checks whether a workspace may use the audit log. The plan and
 seat checks only matter when the flag is enabled.
 
-`andLazy` evaluates the eligibility check only when the parsed flag is true:
-
-```mermaid
-flowchart TD
-  Flag["Feature flag text"] --> Parse{"Parsed as boolean?"}
-  Parse -->|No| Off["false"]
-  Parse -->|Yes| Value["Parsed value"]
-  Value -->|false| Skip["false; skip eligibility check"]
-  Value -->|true| Check["Run eligibility check"]
-  Check --> Decision["Return check result"]
-```
+`andLazy` evaluates the eligibility check only when the parsed flag is true.
 
 ### Checking a Feature Flag
 
@@ -82,7 +66,7 @@ A flag that does not parse becomes `false` before the lazy check, so the workspa
 ### Handing the Eligibility Rules to Predicate
 
 The plan and seat rules can become named functions, so another feature can apply the same
-combination without repeating the conjunction:
+combination without repeating the conjunction.
 
 ```ts
 import { Predicate } from "@pplnd/core";

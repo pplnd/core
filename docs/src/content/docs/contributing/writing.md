@@ -18,12 +18,6 @@ title: Module Name — What It Prevents
 description: One sentence that states the capability.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 1.23 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 <Opening: two to four sentences, situation and failure, no library type names>
 
 ## Core Behavior
@@ -32,7 +26,7 @@ Definition, behavior bullets, then one placement paragraph.
 
 ## Example: <Situation>
 
-Scenario, vertical behavior diagram, implementation, and a handoff subsection.
+Scenario, implementation, and a handoff subsection.
 
 ## Core Operations
 
@@ -42,9 +36,6 @@ Intent-grouped tables.
 
 Concrete failure semantics and sibling links.
 ```
-
-Keep the bundle badge byte-identical. `pnpm size:update` owns the number; the bundle-size test fails
-on drift. Never add a second badge.
 
 ## Opening
 
@@ -67,9 +58,10 @@ boundary safety, and cancellation. Close the section with one nearest alternativ
 
 ## Example and handoff
 
-Keep one domain from the opening through the handoff. Use a vertical Mermaid diagram that shows only
-the transitions the module controls. Then show a complete implementation with real interfaces, real
-error types, and `pipe(...)`.
+Keep one domain from the opening through the handoff. Register the guide's hero SVG explainer figure
+under `docs/src/figures/` (wired through `docs/src/components/GuideFigure.astro`) to show the
+primary transition or branching behavior at the top of the article. Then show a complete
+implementation with real interfaces, real error types, and `pipe(...)`.
 
 End the example with one `###` handoff subsection that takes the same feature one step into an
 adjacent module: `Result` to `Task.Result`, `Validation` to a `Result` boundary, `Graph` to
@@ -110,14 +102,14 @@ background. Replace "declarative lifecycle bracket" with "pairs setup with clean
 "catamorphism" with "named-case matching". No promotional adjectives, no "in essence", no "not only
 ... but also".
 
-## Typography and diagrams
+## Typography and hero figures
 
 - Use spaced em dashes.
 - Do not use LaTeX delimiters.
-- Use vertical `flowchart TD` or `stateDiagram-v2` diagrams with `direction TB`.
-- No HTML inside labels. Use parentheses for type parameters: `Result.Ok(A)`.
-- Quote labels with punctuation.
-- No `note` blocks in state diagrams.
+- Author hero explainer figures in `viewBox="0 0 600 256"` with a pastel plate token
+  (`--figure-plate`), `currentColor` geometric paths (`stroke-width="2"`), `.flow-input` /
+  `.flow-case` / `.flow-value` text classes, an accessible `<title>` and `<desc>`, and a one-line
+  `<figcaption>`.
 
 ## Complete example
 
@@ -132,11 +124,11 @@ const label = (value: string | null): string =>
 
 - [ ] The opening states the situation and failure before naming a type.
 - [ ] `Core Behavior` ends with one nearest sibling and `/basics/choosing/`.
-- [ ] The example keeps one domain and includes the diagram, implementation, and handoff.
+- [ ] A hero SVG figure is registered under `docs/src/figures/`, and the example keeps one domain
+      with an implementation and a handoff.
 - [ ] `Core Operations` is grouped by intent.
 - [ ] `Failure Behavior and Edge Cases` is specific.
 - [ ] At least two inline documentation links are present.
-- [ ] The bundle badge appears exactly once.
 - [ ] No numbered headings, LaTeX, banned phrases, or "Problems it solves" appendix.
 - [ ] `pnpm format` and `pnpm docs:build` pass.
 

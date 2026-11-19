@@ -3,12 +3,6 @@ title: Graph — Dependent Async Tasks
 description: Run asynchronous nodes once, in dependency order, and cancel the rest when one fails.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 2.96 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A customer page reads one customer record and feeds two panels from it. Each panel fetches the
 record for itself, so the page reads it twice and the slower request decides when the page settles.
 When the record lookup fails, the second request is still running for a page that will never render.
@@ -37,24 +31,12 @@ A build report needs both the byte count and line count of a manifest. Both meas
 reading the same file, so the file should be read once before either measurement starts.
 
 A dependent node waits for every declared dependency. A shared dependency is reused by both
-branches:
-
-```mermaid
-flowchart TD
-  Ready["Root nodes ready"] --> Run["Run a node with input and dependency outputs"]
-  Run --> Outcome{"Node outcome"}
-  Outcome -->|Ok| Store["Store the output"]
-  Store --> Target{"Target node?"}
-  Target -->|Yes| Settle["Settle the graph with Ok"]
-  Target -->|No| Queue["Queue dependents whose last dependency completed"]
-  Queue --> Run
-  Outcome -->|Err| Fail["Settle the graph with Err and abort active nodes"]
-```
+branches.
 
 ### Preparing the Report
 
 This example reads the project's manifest, calculates two measurements, and combines them. Run it
-from the project root:
+from the project root.
 
 ```ts
 import { readFile } from "node:fs/promises";
@@ -91,7 +73,7 @@ both measurements.
 ### Publishing the Report in a Transaction
 
 The report is computed in memory. Writing it out and recording the build are two steps that must not
-leave a partial result behind when the second one fails, which is where a transaction takes over:
+leave a partial result behind when the second one fails, which is where a transaction takes over.
 
 ```ts
 import { appendFile, rm, writeFile } from "node:fs/promises";

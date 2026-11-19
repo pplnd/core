@@ -1,0 +1,35 @@
+---
+export interface Props {
+	packages?: string;
+}
+
+const { packages = "@pplnd/core" } = Astro.props;
+const managers = [{ name: "pnpm", cmd: `pnpm add ${packages}` }, { name: "npm", cmd: `npm install ${packages}` }, {
+	name: "yarn",
+	cmd: `yarn add ${packages}`,
+}, { name: "bun", cmd: `bun add ${packages}` }];
+---
+
+<pplnd-pm-tabs class="install-box pm-install-inline">
+	<svg class="install-arrow" viewBox="0 0 32 24" aria-hidden="true" focusable="false">
+		<path d="M16 0 V21.5 M3.5 9.5 L16 22 L28.5 9.5" />
+	</svg>
+	<div class="pm-line" role="tablist" aria-label={`Install ${packages}`}>
+		{managers.map((m, i) => (
+			<button
+				class="pm"
+				role="tab"
+				type="button"
+				aria-selected={i === 0 ? "true" : "false"}
+				tabindex={i === 0 ? 0 : -1}
+				data-pm-cmd={m.cmd}
+			>
+				{m.name}
+			</button>
+		))}
+	</div>
+	<div class="cmd">
+		<code data-pm-code><span class="p">$</span>{managers[0]!.cmd}</code>
+		<button class="copy" type="button" data-pm-copy aria-label="Copy installation command">Copy</button>
+	</div>
+</pplnd-pm-tabs>

@@ -34,13 +34,13 @@ Do not edit the package version. Maintainers handle version bumps and releases.
 
 ## Where the rules live
 
-| Topic                                               | Page                                      |
-| :-------------------------------------------------- | :---------------------------------------- |
-| Clone, install, branch, and open a PR               | [Local Workflow](/contributing/workflow/) |
-| Runtime tests, type tests, coverage, benchmarks     | [Testing](/contributing/testing/)         |
-| Module anatomy, naming, JSDoc, new-module checklist | [Adding a Module](/contributing/modules/) |
-| Guide anatomy, voice, cross-links, Mermaid, JSDoc   | [Writing Guides](/contributing/writing/)  |
-| Choosing between modules                            | [Choosing a Container](/basics/choosing/) |
+| Topic                                                  | Page                                      |
+| :----------------------------------------------------- | :---------------------------------------- |
+| Clone, install, branch, and open a PR                  | [Local Workflow](/contributing/workflow/) |
+| Runtime tests, type tests, coverage, benchmarks        | [Testing](/contributing/testing/)         |
+| Module anatomy, naming, JSDoc, new-module checklist    | [Adding a Module](/contributing/modules/) |
+| Guide anatomy, voice, cross-links, hero figures, JSDoc | [Writing Guides](/contributing/writing/)  |
+| Choosing between modules                               | [Choosing a Container](/basics/choosing/) |
 
 ## If you get stuck
 

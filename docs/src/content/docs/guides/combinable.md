@@ -3,12 +3,6 @@ title: Combinable — Combining Values
 description: Fold collections into a value with per-type merge rules and an identity for empty input.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 1.82 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 Each time window reports its own request count and warning messages. A report over four windows must
 total the counts, concatenate the lists, and still produce zero requests and no warnings when the
 list is empty. Writers who loop by hand repeat the starting values at each call site, and one of
@@ -37,15 +31,7 @@ A service records request counts and warning messages for each time window. The 
 every window into one summary and has to return a useful summary when the list is empty.
 
 `combineAll` starts from the rule's empty value, then passes each item and the current accumulation
-to `combine`:
-
-```mermaid
-flowchart TD
-  Empty["Start from empty"] --> More{"Another window?"}
-  More -->|Yes| Add["Combine window into summary"]
-  Add --> More
-  More -->|No| Summary["Return summary"]
-```
+to `combine`.
 
 ### Combining Window Summaries
 
@@ -78,7 +64,7 @@ a new record. The empty list returns the struct's empty record, with zero reques
 ### Overriding Window Fields
 
 A report sometimes needs the latest window to override earlier fields instead of accumulating them.
-`Rec.merge` performs a shallow merge with right precedence:
+`Rec.merge` performs a shallow merge with right precedence.
 
 ```ts
 import { pipe, Rec } from "@pplnd/core";
@@ -120,7 +106,7 @@ The [Rec guide](/guides/rec/) covers key selection and collision handling with `
 ## Failure Behavior and Edge Cases
 
 `combine` receives the next item first. For `string` and `array`, reversing the arguments changes
-the result:
+the result.
 
 ```ts
 import { Combinable, pipe } from "@pplnd/core";

@@ -3,12 +3,6 @@ title: Str — String Utilities
 description: Normalize, split, and parse text while keeping whole-value checks separate from prefix parsing.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 2.44 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A log line arrives with a trailing carriage return. The splitter treats it as a separator and yields
 an empty token, which becomes an empty field in the report. The same text then feeds an identifier
 column where a trace code and an account code are both plain strings.
@@ -31,16 +25,7 @@ that needs bounds, clamping, or aggregation, [`Num`](/guides/num/) owns those ru
 A log processor receives a multiline message with irregular padding. It normalizes each line, drops
 the blank rows, and keeps the words for indexing.
 
-`lines` and `words` split the text, while `is.blank` decides which segments to discard:
-
-```mermaid
-flowchart TD
-  Text["Log text"] --> Lines["Split on line endings"]
-  Lines --> Blank{"Blank line?"}
-  Blank -->|Yes| Drop["Drop the line"]
-  Blank -->|No| Terms["Trim, lowercase, split into words"]
-  Terms --> Result["Term list"]
-```
+`lines` and `words` split the text, while `is.blank` decides which segments to discard.
 
 ### Extracting Log Terms
 
@@ -77,7 +62,7 @@ whitespace.
 
 The same message can carry a request code. After a pattern check establishes the format,
 `Brand.wrap` records that check in the type, so a request code cannot be passed where an account
-code is expected:
+code is expected.
 
 ```ts
 import { Brand, Maybe, Str, pipe } from "@pplnd/core";

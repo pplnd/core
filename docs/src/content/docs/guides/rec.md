@@ -3,12 +3,6 @@ title: Rec — Record Utilities
 description: Merge, map, and look up string-keyed plain objects without mutating the input.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 3.33 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A product ships with default interface labels, and each locale overrides a handful of them. The
 renderer reads one label per key, and a key that exists in neither place reaches the screen as the
 text `undefined`. The defaults must also stay unchanged, because the next locale merges against the
@@ -35,17 +29,7 @@ keys that are not strings, or that must be compared by identity. The
 An application keeps default labels and lets each locale override a few of them. Rendering needs one
 label per key, with a visible placeholder when neither the locale file nor the defaults define it.
 
-`merge` gives the override object precedence; `lookup` then reports whether a key survived:
-
-```mermaid
-flowchart TD
-  Defaults["Default labels"] --> Merge["Rec.merge(overrides)"]
-  Overrides["Locale overrides"] --> Merge
-  Merge --> Shared["Colliding keys take the override"]
-  Shared --> Lookup{"Key present?"}
-  Lookup -->|Yes| Value["Label value"]
-  Lookup -->|No| Placeholder["Key in brackets"]
-```
+`merge` gives the override object precedence; `lookup` then reports whether a key survived.
 
 ### Resolving Labels
 
@@ -81,7 +65,7 @@ reads `cancel` from the defaults and finds no entry for `missing`, which is why 
 
 A renderer that serves several locales caches the merged labels per locale. When the cache key is a
 parsed locale descriptor rather than its tag, two descriptors with the same fields are still
-different keys:
+different keys.
 
 ```ts
 import { Dict, pipe } from "@pplnd/core";
@@ -143,7 +127,7 @@ keyed by a parsed descriptor needs.
 ## Failure Behavior and Edge Cases
 
 `lookup` checks own properties, so an inherited property is absent. A present key whose value is
-`undefined` is `Some(undefined)`, which differs from a missing key:
+`undefined` is `Some(undefined)`, which differs from a missing key.
 
 ```ts
 import { Rec } from "@pplnd/core";

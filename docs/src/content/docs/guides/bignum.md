@@ -3,12 +3,6 @@ title: BigNum — BigInt Utilities
 description: Keep integer arithmetic exact once counters pass the safe range for a JavaScript number.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 1.93 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A storage dashboard adds byte counters from many buckets. Individual counters fit in a JavaScript
 number, but their total exceeds `2^53`, where doubles round to the nearest representable value. The
 dashboard reports a fleet size that differs from the true sum, and no error marks the drift.
@@ -34,17 +28,7 @@ A storage service receives a byte counter as text and divides it by the number o
 bucket. The counter can exceed the safe number range, so the calculation stays in `bigint`.
 
 `from.string` returns an integer when parsing succeeds and an absent value when it fails; `divide`
-then guards the zero divisor:
-
-```mermaid
-flowchart TD
-  Text["Byte counter text"] --> Parse{"Valid integer text?"}
-  Parse -->|No| Missing["None"]
-  Parse -->|Yes| Count["Some(count as bigint)"]
-  Count --> Divisor{"File count is 0n?"}
-  Divisor -->|Yes| Missing
-  Divisor -->|No| Quotient["Some(truncated bytes per file)"]
-```
+then guards the zero divisor.
 
 ### Calculating Bytes per File
 
@@ -81,7 +65,7 @@ counter text.
 
 Once a count fits the safe integer range, the display layer can leave exact arithmetic. `to.number`
 returns `None` rather than rounding when it does not fit, and `Num.format` then produces the
-locale-aware text:
+locale-aware text.
 
 ```ts
 import { BigNum, Maybe, Num, pipe } from "@pplnd/core";

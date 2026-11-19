@@ -3,12 +3,6 @@ title: Maybe — Explicit Absence
 description: Carry a missing configuration value through a pipeline without repeated null checks.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 1.59 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A thumbnail worker reads its queue URL from an environment variable. When the variable is absent,
 the worker starts with the string `undefined` as its queue and fails on the first job. The startup
 code has no way to say that a URL might be missing.
@@ -38,25 +32,14 @@ a label for its process manager. The loader reads these settings from environmen
 keeps presence explicit: each setting is either usable or absent.
 
 `chain` calls the next operation only when a value is present. That operation can return `None`,
-which skips subsequent `map` and `chain` callbacks:
-
-```mermaid
-flowchart TD
-  Input["Maybe(worker setting)"] --> Present{"Some?"}
-  Present -->|Yes| Parse["chain calls parsePositiveInteger"]
-  Present -->|No| Missing["None passes through"]
-  Parse -->|Valid| Some["Some(worker count)"]
-  Parse -->|Rejected| Missing
-  Some --> Next["Later callbacks run"]
-  Missing --> Skip["Later callbacks are skipped"]
-```
+which skips subsequent `map` and `chain` callbacks.
 
 `None` does not record whether the setting was missing or failed to parse. Use `Result` when the
 caller needs that distinction.
 
 ### Loading Worker Configuration
 
-With raw environment values, each setting needs its own null, blank, and parsing branch:
+With raw environment values, each setting needs its own null, blank, and parsing branch.
 
 ```ts
 const concurrency = Number(process.env.THUMBNAIL_WORKER_CONCURRENCY);
@@ -73,7 +56,7 @@ if (
 
 This check accepts `"1e1"` as a concurrency of 10, even if the configuration requires decimal
 digits. It also leaves the URL format, timeout, and label unchecked. Start by wrapping the queue
-variable and trimming it only when it is present:
+variable and trimming it only when it is present.
 
 ```ts
 import { Maybe, pipe } from "@pplnd/core";
@@ -215,7 +198,7 @@ lookups or parsing should be skipped after an earlier failure.
 ### When Absence Must Be an Error
 
 The boot decision above collapses every cause into one message. When a supervisor or health endpoint
-needs a typed failure, attach an error at the boundary:
+needs a typed failure, attach an error at the boundary.
 
 ```ts
 import { Maybe, pipe, Result } from "@pplnd/core";
@@ -292,7 +275,7 @@ failure retains its reason; converting an already-empty `Maybe` to `Result` can 
 generic error.
 
 For example, a missing worker count and a rejected count become the same `None`, so converting later
-cannot recover their different causes:
+cannot recover their different causes.
 
 ```ts
 import { Maybe, pipe } from "@pplnd/core";

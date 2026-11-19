@@ -32,15 +32,6 @@ containers side by side.
 
 ## Example: Racing Photo Loads
 
-```mermaid
-flowchart TD
-    A["deps change: abort previous signal"] --> B["Loading"]
-    B --> C["run settles"]
-    C --> D{"epoch current?"}
-    D --> "yes" --> E["Success / Failure"]
-    D --> "no" --> F["result dropped, no re-render"]
-```
-
 ```tsx
 import { useLoad } from "@pplnd/react";
 import { RemoteData, Task } from "@pplnd/core";

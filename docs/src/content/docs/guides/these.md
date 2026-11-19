@@ -3,12 +3,6 @@ title: These — One Value or Both
 description: Represent a value, a diagnostic, or both and handle all three cases explicitly.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 2.03 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A temperature sensor can return a usable reading together with a note that it drifted outside its
 calibrated range. A service that treats every response as either valid or failed must discard one of
 the two facts: either the measurement or the maintenance signal. Neither loss is visible in the
@@ -38,18 +32,7 @@ A temperature reading may be valid but outside the sensor's expected range, or i
 unusable. `These.make.both(reading, warning)` carries a usable reading and its warning together.
 
 When a reading and a warning are both present, `mapFirst` changes the reading and keeps the warning,
-while `mapSecond` changes the warning and keeps the reading. The example formats both:
-
-```mermaid
-flowchart TD
-  Input["These(reading, diagnostic)"] --> Kind{"Which variant?"}
-  Kind -->|First| Format["mapFirst formats the reading"]
-  Kind -->|Second| KeepSecond["mapFirst skips; mapSecond prefixes the diagnostic"]
-  Kind -->|Both| FormatBoth["Both transforms run"]
-  Format --> First["First(formatted reading)"]
-  KeepSecond --> Second["Second(prefixed diagnostic)"]
-  FormatBoth --> Both["Both(formatted reading, prefixed diagnostic)"]
-```
+while `mapSecond` changes the warning and keeps the reading. The example formats both.
 
 If the input is `Second`, `mapFirst` skips its callback and `mapSecond` transforms the diagnostic.
 `chainFirst` returns the callback's entire `These`, replacing the original reading and its warning
@@ -58,7 +41,7 @@ callback's result.
 
 ### Parsing and Displaying Readings
 
-This parser returns a diagnostic for invalid input and adds a warning to high but valid readings:
+This parser returns a diagnostic for invalid input and adds a warning to high but valid readings.
 
 ```ts
 import { pipe, These } from "@pplnd/core";
@@ -107,7 +90,7 @@ exist, and `match` is the only place that has to handle all three shapes.
 `match` composes in pipes with the data last. When the these is already in scope, `matchValue`
 dispatches on it directly. Handler returns unify either way: related returns reconcile, and
 unrelated ones widen to their union; in curried `match`, that reconciliation needs one
-handler-return annotation:
+handler-return annotation.
 
 ```ts
 const headline = These.matchValue(parseReading("48"), {
@@ -121,7 +104,7 @@ const headline = These.matchValue(parseReading("48"), {
 ### Sending the Reading and Its Note Together
 
 Downstream telemetry expects one payload containing both facts. `to.Pair` extracts a pair only from
-`Both`; `Pair.merge` gives the two values names:
+`Both`; `Pair.merge` gives the two values names.
 
 ```ts
 import { Maybe, Pair, pipe, These } from "@pplnd/core";
@@ -186,7 +169,7 @@ If both a reading and a diagnostic can be absent, represent that outside `These`
 missing side.
 
 `chainFirst` on `Both` returns the callback's result and drops the existing second value. For
-example, the warning is lost when the callback returns only a formatted reading:
+example, the warning is lost when the callback returns only a formatted reading.
 
 ```ts
 import { pipe, These } from "@pplnd/core";

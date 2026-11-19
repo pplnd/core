@@ -3,12 +3,6 @@ title: Resource — Acquisition and Cleanup
 description: Acquire a handle, run work with it, and release it in reverse order on every exit path.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 2.35 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 An import job opens a database connection and takes a lock on the catalog table. The connection step
 fails, the error returns to the caller, and the lock stays held until someone restarts the worker.
 Every later run queues behind a lock whose owner is gone.
@@ -37,19 +31,7 @@ catalog database, and adds the batch. The lock has to be released before the wor
 on the path where the connection never opens.
 
 Successful acquisitions register their release. A failed acquisition skips the work and releases
-what was already acquired:
-
-```mermaid
-flowchart TD
-  Acquire["Acquire next resource"] --> Outcome{"Acquisition result"}
-  Outcome -->|Ok| Register["Register its release"]
-  Register --> More{"More resources?"}
-  More -->|Yes| Acquire
-  More -->|No| Work["Run the work callback"]
-  Work --> Release["Release in reverse order"]
-  Outcome -->|Err| Release
-  Release --> Settle["Settle with the acquisition or work error"]
-```
+what was already acquired.
 
 ### Opening the Import Session
 
@@ -148,7 +130,7 @@ so the scope releases it before returning the error.
 
 When the import grows into several writes that must undo completed steps, the transaction receives
 the acquired client as its run input. The steps read it from `ctx.input`, and a signal passed to
-`use` reaches them:
+`use` reaches them.
 
 ```ts
 import { Transaction } from "@pplnd/core";

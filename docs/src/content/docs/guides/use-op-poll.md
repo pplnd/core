@@ -27,18 +27,6 @@ strategy without a schedule, bind the manager with [`useOp`](/guides/use-op/) al
 
 ## Example: Fleet Position Refresh
 
-```mermaid
-sequenceDiagram
-    participant Panel as FleetPanel
-    participant Manager as positionManager
-    Panel->>Manager: poll({ every: 15s })("fleet_7")
-    Manager->>Manager: immediate run
-    loop every 15s until unmount
-        Manager->>Manager: repeat run
-    end
-    Panel->>Manager: unmount -> stop()
-```
-
 ```tsx
 const positionOp = Op.make((fleetId: string) => fetchPositions(fleetId));
 const positionManager = Op.interpret(positionOp, { strategy: "restartable" });

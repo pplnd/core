@@ -3,12 +3,6 @@ title: Json — Parsing and Serialization
 description: Parse and serialize JSON with syntax failures returned as typed results.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 1.77 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A device sends its inventory message as JSON. When the payload is truncated, the native parser
 throws, and the thrown error is absent from the function's return type. When the payload is valid
 but has no device identifier, parsing succeeds and the missing field surfaces later as `undefined`.
@@ -33,14 +27,7 @@ side.
 An inventory service accepts a device message, checks that it carries an identifier and a firmware
 version, and returns a response for the device.
 
-`parse` turns a syntax error into an `Err`, while a successful parse leaves the value untyped:
-
-```mermaid
-flowchart TD
-  Text["Inventory message text"] --> Syntax{"JSON.parse succeeds?"}
-  Syntax -->|No| Err["Err(SyntaxError)"]
-  Syntax -->|Yes| Parsed["Ok(parsed value)"]
-```
+`parse` turns a syntax error into an `Err`, while a successful parse leaves the value untyped.
 
 ### Reading an Inventory Message
 
@@ -90,7 +77,7 @@ property.
 ### Handing the Guard to Refinement
 
 The same guard satisfies `Refinement<unknown, DeviceMessage>`, so the inline check can move into a
-reusable value once another boundary needs it:
+reusable value once another boundary needs it.
 
 ```ts
 import { Json, Refinement, Result, pipe } from "@pplnd/core";

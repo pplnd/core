@@ -12,18 +12,6 @@ document was cancelled.
 `EventBus` carries the messages. `Machine` decides which transitions are legal and ignores the rest.
 `Op` runs the request the machine is waiting on.
 
-```mermaid
-flowchart TD
-  Upload["uploadFinished event"] --> Bus["EventBus"]
-  Bus --> Actor["Machine actor: received"]
-  Actor -->|VALIDATE| Validating["validating"]
-  Validating -->|VALIDATED| Indexed["indexed"]
-  Validating -->|REJECTED| Failed["failed"]
-  Validating --> Op["Op manager runs the validator"]
-  Op -->|OpOk| Bus
-  Op -->|OpErr| Bus
-```
-
 ## Describe the messages
 
 The bus schema is the contract between producers and consumers. Every message carries its payload in
@@ -115,7 +103,9 @@ const validateDocument = Op.make((documentId: string) =>
   Task.Result.tryCatch(
     async (signal) => {
       const response = await fetch(`/api/documents/${documentId}/validate`, { signal });
-      if (!response.ok) throw new Error(await response.text());
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
       const body = await response.json() as { readonly pages: number };
       return { documentId, pages: body.pages } satisfies ValidatedDocument;
     },

@@ -3,12 +3,6 @@ title: Num — Number Utilities
 description: Guard division, clamp values, and aggregate numbers inside a pipeline.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 2.12 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A meter reports the energy consumed over an interval and the length of that interval. When the
 length arrives as zero, division produces `Infinity`, which flows into totals and comparisons as if
 it were a valid measurement. A later rounding step hides the bad input while the rate stays wrong.
@@ -34,14 +28,7 @@ A meter reports kilowatt-hours consumed over an interval measured in hours. The 
 the average load in kilowatts, and it must say when the interval length is unusable rather than
 print an infinite rate.
 
-`divide` checks the divisor before it calculates the rate:
-
-```mermaid
-flowchart TD
-  Reading["Energy and interval"] --> Zero{"Interval hours is zero?"}
-  Zero -->|Yes| None["None"]
-  Zero -->|No| Rate["Some(energy divided by hours)"]
-```
+`divide` checks the divisor before it calculates the rate.
 
 ### Calculating the Average Load
 
@@ -80,7 +67,7 @@ reading as a kilowatt value.
 ### Handing the Fleet Total to BigNum
 
 The same report can take its fleet total from lifetime counters kept in whole watt-hours. Once a
-counter passes the safe integer range, exact addition requires `bigint`:
+counter passes the safe integer range, exact addition requires `bigint`.
 
 ```ts
 import { BigNum, pipe } from "@pplnd/core";

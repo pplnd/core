@@ -1,0 +1,15 @@
+---
+export interface Props {
+	type?: "note" | "tip" | "caution" | "danger";
+	title?: string;
+}
+
+const { type = "note", title } = Astro.props;
+const label = title
+	?? (type === "caution" ? "Caution" : type === "danger" ? "Warning" : type === "tip" ? "Tip" : "Note");
+---
+
+<aside class="aside-callout" data-type={type}>
+	<div class="aside-title">{label}</div>
+	<div class="aside-body"><slot /></div>
+</aside>

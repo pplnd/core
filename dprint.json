@@ -17,9 +17,28 @@
 		"forInStatement.useBraces": "always",
 		"forOfStatement.useBraces": "always"
 	},
-	"excludes": ["dist/", "node_modules/", "*.md", "*.mdx"],
+	"malva": {
+		"quotes": "preferDouble"
+	},
+	"markup": {
+		"quotes": "double",
+		"scriptIndent": true,
+		"styleIndent": true
+	},
+	"excludes": [
+		"dist/",
+		".astro/",
+		"coverage/",
+		"node_modules/",
+		"docs/public/",
+		"**/*.md",
+		"**/*.mdx",
+		"**/*.svg"
+	],
 	"plugins": [
 		"https://plugins.dprint.dev/typescript-0.96.1.wasm",
-		"https://plugins.dprint.dev/json-0.21.3.wasm"
+		"https://plugins.dprint.dev/json-0.21.3.wasm",
+		"https://plugins.dprint.dev/g-plane/malva-v0.16.1.wasm",
+		"https://plugins.dprint.dev/g-plane/markup_fmt-v0.28.0.wasm"
 	]
 }

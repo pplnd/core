@@ -32,16 +32,6 @@ it matters.
 
 ## Example: Pairing a Label Printer
 
-```mermaid
-flowchart TD
-    A["mount: scope + acquire"] --> B["Loading"]
-    B --> C{"pairing settles"}
-    C --> "Ok" --> D["Success — session held"]
-    C --> "Err" --> E["Failure — nothing to release"]
-    D --> F["unmount: dispose, LIFO release"]
-    B --> F["unmount: dispose, release on settle"]
-```
-
 ```tsx
 const printerSession = Resource.make(
 	Task.Result.tryCatch((signal) => pairPrinter(deskId, signal), { onError: toPairingError }),
