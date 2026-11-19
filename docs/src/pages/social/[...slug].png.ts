@@ -55,7 +55,7 @@ function renderLines(lines: string[], baseline: number, lineHeight: number): str
 }
 
 export const GET: APIRoute<{ heading: string; subtitle?: string; plate?: string; }> = (
-	{ props: { heading, subtitle = "", plate = "#e6dec8" } },
+	{ props: { heading, subtitle = "", plate = "#ffffff" } },
 ) => {
 	const headingLines = wrapText(heading, 16);
 	const subtitleLines = wrapText(subtitle, 27);
