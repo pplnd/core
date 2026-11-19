@@ -74,10 +74,9 @@ const socialImageUrl = socialImage && new URL(socialImage.path, canonicalUrl).hr
 		</div>
 
 		<header class="head">
-			<div class="tools">
-				<button class="search" type="button">Search</button>
-				<button class="menu-toggle" type="button" aria-expanded="false" aria-controls="module-menu">Menu</button>
-			</div>
+			<a class="head-brand" href="/" aria-label="pipelined home">pipelined</a>
+			<button class="menu-toggle" type="button" aria-expanded="false" aria-controls="module-menu">Menu</button>
+			<button class="search" type="button">Search</button>
 		</header>
 
 		<main class={isIndexLayout ? "home-layout" : undefined}>

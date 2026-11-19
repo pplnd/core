@@ -213,13 +213,18 @@ function initShell(): void {
 	}
 
 	const menu = document.querySelector<HTMLButtonElement>(".menu-toggle");
+	let pageScrollTop = 0;
 	function setMenu(open: boolean): void {
-		if (!menu) {
+		if (!menu || open === document.body.classList.contains("menu-open")) {
 			return;
+		}
+		if (open) {
+			pageScrollTop = window.scrollY;
 		}
 		document.body.classList.toggle("menu-open", open);
 		menu.setAttribute("aria-expanded", String(open));
 		menu.textContent = open ? "Close" : "Menu";
+		window.scrollTo({ top: open ? 0 : pageScrollTop, behavior: "instant" });
 	}
 	if (menu) {
 		menu.addEventListener("click", () => setMenu(menu.getAttribute("aria-expanded") === "false"));
@@ -227,7 +232,7 @@ function initShell(): void {
 		document.addEventListener("keydown", (event) => {
 			if (event.key === "Escape" && !searchEl?.isOpen && document.body.classList.contains("menu-open")) {
 				setMenu(false);
-				menu.focus();
+				menu.focus({ preventScroll: true });
 			}
 		});
 	}
@@ -283,8 +288,17 @@ function initShell(): void {
 	const leftSticky = document.querySelector<HTMLElement>(".left-sticky");
 	const leftNav = document.querySelector<HTMLElement>(".left nav");
 	const heroBrand = document.querySelector<HTMLElement>(".hero-brand");
+	const header = document.querySelector<HTMLElement>(".head");
 	const goUpWrap = document.querySelector<HTMLElement>(".go-up-wrap");
 	const goUpBtn = document.querySelector<HTMLButtonElement>(".go-up");
+
+	if (header && heroBrand) {
+		new IntersectionObserver(([entry]) => {
+			if (entry && entry.boundingClientRect.height > 0) {
+				header.classList.toggle("is-stuck", !entry.isIntersecting && entry.boundingClientRect.bottom <= 0);
+			}
+		}).observe(heroBrand);
+	}
 
 	if (leftSticky && leftNav && goUpWrap && goUpBtn) {
 		const setStuck = (stuck: boolean): void => {
@@ -299,7 +313,7 @@ function initShell(): void {
 
 		goUpWrap.addEventListener("focusout", (event) => {
 			if (goUpWrap.inert && !event.relatedTarget) {
-				const fallback = heroBrand?.querySelector<HTMLElement>("a") || document.querySelector<HTMLElement>(".head button");
+				const fallback = heroBrand?.querySelector<HTMLElement>("a") || header?.querySelector<HTMLButtonElement>(".search");
 				fallback?.focus({ preventScroll: true });
 			}
 		});

@@ -136,10 +136,10 @@ a:hover, button:hover {
 .head {
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
+	justify-content: flex-end;
 	padding-top: 14px;
 }
-.head a, .tools button {
+.head a, .head button {
 	font-size: var(--pplnd-nav);
 	line-height: 1;
 	letter-spacing: -0.025em;
@@ -180,14 +180,7 @@ a:hover, button:hover {
 		display: block;
 	}
 }
-.tools {
-	display: flex;
-	align-items: baseline;
-	justify-content: flex-end;
-	gap: 1em;
-	width: 100%;
-}
-.menu-toggle {
+.head-brand, .menu-toggle {
 	display: none;
 }
 .hero, .page {
@@ -1075,17 +1068,53 @@ a:hover, button:hover {
 		--pplnd-pad: 12px;
 		--pplnd-display: clamp(44px, 12vw, 62px);
 		--pplnd-nav: 21px;
+		--pplnd-mobile-header: 44px;
+	}
+	html {
+		scroll-padding-top: calc(var(--pplnd-mobile-header) + 8px);
+	}
+	.head {
+		display: grid;
+		grid-template-columns: minmax(0, 3fr) auto minmax(0, 2fr);
+		position: sticky;
+		top: calc(-1 * var(--pplnd-mobile-header));
+		z-index: 2;
+		margin-inline: 0;
+		padding: 0 var(--pplnd-pad);
+		background: var(--pplnd-paper);
+	}
+	@media (prefers-reduced-motion: no-preference) {
+		.head {
+			transition: top 200ms ease-out;
+		}
+	}
+	.head.is-stuck, .head:has(:focus-visible), body.menu-open .head {
+		top: 0;
+	}
+	.head-brand, .head button {
+		min-height: var(--pplnd-mobile-header);
+	}
+	.head button {
+		min-width: 44px;
+	}
+	:is(.head.is-stuck, body.menu-open .head) .head-brand, .head-brand:focus-visible {
+		display: inline-flex;
+		align-items: center;
+		grid-column: 1;
+		justify-self: start;
 	}
 	.menu-toggle {
 		display: inline;
+		grid-column: 2;
+	}
+	.head .search {
+		grid-column: 3;
+		justify-self: end;
 	}
 	.brand-mark {
 		width: 52px;
 	}
-	.tools {
-		gap: 0.75em;
-	}
-	.head a, .tools button, .search-close {
+	.head a, .head button, .search-close {
 		font-size: 19px;
 	}
 	.home-layout {
