@@ -3,12 +3,6 @@ title: Refinement — Composing Type Guards
 description: Build type guards that narrow values and convert failed checks into Maybe or Result.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 1.66 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A service receives decoded messages as raw values. Before it reads a service name, it checks that
 the value is an object and that the object has the expected fields. When the two checks live in
 separate functions, a later edit can drop the object check; the field access then throws at runtime
@@ -36,16 +30,7 @@ the comparison modules together.
 A service receives decoded messages as `unknown`. A heartbeat is an object with `kind` set to
 `"heartbeat"` and a string `service` field; other message kinds must be ignored without throwing.
 
-`compose` runs the object guard first. If that guard fails, the field guard never runs:
-
-```mermaid
-flowchart TD
-  Input["Unknown message"] --> Object{"Is it a non-array object?"}
-  Object -->|No| Fail["false; skip field guard"]
-  Object -->|Yes| Fields{"Does it have heartbeat fields?"}
-  Fields -->|No| Invalid["false"]
-  Fields -->|Yes| Pass["true; narrows to Heartbeat"]
-```
+`compose` runs the object guard first. If that guard fails, the field guard never runs.
 
 ### Checking Messages
 
@@ -78,7 +63,7 @@ const heartbeatServices = messages.filter(isHeartbeat).map((heartbeat) => heartb
 ### Reporting a Rejected Message
 
 Filtering drops a malformed message without a reason. A caller that must log the rejection needs a
-value that carries the cause, and the same guard can produce it:
+value that carries the cause, and the same guard can produce it.
 
 ```ts
 import { Result } from "@pplnd/core";

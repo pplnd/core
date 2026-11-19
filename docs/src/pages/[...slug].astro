@@ -1,0 +1,91 @@
+---
+import { getCollection, render } from "astro:content";
+import path from "node:path";
+import GuideFigure from "../components/GuideFigure.astro";
+import { GUIDE_BUNDLE_SIZES } from "../data/bundle-sizes";
+import { guideSocialImage } from "../data/social-images";
+import { GUIDE_FIGURES } from "../figures";
+import BaseLayout from "../layouts/BaseLayout.astro";
+
+export async function getStaticPaths() {
+	const entries = await getCollection("docs");
+	return entries.map((entry) => ({ params: { slug: entry.id }, props: { entry } }));
+}
+
+const { entry } = Astro.props;
+const { Content } = await render(entry);
+
+function deriveFallbackHeading(id: string, filePath?: string): string {
+	if (id === "api" || id === "api/readme") {
+		return "API Reference";
+	}
+	if (filePath) {
+		const ext = path.extname(filePath);
+		const base = path.basename(filePath, ext);
+		if (base.toLowerCase() === "readme" || base.toLowerCase() === "index") {
+			const parent = path.basename(path.dirname(filePath));
+			if (parent && parent.toLowerCase() !== "api") {
+				return parent;
+			}
+		}
+		return base;
+	}
+	return id.split("/").pop() ?? id;
+}
+
+const rawTitle = entry.data.title ?? deriveFallbackHeading(entry.id, entry.filePath);
+const headingTitle = rawTitle.split(" — ")[0] ?? rawTitle;
+const figure = GUIDE_FIGURES[entry.id];
+const bundleSize = Object.hasOwn(GUIDE_BUNDLE_SIZES, entry.id) ? GUIDE_BUNDLE_SIZES[entry.id] : undefined;
+const importStatement = bundleSize
+	? `import { ${bundleSize.entries.map((item) => item.module).join(", ")} } from "${bundleSize.importFrom}"`
+	: undefined;
+---
+
+<BaseLayout
+	title={rawTitle}
+	description={entry.data.description}
+	currentSlug={entry.id}
+	socialImage={guideSocialImage(entry.id, rawTitle)}
+>
+	<header slot="hero" class="hero guide-hero">
+		<div class="hero-brand">
+			<a class="wordmark" href="/">pipelined</a>
+			<svg class="title-arrow" aria-hidden="true" focusable="false">
+				<use class="arrow-right" href="/title-arrow.svg#right" />
+				<use class="arrow-down" href="/title-arrow.svg#down" />
+			</svg>
+		</div>
+		<div class="hero-r"><h1>{headingTitle}</h1></div>
+	</header>
+
+	<article class="article" style={figure && { "--pplnd-figure-plate": figure.plate }}>
+		{entry.data.description && <p class="lead">{entry.data.description}</p>}
+		{bundleSize && importStatement && (
+			<div
+				class={bundleSize.entries.length > 1 ? "guide-spec guide-spec--multi" : "guide-spec"}
+				aria-label="Module bundle footprint"
+			>
+				<span class="guide-spec-import">{importStatement}</span>
+				<span class="guide-spec-meta">
+					{bundleSize.entries.length === 1 ? (
+						<>
+							<strong class="guide-spec-size">{bundleSize.entries[0]?.formatted}</strong> min+gzip
+						</>
+					) : (
+							<>
+								{bundleSize.entries.map((item, index) => (
+									<>
+										{index > 0 && " · "}
+										{item.module} <strong class="guide-spec-size">{item.formatted}</strong>
+									</>
+								))} min+gzip
+							</>
+						)}
+				</span>
+			</div>
+		)}
+		{figure && <GuideFigure figure={figure} />}
+		<Content />
+	</article>
+</BaseLayout>

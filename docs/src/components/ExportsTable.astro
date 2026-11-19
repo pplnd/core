@@ -1,62 +1,65 @@
 ---
-import { Card, CardGrid } from "@astrojs/starlight/components";
 import fs from "node:fs";
 import path from "node:path";
 
-function getBarrelExports(relPath: string): string[] {
-	try {
-		const fullPath = path.resolve(process.cwd(), relPath);
-		const content = fs.readFileSync(fullPath, "utf-8");
-		const matches = content.matchAll(/export\s+\*\s+from\s+["']\.\/([^"']+)["']/g);
-		const names: string[] = [];
-		for (const match of matches) {
-			names.push(match[1]);
-		}
-		return names.sort();
-	} catch {
+function getBarrelExports(relFromRoot: string): string[] {
+	const candidates = [
+		path.resolve(process.cwd(), "..", relFromRoot),
+		path.resolve(process.cwd(), relFromRoot),
+		path.resolve(import.meta.dirname, "../../..", relFromRoot),
+	];
+	const fullPath = candidates.find((p) => fs.existsSync(p));
+	if (!fullPath) {
 		return [];
 	}
+	const content = fs.readFileSync(fullPath, "utf-8");
+	const matches = content.matchAll(/export\s+\*\s+from\s+["']\.\/(?<name>[^"']+)["']/gu);
+	const names: string[] = [];
+	for (const match of matches) {
+		names.push(match.groups!.name!);
+	}
+	return names.sort();
 }
 
-const coreExports = getBarrelExports("../src/Core/index.ts");
-const dataExports = getBarrelExports("../src/Data/index.ts");
-const compositionExports = getBarrelExports("../src/Composition/index.ts");
-const typesExports = getBarrelExports("../src/Types/index.ts");
+const coreExports = getBarrelExports("packages/core/src/Core/index.ts");
+const dataExports = getBarrelExports("packages/core/src/Data/index.ts");
+const compositionExports = getBarrelExports("packages/core/src/Composition/index.ts");
+const typesExports = getBarrelExports("packages/core/src/Types/index.ts");
 
-const domains = [
-	{
-		title: "Errors, Async & State",
-		description: "Discriminated unions for error handling, optional values, async execution, event streams, state, and optics.",
-		exports: coreExports,
-	},
-	{
-		title: "Data & Collections",
-		description: "Pure curried utilities for arrays, records, dictionaries, strings, numbers, and JSON.",
-		exports: dataExports,
-	},
-	{
-		title: "Pipelines & Composition",
-		description: "Pipeline runners, flow composition, and execution control combinators.",
-		exports: compositionExports,
-	},
-	{
-		title: "Domain Types",
-		description: "Primitives, compile-time branded types, duration units, and retry policies.",
-		exports: typesExports,
-	},
-];
+const domains = [{
+	title: "Errors, Async & State",
+	description:
+		"Discriminated unions for error handling, optional values, async execution, event streams, state, and optics.",
+	exports: coreExports,
+}, {
+	title: "Data & Collections",
+	description: "Pure curried utilities for arrays, records, dictionaries, strings, numbers, and JSON.",
+	exports: dataExports,
+}, {
+	title: "Pipelines & Composition",
+	description: "Pipeline runners, flow composition, and execution control combinators.",
+	exports: compositionExports,
+}, {
+	title: "Domain Types",
+	description: "Primitives, compile-time branded types, duration units, and retry policies.",
+	exports: typesExports,
+}];
 ---
 
-<CardGrid>
+<div class="exports-grid">
 	{domains.map((domain) => (
-		<Card title={domain.title}>
+		<section class="export-card">
+			<h3>{domain.title}</h3>
 			<p>{domain.description}</p>
 			<p>
 				<strong>Exports:</strong>{" "}
 				{domain.exports.map((name, i) => (
-					<><code>{name}</code>{i < domain.exports.length - 1 ? " " : ""}</>
+					<>
+						<code>{name}</code>
+						{i < domain.exports.length - 1 ? " " : ""}
+					</>
 				))}
 			</p>
-		</Card>
+		</section>
 	))}
-</CardGrid>
+</div>

@@ -3,12 +3,6 @@ title: Uniq — Set Utilities
 description: Build and combine readonly sets of unique values.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 2.08 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 Two services compute the regions eligible for a deployment. Each starts from a requested list,
 removes the regions under maintenance, and publishes the result. A requested list that repeats a
 region survives the subtraction with the duplicate intact, so the two services disagree about how
@@ -38,14 +32,7 @@ regions are the requested regions that are not disabled, and the same sets answe
 disabled region is a recognized one.
 
 `difference` tests each requested value against the disabled set and keeps the values it does not
-find:
-
-```mermaid
-flowchart TD
-  Requested["Requested regions"] --> Disabled{"Value in disabled set?"}
-  Disabled -->|Yes| Removed["Omitted from eligible"]
-  Disabled -->|No| Kept["Kept in eligible"]
-```
+find.
 
 ### Selecting Regions
 
@@ -74,7 +61,7 @@ Uniq.size(requested); // 3
 ### Handoff: A Non-Empty Result After Set Algebra
 
 Set algebra can empty the set. When a later step cannot accept an empty collection, refine the
-result once:
+result once.
 
 ```ts
 import { Maybe, Uniq, pipe } from "@pplnd/core";
@@ -128,7 +115,7 @@ every collection module.
 ## Failure Behavior and Edge Cases
 
 Set membership follows same-value equality. Object values are compared by reference, so two objects
-with the same fields are different values:
+with the same fields are different values.
 
 ```ts
 import { Uniq } from "@pplnd/core";

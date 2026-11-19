@@ -3,12 +3,6 @@ title: Batcher — Batched Key Lookups
 description: Combine nearby key lookups into bulk requests and handle found, missing, and failed results.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 3.16 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A product page renders its parts one component at a time, and each component looks up its catalog
 item by id. Sent separately, forty lookups become forty database round trips, and two components
 asking for the same item send the same query twice.
@@ -36,23 +30,12 @@ A page needs catalog information for several item ids. Some ids repeat and some 
 batcher collects the unique ids for one batch and reports an outcome for every requested id.
 
 The bulk task returns a map of the keys it found. The batcher looks up each queued key in that map
-and settles every caller, including callers that requested the same key:
-
-```mermaid
-flowchart TD
-  Lookups["Queued key lookups"] --> Group["Group callers by serialized key"]
-  Group --> Fetch["Run one bulk task for the batch"]
-  Fetch --> Result{"Bulk result"}
-  Result -->|Err| Failed["BatcherErr for every caller"]
-  Result -->|Map| Present{"Key in map?"}
-  Present -->|Yes| Found["BatcherOk(value)"]
-  Present -->|No| Missing["BatcherMissing(key)"]
-```
+and settles every caller, including callers that requested the same key.
 
 ### Loading Items Together
 
 This example uses an in-memory catalog so it runs without a database. A database version replaces
-the body of `readCatalog` with one query for the ids it receives:
+the body of `readCatalog` with one query for the ids it receives.
 
 ```ts
 import { Batcher, pipe, Task } from "@pplnd/core";
@@ -100,7 +83,7 @@ Both `pencil` entries share one queued key and one map lookup. The second `penci
 same batch as the first, and the missing id is reported without failing the batch.
 
 Inside a callback over several outcomes, the value is already in hand — `matchValue` dispatches on
-it directly and drops the pipe:
+it directly and drops the pipe.
 
 ```ts
 const labels = outcomes.map((outcome) =>
@@ -117,7 +100,7 @@ const labels = outcomes.map((outcome) =>
 
 A catalog database that starts failing should not be queried by every rendered page. The breaker
 wraps the same bulk task, so a failing batch counts against the source and a blocked batch settles
-without querying it:
+without querying it.
 
 ```ts
 import { Batcher, CircuitBreaker, Duration, Task } from "@pplnd/core";

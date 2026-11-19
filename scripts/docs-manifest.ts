@@ -1,5 +1,13 @@
 export interface GuideManifestEntry {
 	readonly module: string | null;
+	readonly modules?: readonly string[];
+}
+
+export function resolveGuideModules(entry: GuideManifestEntry): readonly string[] {
+	if (entry.module !== null) {
+		return [entry.module];
+	}
+	return entry.modules ?? [];
 }
 
 /**
@@ -34,7 +42,7 @@ export const GUIDE_MANIFEST = {
 	"ordering.md": { module: "Ordering" },
 	"pair.md": { module: "Pair" },
 	"pool.md": { module: "Pool" },
-	"policies.md": { module: null },
+	"policies.md": { module: null, modules: ["RetryPolicy", "RepeatPolicy", "TimeoutPolicy"] },
 	"predicate.md": { module: "Predicate" },
 	"reader.md": { module: "Reader" },
 	"rate-limiter.md": { module: "RateLimiter" },
@@ -51,6 +59,14 @@ export const GUIDE_MANIFEST = {
 	"these.md": { module: "These" },
 	"uniq.md": { module: "Uniq" },
 	"validation.md": { module: "Validation" },
+	"react-bindings.md": { module: null },
+	"use-actor.md": { module: null },
+	"use-event-bus.md": { module: null },
+	"use-load.md": { module: null },
+	"use-machine.md": { module: null },
+	"use-op-poll.md": { module: null },
+	"use-op.md": { module: null },
+	"use-resource.md": { module: null },
 } as const satisfies Record<string, GuideManifestEntry>;
 
 export const STANDALONE_MODULES = [
@@ -58,6 +74,9 @@ export const STANDALONE_MODULES = [
 	"flow",
 	"Brand",
 	"Duration",
+	"RetryPolicy",
+	"RepeatPolicy",
+	"TimeoutPolicy",
 	"Maybe",
 	"Result",
 	"Validation",

@@ -3,12 +3,6 @@ title: Machine — States and Transitions
 description: Define explicit states, route events by state, and run lifecycle effects around each state.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 2.42 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 An upload screen lets the operator cancel while the request is in flight. The response arrives
 afterwards and the handler stores it, so the cancelled file reappears as uploaded. The same gap
 shows up wherever a screen's behaviour depends on which mode it is currently in, and the conditional
@@ -38,21 +32,12 @@ An upload screen can be idle, uploading, complete, or failed. If the user cancel
 response from that upload should not replace the current state.
 
 When an actor receives an event, it checks the current state's handler. A handler returning the same
-state object leaves the lifecycle alone; a different state object triggers exit and entry:
-
-```mermaid
-flowchart TD
-  Event["Actor receives event"] --> Handler{"Handler returns a different state object?"}
-  Handler -->|No handler or same object| Same["Keep current state and lifecycle"]
-  Handler -->|Yes| Exit["Abort signal, run cleanup and exit"]
-  Exit --> Notify["Store next state and notify subscribers"]
-  Notify --> Entry["Run next state's entry"]
-```
+state object leaves the lifecycle alone; a different state object triggers exit and entry.
 
 ### Managing an Upload
 
 The upload state starts a request on entry. The actor passes its signal to the upload, and the
-result sends either `COMPLETE` or `FAIL`. `CANCEL` returns to idle while the request is pending:
+result sends either `COMPLETE` or `FAIL`. `CANCEL` returns to idle while the request is pending.
 
 ```ts
 import { Machine } from "@pplnd/core";
@@ -131,7 +116,7 @@ exit effects, call `Machine.transition` or `Machine.to.reducer` instead.
 
 When the commands arrive from elsewhere in the application, subscribe the actor to those kinds. The
 subscription forwards only `START` and `CANCEL`; completion is reported by the entry effect that
-started the request, through its own `send`:
+started the request, through its own `send`.
 
 ```ts
 import { EventBus } from "@pplnd/core";
@@ -182,6 +167,32 @@ branch results; the curried form needs both type arguments because it cannot see
 `Machine.transition(machine, event)(state)` is data-last. `Machine.to.reducer` is uncurried and fits
 `useReducer` directly. `Machine.interpret` runs the initial entry immediately, so an entry effect
 that fetches starts before the first `send`.
+
+### Composing Machines From Blocks
+
+| Signature                          | What it does                                                      | Behavior                                                  |
+| :--------------------------------- | :---------------------------------------------------------------- | :-------------------------------------------------------- |
+| `Machine.fragment(states, events)` | Types a partial table for one block of a larger machine.          | Handler payloads are checked against the declared events. |
+| `Machine.merge(machine, fragment)` | Applies a fragment: per-state `on` handlers merge into the table. | Prior handlers on the same state are preserved.           |
+
+Large machines compose from blocks chained through `pipe`. Each block owns the events it provides
+and may attach their handlers onto any state — new or prior — so a base machine never
+forward-references states that do not exist yet. A builder constrains the events earlier steps must
+have provided: omit a step and the pipe fails to compile at that position, naming the missing event.
+
+```ts
+const withPayment = Machine.block<
+	PayingState | FaultState,
+	PaymentEvents,
+	{ readonly RESET: void },
+>({
+	selecting: { on: { CARD_INSERTED: () => Machine.state("paying", { session: "t-1" }) } },
+	paying: { on: { PAYMENT_APPROVED: () => Machine.state("paying", { session: "approved" }) } },
+	fault: { on: { RESET: () => Machine.state("halted") } },
+});
+
+const kiosk = pipe(baseMachine, withPayment, withCheckout);
+```
 
 ## Failure Behavior and Edge Cases
 

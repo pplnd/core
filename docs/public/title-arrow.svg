@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg">
+  <g id="right" fill="none" stroke="currentColor">
+    <line x1="0" x2="100%" y1="50%" y2="50%" />
+    <svg x="100%" y="50%" width=".45em" height=".9em" viewBox="0 0 9 18" overflow="visible">
+      <path d="M-8 -8 L0 0 L-8 8" stroke-width="1" />
+    </svg>
+  </g>
+  <symbol id="down" viewBox="0 0 28 64">
+    <path d="M27 1 H9 V61 M1 53 L9 61 L17 53" fill="none" stroke="currentColor" stroke-width="2" />
+  </symbol>
+</svg>

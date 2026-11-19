@@ -3,12 +3,6 @@ title: Optional — Values That May Be Missing
 description: Read and update a nested value that may be absent without guarding every call site.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 1.90 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A delivery request has a schedule, and the schedule may carry a time zone. Reading the time zone at
 each call site means a null check before every dispatch decision, and one path that skips it crashes
 the run. Writing the normalized zone back duplicates the same guard in the setter.
@@ -34,17 +28,7 @@ A delivery request may have a schedule and the schedule may have a time zone. Wh
 present, the application can normalize it; otherwise it can display a default without changing the
 request.
 
-`modify` checks the focused value before calling the transformation:
-
-```mermaid
-flowchart TD
-  Input["Delivery request"] --> Found{"Time zone present?"}
-  Found -->|No| Original["Return original request; skip callback"]
-  Found -->|Yes| Change["Apply transformation"]
-  Change --> Same{"Same value by Object.is?"}
-  Same -->|Yes| Original
-  Same -->|No| Updated["Set transformed value"]
-```
+`modify` checks the focused value before calling the transformation.
 
 ### Reading and Normalizing the Time Zone
 
@@ -73,7 +57,7 @@ without a schedule keeps its original shape, and `getOrElse` returns the fallbac
 
 Once dispatch requires every delivery to carry a schedule, the first segment stops being optional. A
 [`Lens`](/guides/lens/) focuses that guaranteed segment, and the optional time zone composes onto
-it:
+it.
 
 ```ts
 import { Lens, Optional, pipe } from "@pplnd/core";
@@ -117,7 +101,7 @@ pipe(scheduledDelivery, Optional.get(scheduledTimeZone)); // Some("Asia/Yerevan"
 ## Failure Behavior and Edge Cases
 
 `set` and `modify` differ for a missing property. A property setter can create that property, while
-`modify` needs a present value before it calls its callback:
+`modify` needs a present value before it calls its callback.
 
 ```ts
 import { Optional, pipe } from "@pplnd/core";

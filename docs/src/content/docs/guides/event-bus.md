@@ -3,12 +3,6 @@ title: EventBus — Typed Event Delivery
 description: Publish typed events to in-process subscribers, including ordered sequences and re-entrant emits.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 1.62 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A warehouse scanner updates the tracking page when a parcel is scanned. The customer email is queued
 from inside that same update, so a mail failure now decides whether the page updates. When the mail
 handler emits its own event, the scanner runs again while the first update is halfway through.
@@ -38,23 +32,12 @@ A parcel service publishes receipt, scan, and dispatch events. A consumer wants 
 receipt and dispatch details; a scan may occur between them but is optional.
 
 When a subscriber emits during delivery, the bus queues the new message until the current message
-has been delivered to its subscribers:
-
-```mermaid
-flowchart TD
-  Emit["Emit message"] --> Active{"Delivery in progress?"}
-  Active -->|Yes| Queue["Add message to queue"]
-  Active -->|No| Deliver["Deliver current message to subscribers"]
-  Queue --> Deliver
-  Deliver --> Next{"Queued message?"}
-  Next -->|Yes| Deliver
-  Next -->|No| Done["Return from emit"]
-```
+has been delivered to its subscribers.
 
 ### Collecting a Parcel Sequence
 
 `ordered: true` matches the declared order. Marking `scanned` optional allows a dispatch to complete
-the sequence even when no scan event arrived:
+the sequence even when no scan event arrived.
 
 ```ts
 import { EventBus } from "@pplnd/core";
@@ -88,7 +71,7 @@ collect another sequence.
 
 The same events can drive explicit states. `Machine.interpret` accepts the bus and subscribes the
 actor to every kind the bus carries; kinds the machine does not declare leave the current state
-unchanged:
+unchanged.
 
 ```ts
 import { EventBus, Machine } from "@pplnd/core";

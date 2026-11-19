@@ -3,12 +3,6 @@ title: Lens — Required Nested Values
 description: Read and update a required nested value without rebuilding the parent structure.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 233 B minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A media player stores playback flags beside its volume. Changing the volume means copying the track,
 the settings object, and every sibling field into a new object. A spread chain works for one level;
 by the third level one spread drops a sibling field, and a volume adjustment silently resets the
@@ -38,16 +32,7 @@ A media player stores volume inside its settings object. A volume adjustment sho
 other settings and the rest of the player state.
 
 `modify` reads the focused value and compares it with the callback's result. It invokes the setter
-only when the value changed:
-
-```mermaid
-flowchart TD
-  Input["Player state"] --> Read["Read focused volume"]
-  Read --> Transform["Apply volume adjustment"]
-  Transform --> Same{"Same value by Object.is?"}
-  Same -->|Yes| Original["Return original state"]
-  Same -->|No| Updated["Set value in a new state"]
-```
+only when the value changed.
 
 ### Updating Volume
 
@@ -71,7 +56,7 @@ pipe(quieter, Lens.get(volume)); // 30
 ### Reaching an optional setting
 
 The player also carries an optional crossfade override. Once that segment may be absent, the
-previous lens becomes the outer focus and [`Optional`](/guides/optional/) owns the nullable part:
+previous lens becomes the outer focus and [`Optional`](/guides/optional/) owns the nullable part.
 
 ```ts
 import { Lens, Optional, pipe } from "@pplnd/core";

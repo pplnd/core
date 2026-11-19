@@ -3,12 +3,6 @@ title: Ordering — Comparing Sort Order
 description: Build sort comparators from fields, tiebreakers, and tuple positions.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 280 B minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 An incident queue must show the most severe incidents first. Severity alone leaves ties in insertion
 order, so two views of the same list can disagree after a retry or a page reload. Severity and
 creation time have to participate in one comparison rule that every view reuses.
@@ -35,16 +29,7 @@ two values match. The [choosing guide](/basics/choosing/) covers the comparison 
 An incident queue is sorted by severity, highest first, with earlier creation times breaking ties.
 Both decisions live in one comparator so the queue is identical on every screen that renders it.
 
-`thenBy` returns the severity result when it is nonzero; otherwise it evaluates the creation time:
-
-```mermaid
-flowchart TD
-  Pair["Two incidents"] --> Severity["Compare severity"]
-  Severity --> Tie{"Result is zero?"}
-  Tie -->|No| Ordered["Return severity result"]
-  Tie -->|Yes| Created["Compare creation time"]
-  Created --> Result["Return time result"]
-```
+`thenBy` returns the severity result when it is nonzero; otherwise it evaluates the creation time.
 
 ### Sorting Incidents
 
@@ -77,7 +62,7 @@ Severity is reversed so larger numbers come first. Incidents with equal severity
 ### Sorting the Queue with Array Helpers
 
 `incidentOrder` is a plain `(first, second) => number` function, so the array helpers accept it
-directly. `Arr.sortBy` returns a new array and leaves the source untouched:
+directly. `Arr.sortBy` returns a new array and leaves the source untouched.
 
 ```ts
 import { Arr, pipe } from "@pplnd/core";

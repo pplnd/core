@@ -8,17 +8,7 @@ the request comes back; by then the button has re-enabled and a second click has
 same form. The screen shows two results for one submission.
 
 This recipe builds one feature from four modules. Each step is a separate concern, and each module
-owns exactly one of them:
-
-```mermaid
-flowchart TD
-  Form["Support ticket form"] --> Validate["Validation.struct"]
-  Validate -->|Failed| FieldErrors["Per-field errors"]
-  Validate -->|Passed| Manager["Op manager: exclusive + retry + timeout"]
-  Manager -->|OpOk| Success["RemoteData.Success"]
-  Manager -->|OpErr| Failure["RemoteData.Failure"]
-  Manager -->|OpNil| Idle["RemoteData.NotAsked"]
-```
+owns exactly one of them.
 
 ## Validate at the boundary
 
@@ -91,7 +81,9 @@ const submitTicket = Op.make((submission: TicketSubmission) =>
         body: JSON.stringify(submission.ticket),
         signal,
       });
-      if (!response.ok) throw new Error(await response.text());
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
       return response.json() as Promise<Ticket>;
     },
     { onError: (error): SubmitError => ({ kind: "Rejected", message: String(error) }) },
@@ -115,7 +107,7 @@ a dropped or replaced call.
 ## Render the state it produces
 
 The manager already tracks its own lifecycle. Deriving the screen from `manager.state` keeps one
-source of truth, and `RemoteData.from.OpState` performs the mapping without a hand-written `match`:
+source of truth, and `RemoteData.from.OpState` performs the mapping without a hand-written `match`.
 
 ```ts
 import { pipe, RemoteData } from "@pplnd/core";

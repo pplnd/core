@@ -3,12 +3,6 @@ title: Cache — Reusing Recent Results
 description: Store successful keyed lookups, share in-flight loads, and serve stale values while refreshing.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 2.48 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A pricing page renders forty components for three SKUs. Each component calls the pricing service on
 mount, so the service answers forty requests for three answers. A per-call promise map removes the
 duplicates but never refreshes them, and a failed first call stays failed for every component that
@@ -38,32 +32,12 @@ The page needs a price for several SKUs and shows the last known price while a r
 catalog lookup is fast but not free, and the same SKU appears in several components.
 
 The cache checks storage first. A fresh value settles immediately, a stale value settles while one
-refresh starts, and a missing value joins a running load or starts one:
-
-```mermaid
-flowchart TD
-  Lookup["load(key)"] --> Stored{"Stored entry?"}
-  Stored -->|No| Running{"Load running?"}
-  Running -->|Yes| Join["Join the running load"]
-  Running -->|No| Start["Start load(key)"]
-  Stored -->|Yes| Age{"Age"}
-  Age -->|"Below ttl"| Fresh["Settle with the stored value"]
-  Age -->|"Inside stale window"| Stale["Settle with the stored value"]
-  Stale --> Refresh["Start one background refresh"]
-  Age -->|"Expired"| Discard["Drop the entry"]
-  Discard --> Running
-  Start --> Outcome{"Result"}
-  Outcome -->|"Ok(value)"| Keep["Store the value"]
-  Outcome -->|"Err(error)"| Drop["Leave the older value"]
-  Keep --> Settle["Settle every caller"]
-  Drop --> Settle
-  Join --> Settle
-```
+refresh starts, and a missing value joins a running load or starts one.
 
 ### Serving Prices From Storage
 
 The example uses an in-memory catalog so it runs without a database. A real version replaces the
-body of `loadPrice` with the service call:
+body of `loadPrice` with the service call.
 
 ```ts
 import { Cache, Duration, Task } from "@pplnd/core";
@@ -104,7 +78,7 @@ const [first, second] = await Promise.all([
 `load` starts the lookup when called; the second call arrives while the first load is still running,
 so it waits on the same deferred instead of starting another request.
 
-When a price changes, drop the entry instead of waiting for the ttl:
+When a price changes, drop the entry instead of waiting for the ttl.
 
 ```ts
 catalog.set("SKU-1042", { sku: "SKU-1042", cents: 2600 });
@@ -115,7 +89,7 @@ const updated = await prices.load("SKU-1042");
 ```
 
 `peek` reads the last stored value without starting work, which is what a renderer uses for the
-first paint:
+first paint.
 
 ```ts
 const known = prices.peek("SKU-1042");
@@ -130,7 +104,7 @@ a miss joins the batch for the current tick.
 
 `Batcher.load` settles with a batch outcome, and the cache stores a `Result`. The converter below
 names the missing-key policy once, because the cache cannot guess whether an absent key is an error
-or a legitimate absence:
+or a legitimate absence.
 
 ```ts
 import { Batcher, Cache, Deferred, Duration, pipe, Task } from "@pplnd/core";
@@ -166,7 +140,7 @@ grouping.
 ### Keeping a Failing Source Away
 
 The pricing service can fail during an incident. The breaker wraps the load, so a failing source
-counts against it and a tripped circuit settles the lookup without touching the catalog:
+counts against it and a tripped circuit settles the lookup without touching the catalog.
 
 ```ts
 import { Cache, CircuitBreaker, Duration } from "@pplnd/core";

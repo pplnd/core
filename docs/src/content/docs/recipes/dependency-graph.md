@@ -10,19 +10,6 @@ connection and an advisory lock — that must be released even when a step fails
 
 Each failure belongs to a different stage, so each stage gets the module that owns it.
 
-```mermaid
-flowchart TD
-  Start["Graph.run(input)"] --> Ledger["ledger node"]
-  Start --> Bank["bank node"]
-  Ledger --> Account["account node (shared)"]
-  Bank --> Account
-  Ledger --> Diff["difference node"]
-  Bank --> Diff
-  Diff --> Tx["Transaction: reserve, then post"]
-  Tx -->|post fails| Undo["undo reserve"]
-  Tx --> Done["Ok(acc)"]
-```
-
 ## Schedule the reads
 
 Each node returns a `Task.Result`. A node starts when its dependencies succeed, and the shared
@@ -73,7 +60,7 @@ outcome.
 
 The write is two external calls. If the second fails, the first must be reversed. A `Transaction`
 runs steps in order and unwinds completed steps with their `undo` action in reverse order. The steps
-close over the handles, so the same transaction can run against any connection:
+close over the handles, so the same transaction can run against any connection.
 
 ```ts
 import { Task, Transaction } from "@pplnd/core";

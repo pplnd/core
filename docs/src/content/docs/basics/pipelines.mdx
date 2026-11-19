@@ -3,13 +3,16 @@ title: Thinking in pipelines
 description: Sequence transformations top-to-bottom and construct reusable, composable functions.
 ---
 
-import { Aside } from '@astrojs/starlight/components'
+import Aside from "../../../components/Aside.astro";
 
-Most transformations in software follow a simple, linear path: we take a starting value, apply a sequence of steps to alter it, and obtain a result. The architectural challenge is how to express this flow in a way that is readable, easy to modify, and safe to extend.
+A raw string arrives with leading whitespace, mixed casing, and spaces that must become a clean URL
+slug. Standard JavaScript splits this flow across throwaway variables or turns it inside-out with
+nested calls.
 
-## The friction of standard patterns
+## Core Behavior
 
-In standard JavaScript, we tend to write transformations in one of two ways. The first is to introduce intermediate variables:
+In standard JavaScript, multi-step transforms take one of two awkward forms. Intermediate variables
+carry values one line forward:
 
 ```ts
 const trimmed = raw.trim();
@@ -17,27 +20,24 @@ const lower = trimmed.toLowerCase();
 const slug = lower.replace(/\s+/g, "-");
 ```
 
-This reads top-to-bottom, but every intermediate variable is noise. Names like `trimmed` and `lower` exist only to carry a value to the next line. If you need to reorder, add, or remove a step, you are forced to rename variables to keep the code consistent.
-
-The second approach is to nest the method calls directly:
+Names like `trimmed` and `lower` exist only to wire lines together. Reordering or dropping a step
+forces variable renames. Method chaining avoids temporary variables, but only while every step lives
+on the object's prototype:
 
 ```ts
 const slug = raw.trim().toLowerCase().replace(/\s+/g, "-");
 ```
 
-This eliminates intermediate variables, but it only works when the object you are transforming already has the methods you need. The moment you want to introduce a custom function or use a utility from an external library, the chain breaks. You are forced to break the line apart or write confusing, nested function calls:
+Adding a standalone helper forces nested wrapping, which reads from the inside out:
 
 ```ts
 const slug = formatSlug(raw.trim().toLowerCase());
 ```
 
-This reads inside-out. The execution starts in the middle, moves outward, and forces the developer to jump back and forth to understand the execution order.
-
----
-
 ## Linear transformations with pipe
 
-`pipe` solves this by taking a starting value and passing it through a sequence of functions. Each function receives the output of the previous step:
+`pipe` takes a starting value and passes it left to right through a sequence of single-argument
+functions, so execution order matches reading order:
 
 ```ts
 import { pipe } from "@pplnd/core";
@@ -50,24 +50,13 @@ const slug = pipe(
 );
 ```
 
-```mermaid
-flowchart TB
-    subgraph Pipelined ["Pipelined Dataflow: pipe(raw, ...)"]
-        P0["raw input"] -->|"trim"| P1["trimmed string"]
-        P1 -->|"toLowerCase"| P2["lowercase string"]
-        P2 -->|"replace"| P3["final slug"]
-    end
-```
-
-The code now reads top-to-bottom, in exactly the order it executes. There are no throwaway variable names, and modifying the pipeline is as simple as inserting or deleting a line.
-
-TypeScript infers the type of the value at each step. If one of your functions returns a type that the next step does not expect, the compiler will point to the exact step where the mismatch occurs, rather than showing a generic error downstream.
-
----
+Each step receives the output of the previous step, and TypeScript checks every link along the
+chain. When a step changes return type, the compiler highlights the mismatched step directly.
 
 ## Steps as pure functions
 
-Any unary function — a function that accepts a single argument — can be passed as a step in a pipeline. This includes inline lambda functions, named functions, or partially-applied library helpers:
+Any unary function can serve as a pipeline step — an arrow function, a named helper, or a
+partially applied library function:
 
 ```ts
 import { Maybe, pipe } from "@pplnd/core";
@@ -80,15 +69,15 @@ const displayName = pipe(
 );
 ```
 
-`Maybe.from.nullable` is passed directly as a function reference without an arrow wrapper.
-
-`Maybe.map((u) => u.name)` is invoked with only a mapping function. It returns a function waiting for the `Maybe` value, which `pipe` supplies. This is enabled by data-last currying.
+`Maybe.from.nullable` passes by reference without an arrow wrapper. `Maybe.map((u) => u.name)` takes
+only the transform and returns a unary function ready for the piped `Maybe`.
 
 ---
 
 ## Reusable pipelines with flow
 
-`pipe` evaluates immediately, producing a result. `flow` operates the same way but defers execution — it returns a new, reusable function:
+`pipe` runs immediately on a value. `flow` takes the same sequence of steps and returns a reusable
+function instead of evaluating right away:
 
 ```ts
 import { flow } from "@pplnd/core";
@@ -103,23 +92,23 @@ toSlug("  Hello World  "); // "hello-world"
 toSlug("TypeScript Pipes"); // "typescript-pipes"
 ```
 
-Because `toSlug` is a standard, single-argument function, we can pass it directly to other functional utilities (like `Array.prototype.map`) without wrapping it in an arrow function:
+Because `toSlug` is a standard unary function, `Array.prototype.map` accepts it directly without a
+wrapper arrow:
 
 ```ts
 const rawTitles = ["  Clean Code ", " Functional Design "];
 const slugs = rawTitles.map(toSlug); // ["clean-code", "functional-design"]
 ```
 
-The rule of thumb is simple: use `pipe` when you have a value ready and want to compute a result immediately. Use `flow` when you want to define and name a reusable transformation pipeline.
+Use `pipe` when the input value is already in hand; use `flow` to name and reuse a pipeline.
 
 ---
 
 <Aside title="The ten-step limit in pipelines">
-`pipe` and `flow` are typed for up to **10 steps**. If you exceed this limit, TypeScript will raise a compilation error. The boundary is a deliberate API limit that keeps pipelines type-checking quickly and reading well.
-
-**TypeScript type inference.** TypeScript lacks a native syntax to represent a variadic function where the input of each argument must match the output of the preceding one. The only way to type this is to write explicit overloads for every chain length. Each additional overload adds significant work for the compiler, slowing down IDE completions across the entire codebase.
-
-If you find yourself needing more than 10 steps in a single pipeline, it is usually a signal to split your logic into named, modular phases:
+`pipe` and `flow` accept up to **10 steps** by design. TypeScript cannot natively infer a variadic
+chain where each function's input depends on the previous output without fixed-length overloads, and
+large overload sets slow IDE completions across the workspace. Split longer chains into named
+sub-pipelines:
 
 ```ts
 const pricing      = flow(calculateTax, applyDiscounts, calculateShipping);
@@ -129,17 +118,16 @@ const notification = flow(generateInvoice, sendConfirmation, updateCRM);
 const processOrder = flow(validateStock, pricing, fulfillment, notification);
 ```
 
-Dividing the pipeline into cohesive sub-pipelines provides cleaner type boundaries, easier unit testing, and highly reusable modules.
+Splitting into cohesive phases creates explicit type boundaries and independently testable functions.
 </Aside>
 
 ## The data-last convention
 
-Every function in this library is designed with a **data-last** signature. The value being operated on is always the final argument.
-
-If the library used data-first signatures, we would be forced to write noisy arrow wrappers for every step in our pipeline:
+Every function in `@pplnd/core` places the data value last so configuration and callbacks happen up
+front:
 
 ```ts
-// Data-first: forces manual wrapping
+// Data-first: forces wrapper lambdas on every line
 pipe(
   option,
   (opt) => Maybe.map(opt, (u) => u.name),
@@ -147,10 +135,11 @@ pipe(
 );
 ```
 
-Because `pipelined` is built data-last, the configuration is provided first, and the resulting function is ready to receive the data:
+With data-last currying, the step returns a unary function that slots into `pipe` and `flow`
+without wrapper arrows:
 
 ```ts
-// Data-last: pass functions directly without extra wrapper arrows (often called "point-free" style)
+// Data-last: direct composition without extra lambdas
 pipe(
   option,
   Maybe.map((u) => u.name),
@@ -158,13 +147,12 @@ pipe(
 );
 ```
 
-This design allows library functions to slot directly into `pipe` and `flow` with zero visual overhead.
-
 ---
 
 ## Side effects with tap
 
-When you want to inspect a value mid-pipeline — such as logging it or updating an analytics tracker — without altering the data or breaking the chain, you can use `tap`:
+`tap` runs a side-effect callback (such as logging or metrics) on the current value and passes that
+value onward unchanged:
 
 ```ts
 import { pipe, tap } from "@pplnd/core";
@@ -179,16 +167,17 @@ const result = pipe(
 );
 ```
 
-`tap` intercepts the value, executes your side-effectful callback, and then passes the original value through unchanged to the next step. If you remove the `tap` lines, the behavioral outcome of the pipeline remains identical.
+Removing a `tap` step leaves the pipeline output untouched.
 
 ---
 
 ## Keeping steps focused
 
-A pipeline is most readable when each step performs a single, focused task. If a step expands into multiple lines of complex logic, it is a signal that you should extract it into a named function:
+Pipelines stay scannable when each line describes one transformation. Extract multi-line closures
+into named helpers:
 
 ```ts
-// Hard to read inline block:
+// Inline block obscures the sequence:
 pipe(
   rawInput,
   (s) => {
@@ -198,7 +187,7 @@ pipe(
   },
 );
 
-// Clean extraction:
+// Named helper keeps the pipeline declarative:
 const parseTokens = (s: string): string[] =>
   s.trim().split(",").filter((p) => p.length > 0).map((p) => p.toLowerCase());
 
@@ -207,5 +196,3 @@ pipe(
   parseTokens,
 );
 ```
-
-By extracting the implementation details into a named function, the pipeline itself remains a high-level description of *what* happens. The named function describes *how*. Both levels of code become independently readable and testable.

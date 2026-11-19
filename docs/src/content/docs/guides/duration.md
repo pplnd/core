@@ -3,12 +3,6 @@ title: Duration — Time Quantities
 description: Carry time quantities with explicit units and convert them where a number is required.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 150 B minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A report cache has a five-minute lifetime and a thirty-second grace period. One module passes the
 lifetime as seconds, another as milliseconds, and the cache evicts reports while a request is still
 reading them. The units survive in variable names rather than in the type.
@@ -33,14 +27,7 @@ primitive those timing options accept.
 A report cache has a base lifetime and a grace period. The cache API expects milliseconds, while the
 policy is easier to read in minutes and seconds.
 
-All constructors produce the same duration type in milliseconds, so arithmetic can combine units:
-
-```mermaid
-flowchart TD
-  Minutes["Duration.minutes(5)"] --> Millis["Duration stored in milliseconds"]
-  Seconds["Duration.seconds(30)"] --> Millis
-  Millis --> Convert["Convert to requested unit"]
-```
+All constructors produce the same duration type in milliseconds, so arithmetic can combine units.
 
 ### Calculating the Cache Lifetime
 
@@ -64,7 +51,7 @@ that accepts a number of milliseconds.
 
 The cache refreshes from a report service that can fail transiently. A
 [`RetryPolicy`](/guides/policies/) stores the backoff delays as durations, and [`Op`](/guides/op/)
-applies the policy to the call:
+applies the policy to the call.
 
 ```ts
 import { Duration, Op, RetryPolicy, Task } from "@pplnd/core";

@@ -1,0 +1,17 @@
+---
+import type { HeroFigureSpec } from "../figures/types";
+
+export interface Props {
+	figure: HeroFigureSpec;
+}
+
+const { figure } = Astro.props;
+---
+
+<figure class="result-figure">
+	<svg viewBox="0 0 600 256" role="img" aria-labelledby="flow-title flow-description">
+		<title id="flow-title">{figure.title}</title>
+		<desc id="flow-description">{figure.desc}</desc>
+		<Fragment set:html={figure.svg} />
+	</svg>
+</figure>

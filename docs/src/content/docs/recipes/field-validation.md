@@ -11,21 +11,10 @@ handler" is where form state usually goes wrong.
 This recipe keeps them separate. Validation is a pure function of the form values. Visibility is a
 flag on the state. Triggers decide whether a run is shown or hidden.
 
-```mermaid
-flowchart TD
-  Event["edit, blur, submit, dismiss"] --> Validate["Validation.keyed.make"]
-  Validate --> Checks["one Validation per field"]
-  Checks --> State["FormState: values, checks, shown"]
-  State --> Gate{"shown?"}
-  Gate -->|No| Silent["errorsFor returns []"]
-  Gate -->|Yes| Errors["errorsFor returns field ids"]
-  Checks --> Invalid["isInvalid / invalidFields"]
-```
-
 ## Give every rule its own error id
 
 Each field is a list of rules. A rule is a `Predicate` plus the id it produces when it fails, so the
-screen can map ids to copy without parsing messages:
+screen can map ids to copy without parsing messages.
 
 ```ts
 import { type Predicate, Validation } from "@pplnd/core";
@@ -46,7 +35,7 @@ const rule = <A>(predicate: Predicate<A>, errorId: ErrorId) =>
 
 The predicates themselves compose with the [`Predicate`](/guides/predicate/) module. A field that
 must not be blank uses `Predicate.not`; a field with two independent rules runs both and keeps both
-ids:
+ids.
 
 ```ts
 import { pipe, Predicate, Validation } from "@pplnd/core";
@@ -70,7 +59,7 @@ const validateAssetTag = (raw: string): Validation<ErrorId, string> =>
 ran. The [`Validation` guide](/guides/validation/) covers the accumulation order.
 
 Numeric fields parse first, then check range. A failed parse short-circuits, because there is no
-number to range-check:
+number to range-check.
 
 ```ts
 import { Maybe, Num, Validation } from "@pplnd/core";
@@ -97,7 +86,7 @@ const validateEmail = (raw: string): Validation<ErrorId, string> =>
 
 `Validation.keyed.make` applies a validator per field and returns a record of outcomes. Every field
 is checked on every run, so the state always knows the complete picture rather than one field at a
-time:
+time.
 
 ```ts
 import { Validation } from "@pplnd/core";
@@ -164,7 +153,7 @@ which is why an untouched form does not open covered in errors.
 ## Read what the screen needs
 
 The UI asks three questions: is it shown, is it invalid, and which fields are invalid. The errors
-themselves come from `Validation.keyed.getErrors`, gated by `shown`:
+themselves come from `Validation.keyed.getErrors`, gated by `shown`.
 
 ```ts
 import { Maybe, pipe, Validation } from "@pplnd/core";
@@ -194,7 +183,7 @@ const errorsFor = (state: FormState, field: Field): readonly ErrorId[] => {
 ```
 
 A submit handler combines them: validate, reveal, and only send when every field passed. The passed
-values are already parsed, so `days` arrives as a number:
+values are already parsed, so `days` arrives as a number.
 
 ```ts
 declare function sendRentalRequest(values: {
@@ -215,7 +204,7 @@ const submit = (state: FormState): FormState => {
 };
 ```
 
-The call order shows the three questions in sequence:
+The call order shows the three questions in sequence.
 
 ```ts
 let state = init({ assetTag: "", days: "", email: "" });

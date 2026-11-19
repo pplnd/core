@@ -3,12 +3,6 @@ title: RemoteData — Loading States
 description: Represent an idle, loading, failed, or successful request with one state value.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 2.04 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A screen shows a spinner, an error banner, and the last loaded invoice. They are three separate
 fields, and a failed refresh can leave the old invoice visible under the spinner or clear the error
 while the retry is still running. The request has one phase, but the fields can contradict each
@@ -37,16 +31,7 @@ old invoice on screen by accident. `RemoteData.make.loading()` represents the lo
 own; there is no invoice or error in that variant.
 
 `filter` inspects a successful invoice and can turn it into a failure. For the other three states,
-it leaves the state unchanged:
-
-```mermaid
-flowchart TD
-  Input["RemoteData invoice state"] --> State{"Success?"}
-  State -->|Yes| Check{"Amount valid?"}
-  Check -->|Yes| Success["Success(invoice)"]
-  Check -->|No| Failure["Failure(invalid amount)"]
-  State -->|No| Unchanged["NotAsked, Loading, or Failure unchanged"]
-```
+it leaves the state unchanged.
 
 `map` and `chain` also act only on `Success`. The application sets request states; `RemoteData` does
 not start requests or enforce their ordering.
@@ -55,7 +40,7 @@ not start requests or enforce their ordering.
 
 One request can set `Loading` before it starts and `Success` or `Failure` when it finishes. With
 repeated requests, an older response can arrive after a newer one and overwrite it. This loader uses
-a sequence number to ignore an older response and renders every state explicitly:
+a sequence number to ignore an older response and renders every state explicitly.
 
 ```ts
 import { pipe, RemoteData } from "@pplnd/core";
@@ -123,7 +108,7 @@ void loadInvoice("inv-42");
 `match` composes in pipes with the data last. When the state is already in scope — a local, a field,
 a loop variable — `matchValue` dispatches on it directly. Handler returns unify either way: related
 returns reconcile, and unrelated ones widen to their union; in curried `match`, that reconciliation
-needs one handler-return annotation:
+needs one handler-return annotation.
 
 ```ts
 const banner = (state: InvoiceState): string =>
@@ -198,7 +183,7 @@ errors to `Failure` at the loading boundary if they should be rendered.
 `Failure`. A settled `OpNil` carries a cancellation reason rather than a value or an error, so it
 becomes `NotAsked`; the manager keeps that reason in its own state if the UI needs to display it.
 
-If both inputs to `apply` are failures, it returns the failure from the function's state:
+If both inputs to `apply` are failures, it returns the failure from the function's state.
 
 ```ts
 import { pipe, RemoteData } from "@pplnd/core";

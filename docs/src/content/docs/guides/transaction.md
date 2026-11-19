@@ -3,12 +3,6 @@ title: Transaction — Steps and Compensation
 description: Run ordered asynchronous steps and undo completed ones when a later step fails.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 2.66 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A publisher writes a document to object storage, adds it to the search index, and sends a
 notification. The notification service returns an error, and the document is now public while search
 has no record of it. The caller sees only the notification error and cannot tell which earlier
@@ -36,23 +30,12 @@ A publisher uploads a document, adds it to a catalog, and sends a notification. 
 fails, the publisher needs to remove the catalog entry and the uploaded document.
 
 Only successful steps register undo actions. When a step returns an error, the transaction runs the
-registered actions in reverse order and retains the original error:
-
-```mermaid
-flowchart TD
-  Step["Run next step"] --> Outcome{"Result"}
-  Outcome -->|Ok| Register["Store output and optional undo"]
-  Register --> More{"More steps?"}
-  More -->|Yes| Step
-  More -->|No| Success["Ok(all step outputs)"]
-  Outcome -->|Err| Undo["Run completed undo actions in reverse order"]
-  Undo --> Failure["Err(step error and undo errors)"]
-```
+registered actions in reverse order and retains the original error.
 
 ### Publishing and Rolling Back
 
 This runnable example uses in-memory sets to represent the storage and catalog services. The
-notification fails, so the first two steps are undone:
+notification fails, so the first two steps are undone.
 
 ```ts
 import { Task, Transaction } from "@pplnd/core";
@@ -139,7 +122,7 @@ abort signal, so they can still clean up after cancellation.
 A step that streams through an upload session can open it as a resource and hand the step's signal
 to `use`. `uploadSession` opens a signed session and releases it; `sendThrough` streams the document
 through that session. The session closes when the step task settles, before the next step starts,
-and the undo still receives the completed output:
+and the undo still receives the completed output.
 
 ```ts
 import { Resource } from "@pplnd/core";

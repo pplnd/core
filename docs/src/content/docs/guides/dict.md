@@ -3,12 +3,6 @@ title: Dict — Map Utilities
 description: Keep arbitrary keys in a readonly map and update entries without mutation.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 2.52 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A gateway counts requests per endpoint. The router builds an endpoint descriptor for each request,
 and the counter table is keyed by that descriptor. A rebuilt descriptor with the same method and
 path is a different key, so every request starts a new count at one and the dashboard never sees the
@@ -36,17 +30,7 @@ so repeated lookups use the same object; a second descriptor with identical fiel
 key.
 
 `upsert` calls the same update function whether the key is present or not, passing the previous
-count as a `Maybe`:
-
-```mermaid
-flowchart TD
-  Request["Endpoint request"] --> Present{"Key in map?"}
-  Present -->|Yes| Some["Some(previous count)"]
-  Present -->|No| None["None"]
-  Some --> Update["Update callback returns a count"]
-  None --> Update
-  Update --> Written["New map with the count written"]
-```
+count as a `Maybe`.
 
 ### Tallying Requests
 
@@ -83,7 +67,7 @@ even though its fields match `reports`.
 ### Handoff: Writing Counts Into a JSON Body
 
 The dashboard sends the counts under string keys. `Dict.mapKeys` flattens each descriptor, and
-`Dict.to.record` produces the object that `JSON.stringify` expects:
+`Dict.to.record` produces the object that `JSON.stringify` expects.
 
 ```ts
 import { Dict, pipe } from "@pplnd/core";

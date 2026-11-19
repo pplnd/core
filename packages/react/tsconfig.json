@@ -1,0 +1,15 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"allowImportingTsExtensions": true,
+		"paths": { "@pplnd/core": ["../core/src/index.ts"] },
+		"jsx": "react-jsx",
+		"noEmit": true,
+		"strict": true,
+		"lib": ["ESNext", "DOM"],
+		"types": ["node"]
+	},
+	"include": ["src"]
+}

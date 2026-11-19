@@ -4,12 +4,11 @@
 		"module": "ESNext",
 		"moduleResolution": "bundler",
 		"allowImportingTsExtensions": true,
-		"paths": { "@pplnd/core": ["./src/index.ts"] },
+		"paths": { "@pplnd/core": ["./packages/core/src/index.ts"] },
 		"noEmit": true,
 		"strict": true,
 		"lib": ["ESNext", "DOM"],
 		"types": ["node"]
 	},
-	"include": ["src", "test-utils.ts", "scripts"],
-	"exclude": ["node_modules", "dist", "docs"]
+	"include": ["scripts"]
 }

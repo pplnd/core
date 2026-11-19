@@ -3,12 +3,6 @@ title: RateLimiter — Staying Inside a Quota
 description: Pace outbound calls so a sliding window never exceeds the quota an API enforces.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 2.60 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A dashboard opens and every panel fetches through one client. The API allows 60 calls a minute, so
 the first 60 pass and the remaining 140 come back as 429. Retrying them immediately makes it worse,
 because every retry is another call against the same window.
@@ -34,19 +28,9 @@ next to the other execution modules.
 One client feeds every panel. The limiter lets a burst through while permits remain, then queues the
 rest and releases them as the window rolls forward.
 
-```mermaid
-flowchart TD
-  Call["limiter.run(task)"] --> Free{"permit free?"}
-  Free -->|Yes| Start["record timestamp, start the task"]
-  Free -->|No| Mode{"strategy"}
-  Mode -->|wait| Queue["queue in arrival order"]
-  Queue --> Expire["oldest permit expires"] --> Start
-  Mode -->|reject| Err["Err(RateLimitExceeded, retryAfter)"]
-```
-
 ### Pacing the Requests
 
-`run` takes the lazy task, so the request does not start until a permit exists:
+`run` takes the lazy task, so the request does not start until a permit exists.
 
 ```ts
 import { Duration, RateLimiter, Task } from "@pplnd/core";

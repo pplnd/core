@@ -3,12 +3,6 @@ title: Validation — Accumulating Errors
 description: Check independent inputs and report every failure before handling the outcome.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 1.59 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A registration form validates a username, an email address, and a password. A check that returns
 after the first invalid field makes the user fix one problem, submit, and discover the next one; the
 same round trip repeats for every field that was already wrong. The form has all three values at
@@ -38,15 +32,7 @@ A registration form needs to check a username, email address, and password. Repo
 fields together lets the user correct them in one pass.
 
 `struct` receives already-created field results and collects errors from every failed field. It
-returns the combined values only when all fields pass:
-
-```mermaid
-flowchart TD
-  Fields["Username, email, and password checks"] --> Collect["struct inspects every field"]
-  Collect --> Failed{"Any Failed?"}
-  Failed -->|No| Passed["Passed(registration details)"]
-  Failed -->|Yes| Errors["Failed(errors in field order)"]
-```
+returns the combined values only when all fields pass.
 
 For a failed username followed by a failed email, the error list contains the username errors first,
 then the email errors. `struct` processes fields in own-key enumeration order and preserves the
@@ -54,7 +40,7 @@ order within each field's error list.
 
 ### Validating Registration Fields
 
-A registration form may return after its first invalid field:
+A registration form may return after its first invalid field.
 
 ```ts
 function checkRegistration(input: { username: string; email: string }): string | null {
@@ -65,7 +51,7 @@ function checkRegistration(input: { username: string; email: string }): string |
 ```
 
 The user must fix the username and submit again before seeing the email error. A single
-`Validation.from.Predicate` makes one check return a value or an error list:
+`Validation.from.Predicate` makes one check return a value or an error list.
 
 ```ts
 import { Validation } from "@pplnd/core";
@@ -144,7 +130,7 @@ console.log(registrationResponse({ username: "longusername", email: "alex@exampl
 `match` composes in pipes with the validation last. When the validation is already in scope,
 `matchValue` dispatches on it directly. Handler returns unify either way: related returns reconcile,
 and unrelated ones widen to their union; in curried `match`, that reconciliation needs one
-handler-return annotation:
+handler-return annotation.
 
 ```ts
 const verdict = (checked: Validation<FieldError, RegistrationInput>): string =>
@@ -162,7 +148,7 @@ type if an error must be mutable.
 ### Running the Same Checks Against a Remote Directory
 
 Availability cannot be checked from the values alone. [`Task.Validation`](/guides/task/) keeps the
-field results and accumulates their errors while the checks run asynchronously:
+field results and accumulates their errors while the checks run asynchronously.
 
 ```ts
 import { pipe, Task } from "@pplnd/core";
@@ -252,7 +238,7 @@ checks concurrently. An empty record passes with an empty object. Errors retain 
 order and each field's internal error order. `apply` likewise receives an already-created argument
 and appends the argument's errors after the function's errors.
 
-For example, errors from both fields are retained, including multiple errors from one field:
+For example, errors from both fields are retained, including multiple errors from one field.
 
 ```ts
 import { Validation } from "@pplnd/core";

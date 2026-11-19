@@ -3,12 +3,6 @@ title: Deferred — Awaitable Async Values
 description: Await and combine asynchronous values whose failures were handled before they arrived.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 142 B minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A snapshot exporter asks a primary and a replica source for the same reading. Each source already
 turns its own network failure into a fallback string, so what remains is a value that arrives later.
 Passing those promises around leaves the reader guessing which stage can still reject, and a
@@ -37,21 +31,13 @@ A snapshot exporter waits for readings from a primary and a replica source. Each
 own request failure into the string `"unavailable"` before the exporter sees it, so the exporter
 combines values that are already in progress.
 
-`Deferred.all` resolves only after every input resolves, and it keeps the input order. The diagram
-shows the state of the combined value, not the work of the sources:
-
-```mermaid
-flowchart TD
-  Inputs["Readings already running"] --> Pending{"All readings resolved?"}
-  Pending -->|No| Wait["Combined value stays pending"]
-  Wait --> Pending
-  Pending -->|Yes| Ordered["Readings in input order"]
-```
+`Deferred.all` resolves only after every input resolves, and it keeps the input order. It settles
+when every input settles, rather than running or retrying the sources itself.
 
 ### Collecting Status Readings
 
 The `.catch` runs before the promise is wrapped, which keeps the rejection channel out of the
-awaitable type:
+awaitable type.
 
 ```ts
 import { Deferred } from "@pplnd/core";
@@ -78,7 +64,7 @@ The calls to `readStatus` start the requests. `Deferred.all` only combines their
 nothing and cancels nothing.
 
 A pipeline can reshape the combined value without converting it back to a promise. The mapper
-receives the resolved pair and returns a new value, and the result stays awaitable:
+receives the resolved pair and returns a new value, and the result stays awaitable.
 
 ```ts
 import { Deferred, pipe } from "@pplnd/core";
@@ -94,7 +80,7 @@ console.log(await summary); // "primary=ready, replica=unavailable"
 ### Owning the Refresh
 
 A dashboard can refresh the same two readings when the user selects a different snapshot. `Op` takes
-the composed value as one task and decides what a second refresh does to the first:
+the composed value as one task and decides what a second refresh does to the first.
 
 ```ts
 import { Deferred, Op, Task, pipe } from "@pplnd/core";

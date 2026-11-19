@@ -1,0 +1,127 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+---
+
+<BaseLayout title="404 — Route Not Found" description="The requested route resolved to None." layout="index">
+	<header slot="hero" class="hero">
+		<div class="hero-brand">
+			<a class="wordmark" href="/">pipelined</a>
+			<svg class="title-arrow" aria-hidden="true" focusable="false">
+				<use class="arrow-right" href="/title-arrow.svg#right" />
+				<use class="arrow-down" href="/title-arrow.svg#down" />
+			</svg>
+		</div>
+		<div class="hero-r">
+			<h1>404</h1>
+			<span class="aside">Result.Err("NOT_FOUND")</span>
+		</div>
+	</header>
+
+	<div class="right">
+		<p class="statement not-found-lead">
+			This path resolved to <code>None</code>. The route is unmapped or has moved.
+		</p>
+
+		<figure class="result-figure" style="--pplnd-figure-plate: #fff">
+			<svg viewBox="0 0 600 256" role="img" aria-labelledby="not-found-title not-found-desc">
+				<title id="not-found-title">Unmatched route circuit diagram branching to recovery</title>
+				<desc id="not-found-desc">
+					Incoming path terminates at an unmapped Ok(Page) branch beside a vector 404 empty-set marker and branches through a
+					recover block toward search and index routes.
+				</desc>
+				<g fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M-8 128 H104 M104 128 L138 52 H234" />
+					<path d="M246 52 H356" class="flow-dash" />
+					<circle cx="104" cy="128" r="5" fill="currentColor" />
+					<circle cx="240" cy="52" r="5" class="flow-node" />
+
+					<path d="M168 82 V126 H224 M206 82 V164" />
+					<circle cx="168" cy="82" r="4" fill="currentColor" />
+					<circle cx="168" cy="126" r="4" fill="currentColor" />
+					<circle cx="206" cy="164" r="4" fill="currentColor" />
+
+					<circle cx="300" cy="124" r="46" class="flow-dash" />
+					<circle cx="300" cy="124" r="38" class="flow-node" />
+					<path d="M268 156 L282 142 M318 106 L332 92" />
+
+					<path d="M376 82 V126 H432 M414 82 V164" />
+					<circle cx="376" cy="82" r="4" fill="currentColor" />
+					<circle cx="376" cy="126" r="4" fill="currentColor" />
+					<circle cx="414" cy="164" r="4" fill="currentColor" />
+
+					<path d="M104 128 L138 212 H552 M542 202 L552 212 L542 222" />
+					<rect x="242" y="190" width="116" height="44" class="flow-node" />
+				</g>
+				<text id="not-found-path" x="24" y="24" class="flow-tag">/unmapped-route</text>
+				<text x="24" y="112" class="flow-tag">route</text>
+				<text x="370" y="52" dominant-baseline="central" class="flow-tag">Ok(Page) · unmapped</text>
+				<text x="300" y="124" text-anchor="middle" dominant-baseline="central" class="flow-tag">None</text>
+				<text x="300" y="212" text-anchor="middle" dominant-baseline="central" class="flow-value">recover</text>
+				<text x="372" y="196" class="flow-tag">fallback -> search</text>
+			</svg>
+		</figure>
+
+		<nav class="not-found-actions" aria-label="Find documentation">
+			<button type="button" class="choosing-cta" id="not-found-search-btn" aria-haspopup="dialog">
+				<span class="choosing-title">Search the docs</span>
+			</button>
+			<a class="choosing-cta" href="/">
+				<span class="choosing-title">All modules</span>
+			</a>
+			<a class="choosing-cta" href="/basics/choosing/">
+				<span class="choosing-title">Choose a container</span>
+			</a>
+			<a class="choosing-cta" href="/api/">
+				<span class="choosing-title">API reference</span>
+			</a>
+		</nav>
+	</div>
+</BaseLayout>
+
+<style>
+	.not-found-lead {
+		max-width: 26em;
+		font-size: var(--pplnd-nav);
+		line-height: 1.04;
+	}
+	.not-found-lead code {
+		padding: 0.08em 0.32em;
+		background: var(--pplnd-surface);
+		font: 500 0.88em var(--pplnd-mono);
+	}
+	.not-found-actions {
+		display: grid;
+		gap: clamp(30px, 5vw, 76px);
+		max-width: 64rem;
+		padding: 0 clamp(6px, 1vw, 14px) clamp(24px, 4vw, 56px);
+	}
+	.not-found-actions .choosing-cta {
+		grid-template-columns: minmax(0, 1fr);
+		justify-self: start;
+		width: 88%;
+		margin: 0;
+		text-align: center;
+	}
+	.not-found-actions .choosing-cta:nth-child(even) {
+		--pplnd-cta-angle: 4deg;
+		justify-self: end;
+	}
+	@media (max-width: 767px) {
+		.result-figure, .not-found-actions {
+			grid-column: 1 / -1;
+			margin-inline-start: 24px;
+		}
+		.result-figure {
+			width: auto;
+		}
+		.not-found-actions {
+			gap: 22px;
+		}
+		.not-found-actions .choosing-cta {
+			padding-inline: clamp(12px, 5vw, 28px);
+		}
+		.not-found-actions .choosing-cta:nth-child(even) {
+			--pplnd-cta-angle: 1.4deg;
+		}
+	}
+</style>

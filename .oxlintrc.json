@@ -1,18 +1,8 @@
 {
 	"$schema": "./node_modules/oxlint/configuration_schema.json",
-	"plugins": [
-		"vitest",
-		"eslint",
-		"typescript"
-	],
-	"jsPlugins": [
-		"./scripts/oxlint-plugins/test-name.ts"
-	],
-	"ignorePatterns": [
-		"docs/",
-		"dist/",
-		"coverage/"
-	],
+	"plugins": ["vitest", "eslint", "typescript"],
+	"jsPlugins": ["./scripts/oxlint-plugins/test-name.ts"],
+	"ignorePatterns": ["docs/dist/", "docs/.astro/", "dist/", "coverage/", "pplnd-redesign/"],
 	"options": {
 		"typeAware": true,
 		"reportUnusedDisableDirectives": "error",
@@ -154,18 +144,14 @@
 	},
 	"overrides": [
 		{
-			"files": [
-				"src/**/__bench__/**"
-			],
+			"files": ["src/**/__bench__/**"],
 			"rules": {
 				"vitest/expect-expect": "off",
 				"no-await-in-loop": "off"
 			}
 		},
 		{
-			"files": [
-				"scripts/**"
-			],
+			"files": ["scripts/**", "docs/**"],
 			"rules": {
 				"vitest/require-hook": "off",
 				"vitest/no-disabled-tests": "off",

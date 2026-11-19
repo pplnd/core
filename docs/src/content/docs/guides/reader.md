@@ -3,12 +3,6 @@ title: Reader — Shared Environment
 description: Read shared settings from one environment and supply them once when the pipeline runs.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 153 B minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A report exporter reads the bucket name from its settings at every call. The name travels through
 four signatures, and one call site captures a settings object from a different environment. The
 generated URL points at the wrong bucket, and nothing in the signature notices.
@@ -37,20 +31,12 @@ An export service builds a storage key and a download URL from a bucket, a path 
 origin. Development and production use the same pipeline with different settings.
 
 `chain` sends the first Reader's result to a function that creates the next Reader. Both Readers
-receive the environment supplied at the end:
-
-```mermaid
-flowchart TD
-  Env["Export environment"] --> First["First Reader"]
-  Env --> Next["Next Reader"]
-  First -->|Value| Next
-  Next --> Output["Export location"]
-```
+receive the environment supplied at the end.
 
 ### Building an Export Location
 
 The key builder needs only the storage settings. `local` adapts it to the full environment. The
-following step reads the origin and adds the finished URL:
+following step reads the origin and adds the finished URL.
 
 ```ts
 import { pipe, Reader } from "@pplnd/core";
@@ -94,7 +80,7 @@ environment, so the same definition can serve both deployments.
 
 The reader supplies the fixed settings, but the exporter also needs a sequence number that advances
 with each location. That counter belongs in [`State`](/guides/state/), which threads the updated
-value to the next run:
+value to the next run.
 
 ```ts
 import { pipe, State } from "@pplnd/core";

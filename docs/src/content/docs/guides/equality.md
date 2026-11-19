@@ -3,12 +3,6 @@ title: Equality — Comparing Values
 description: Build reusable equality rules for fields, arrays, and tuples.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 281 B minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A monitoring service stores each sensor reading as a fresh object, so two arrivals of the same
 measurement never share a reference. Comparing them with `===` marks every duplicate as new, and
 comparing the whole object rejects readings whose temperature changed between transmissions. The
@@ -39,16 +33,7 @@ A monitoring service receives the same device reading more than once. A reading 
 device identifier and the recorded timestamp match; the temperature may differ between
 retransmissions and must not create a second entry.
 
-`struct` checks the configured fields in order. A failed field stops the comparison:
-
-```mermaid
-flowchart TD
-  Pair["Two readings"] --> Field{"Configured field equal?"}
-  Field -->|No| Different["false"]
-  Field -->|Yes| More{"More fields?"}
-  More -->|Yes| Field
-  More -->|No| Same["true"]
-```
+`struct` checks the configured fields in order. A failed field stops the comparison.
 
 ### Comparing Readings
 
@@ -79,7 +64,7 @@ identifier and a timestamp are duplicates even when the temperature changed.
 
 An equality rule answers whether two readings match, but a display that lists them still needs an
 order. The same field selection becomes a comparator, with the timestamp first and the device
-identifier as a tiebreaker:
+identifier as a tiebreaker.
 
 ```ts
 import { Ordering, pipe } from "@pplnd/core";

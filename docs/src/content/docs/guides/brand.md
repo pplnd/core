@@ -3,12 +3,6 @@ title: Brand — Distinguishing Values
 description: Give values with the same underlying type distinct TypeScript types at the boundary.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 27 B minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 A transfer desk accepts a warehouse identifier and a shipment identifier, both strings. A reversed
 argument compiles cleanly, the shipment is filed against the wrong warehouse, and the audit report
 still shows a successful transfer.
@@ -36,19 +30,12 @@ containers that carry validation outcomes; a brand records the outcome once vali
 A warehouse transfer needs a warehouse ID and a shipment ID. Both arrive as strings, but a function
 that expects one should not accidentally receive the other.
 
-The brand changes the type accepted by TypeScript without changing the value passed at runtime:
-
-```mermaid
-flowchart TD
-  Raw["Raw identifier string"] --> Wrap["Brand.wrap"]
-  Wrap --> Typed["Branded identifier for the type checker"]
-  Typed --> Runtime["Same string at runtime"]
-```
+The brand changes the type accepted by TypeScript without changing the value passed at runtime.
 
 ### Validating and Using Identifiers
 
 The parsing functions check each prefix before applying its brand. The transfer function then
-accepts the two distinct types:
+accepts the two distinct types.
 
 ```ts
 import { Brand, Result, pipe } from "@pplnd/core";
@@ -94,7 +81,7 @@ error even though both values are strings.
 
 The parsers above open-code the prefix check. At an HTTP or queue boundary, the same check composes
 as a [`Result`](/guides/result/) pipeline that rejects the raw string before any brand reaches the
-domain:
+domain.
 
 ```ts
 import { Brand, Result, pipe } from "@pplnd/core";

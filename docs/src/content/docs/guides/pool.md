@@ -3,12 +3,6 @@ title: Pool — Reusing Expensive Items
 description: Check exclusive items like database connections out of a bounded pool instead of opening one per call.
 ---
 
-<!-- BUNDLE_SIZE:START -->
-
-> 2.99 kB minified + gzipped
-
-<!-- BUNDLE_SIZE:END -->
-
 An API endpoint that opens a database connection per request pays the handshake on every call, and
 under load the handshakes themselves become the bottleneck. Closing them on error paths is its own
 trap: one early `return` without a close leaks the connection, and a retry storm opens more sockets
@@ -40,18 +34,6 @@ The [choosing guide](/basics/choosing/) places both next to the other lifecycle 
 A checkout endpoint queries inventory through a fixed set of connections. Under a burst of requests,
 callers beyond `maxSize` wait in line, a query that fails marks its connection broken, and shutdown
 drains the in-flight queries before closing the connections.
-
-```mermaid
-stateDiagram-v2
-  direction TB
-  [*] --> Idle
-  Idle --> Active : first acquire creates an item
-  Active --> Active : release returns an item / acquire grants it
-  Active --> Idle : idle timeout evicts the last item
-  Active --> Closed : close drains in-flight leases
-  Idle --> Closed : close destroys idle items
-  Closed --> [*]
-```
 
 ```ts
 import { Deferred, Duration, Pool, Result, Task } from "@pplnd/core";
@@ -91,7 +73,7 @@ covers what a caller's own cancellation means inside one checkout.
 
 A pool bounds how many items exist, not how long one query runs. A stuck query holds its lease and
 starves the waiters behind it, so bound each query with a deadline and treat the failure as
-`broken`:
+`broken`.
 
 ```ts
 import { Duration, Result, Task } from "@pplnd/core";

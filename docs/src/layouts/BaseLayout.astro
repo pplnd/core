@@ -1,0 +1,285 @@
+---
+import "../styles/global.css";
+import type { SocialImage } from "../data/social-images";
+import { NAV_ENTRIES, SEARCH_ITEMS, TICKER_NAMES } from "../nav";
+
+export interface Props {
+	title: string;
+	description?: string;
+	currentSlug?: string;
+	isHome?: boolean;
+	layout?: "index" | "article";
+	socialImage?: SocialImage;
+}
+
+const { title, description, currentSlug, isHome = false, layout = isHome ? "index" : "article", socialImage } =
+	Astro.props;
+const isIndexLayout = layout === "index";
+const pageTitle = isHome ? "pipelined — @pplnd/core" : `${title} — @pplnd/core`;
+const canonicalUrl = new URL(Astro.url.pathname, Astro.site ?? "https://pplnd.dev").href;
+const metaDescription = description
+	?? "Typed errors, explicit absence, composable async. Plain TypeScript, tree-shakeable, zero dependencies.";
+const socialImageUrl = socialImage && new URL(socialImage.path, canonicalUrl).href;
+---
+
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>{pageTitle}</title>
+		<meta name="description" content={metaDescription} />
+		<link rel="canonical" href={canonicalUrl} />
+		<link rel="sitemap" href="/sitemap-index.xml" />
+		<meta property="og:title" content={pageTitle} />
+		<meta property="og:type" content={isHome ? "website" : "article"} />
+		<meta property="og:url" content={canonicalUrl} />
+		<meta property="og:locale" content="en" />
+		<meta property="og:description" content={metaDescription} />
+		<meta property="og:site_name" content="pipelined" />
+		{socialImage && (
+			<>
+				<meta property="og:image" content={socialImageUrl} />
+				<meta property="og:image:type" content="image/png" />
+				<meta property="og:image:width" content={socialImage.width} />
+				<meta property="og:image:height" content={socialImage.height} />
+				<meta property="og:image:alt" content={socialImage.alt} />
+				<meta name="twitter:card" content="summary_large_image" />
+				<meta name="twitter:image" content={socialImageUrl} />
+				<meta name="twitter:image:alt" content={socialImage.alt} />
+			</>
+		)}
+		<link id="site-favicon" rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/inter-tight@5.3.0/400.css" />
+		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/inter-tight@5.3.0/500.css" />
+		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/iosevka@5.3.0/400.css" />
+		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/iosevka@5.3.0/500.css" />
+	</head>
+	<body id="top">
+		<div class="ticker" aria-hidden="true">
+			<div class="ticker-track" id="ticker-track">
+				<div class="ticker-group">
+					{TICKER_NAMES.map((name) => <span>{name}</span>)}
+				</div>
+				<div class="ticker-group">
+					{TICKER_NAMES.map((name) => <span>{name}</span>)}
+				</div>
+			</div>
+		</div>
+
+		<header class="head">
+			<div class="tools">
+				<button class="search" type="button">Search</button>
+				<button class="menu-toggle" type="button" aria-expanded="false" aria-controls="module-menu">Menu</button>
+			</div>
+		</header>
+
+		<main class={isIndexLayout ? "home-layout" : undefined}>
+			<slot name="hero" />
+
+			<div class={isIndexLayout ? "page" : "page guide-page"}>
+				<aside class="left" id="module-menu" aria-label="Documentation menu">
+					<nav aria-label="Documentation">
+						<ul class="tree">
+							{NAV_ENTRIES.map((entry) => {
+								if (entry.kind === "link") {
+									const isActive = currentSlug === entry.slug
+										|| (entry.slug === "api/readme" && (currentSlug === "api" || currentSlug?.startsWith("api/")));
+									return (
+										<li>
+											<a
+												class="row"
+												href={entry.href}
+												aria-current={isActive ? "page" : undefined}
+											>
+												{entry.label}
+											</a>
+										</li>
+									);
+								}
+
+								const isExpanded = Boolean(
+									currentSlug && entry.items.some((item) => currentSlug === item.slug || currentSlug.startsWith(`${item.slug}/`)),
+								);
+
+								return (
+									<li>
+										<button
+											type="button"
+											aria-expanded={String(isExpanded)}
+											aria-controls={entry.id}
+											data-panel={entry.id}
+										>
+											{entry.label}{" "}
+											<svg class="marker" viewBox="0 0 24 20" aria-hidden="true" focusable="false">
+												<path d="M6 2H2V18H6 M18 2H22V18H18" />
+												<path class="marker-plus" d="M7 10H17 M12 5V15" />
+											</svg>
+										</button>
+										<div class="panel" id={entry.id} inert={!isExpanded ? true : undefined}>
+											<div class="panel-items">
+												{entry.items.map((item) => (
+													<a
+														href={item.href}
+														aria-current={currentSlug === item.slug ? "page" : undefined}
+													>
+														{item.label}
+													</a>
+												))}
+											</div>
+										</div>
+									</li>
+								);
+							})}
+						</ul>
+					</nav>
+
+					<div class="left-sticky">
+						<div class="go-up-wrap" inert>
+							<div class="go-up-inner">
+								<button class="go-up" type="button" aria-label="Back to top">
+									<span>pipelined</span>
+									<svg class="go-up-arrow" viewBox="0 0 26 24" aria-hidden="true" focusable="false">
+										<path d="M13 23 V2 M1 14 L13 2 L25 14" />
+									</svg>
+								</button>
+							</div>
+						</div>
+
+						<pplnd-pm-tabs class="install-box" role="region" aria-label="Install @pplnd/core">
+							<svg class="install-arrow" viewBox="0 0 32 24" aria-hidden="true" focusable="false">
+								<path d="M16 0 V21.5 M3.5 9.5 L16 22 L28.5 9.5" />
+							</svg>
+							<div class="pm-line" role="tablist" aria-label="Package manager">
+								<button
+									class="pm"
+									role="tab"
+									type="button"
+									aria-selected="true"
+									data-pm="pnpm"
+									data-pm-cmd="pnpm add @pplnd/core"
+								>
+									pnpm
+								</button>
+								<button
+									class="pm"
+									role="tab"
+									type="button"
+									aria-selected="false"
+									data-pm="npm"
+									data-pm-cmd="npm install @pplnd/core"
+								>
+									npm
+								</button>
+								<button
+									class="pm"
+									role="tab"
+									type="button"
+									aria-selected="false"
+									data-pm="yarn"
+									data-pm-cmd="yarn add @pplnd/core"
+								>
+									yarn
+								</button>
+								<button
+									class="pm"
+									role="tab"
+									type="button"
+									aria-selected="false"
+									data-pm="bun"
+									data-pm-cmd="bun add @pplnd/core"
+								>
+									bun
+								</button>
+							</div>
+							<div class="cmd">
+								<code data-pm-code><span class="p">$</span>pnpm add @pplnd/core</code>
+								<button class="copy" type="button" data-pm-copy aria-label="Copy installation command">Copy</button>
+							</div>
+						</pplnd-pm-tabs>
+
+						<div class="links">
+							<a href="https://github.com/pplnd/pipelined" rel="external">GitHub</a>
+							<button id="theme" type="button">Dark mode: Off</button>
+						</div>
+					</div>
+				</aside>
+
+				<slot />
+			</div>
+		</main>
+
+		<footer class="foot">
+			<div class="foot-brand">
+				<div class="foot-meta">
+					<span>@pplnd/core · @pplnd/react</span>
+					<span>BSD-3-Clause License</span>
+				</div>
+				<a class="brand-home" href="/" aria-label="pipelined home">
+					<span class="brand-mark" data-logo-wrap aria-hidden="true">
+						<canvas class="brand-canvas" width="1" height="1"></canvas>
+					</span>
+				</a>
+			</div>
+			<div class="foot-cols">
+				<ul class="foot-list">
+					<li><a href="/basics/overview/">Overview</a></li>
+					<li><a href="/basics/quickstart/">Quickstart</a></li>
+					<li><a href="/basics/choosing/">Choosing a type</a></li>
+					<li><a href="/basics/pipelines/">Pipelines</a></li>
+				</ul>
+				<ul class="foot-list">
+					<li><a href="/api/readme/">API reference</a></li>
+					<li><a href="/appendix/design-notes/">Design notes</a></li>
+					<li><a href="/appendix/benchmarks/">Benchmarks</a></li>
+					<li><a href="/contributing/">Contributing</a></li>
+				</ul>
+				<ul class="foot-list">
+					<li><a href="https://github.com/pplnd/pipelined" rel="external">GitHub</a></li>
+					<li><a href="https://github.com/pplnd/pipelined/issues" rel="external">Issues</a></li>
+					<li><a href="https://www.npmjs.com/package/@pplnd/core" rel="external">npm</a></li>
+				</ul>
+			</div>
+		</footer>
+
+		<pplnd-search>
+			<dialog class="search-dialog" aria-label="Search documentation">
+				<div class="search-main">
+					<div class="search-bar">
+						<form class="search-form" role="search">
+							<input
+								id="module-query"
+								type="search"
+								autocomplete="off"
+								spellcheck="false"
+								placeholder="Search"
+								aria-label="Search modules"
+							/>
+							<button class="search-clear" id="search-clear" type="reset" aria-label="Clear search" hidden>×</button>
+						</form>
+						<form method="dialog">
+							<button class="search-close" type="submit" aria-label="Close search">Close</button>
+						</form>
+					</div>
+					<div class="search-count" id="search-count" aria-live="polite"></div>
+					<ul class="search-results"></ul>
+					<p class="no-results" hidden>No matching modules.</p>
+				</div>
+			</dialog>
+			<template data-search-item-tpl>
+				<li>
+					<a class="search-item">
+						<span class="search-item-meta"></span>
+						<span class="search-item-title"></span>
+					</a>
+				</li>
+			</template>
+			<script type="application/json" id="search-index" is:inline set:html={JSON.stringify(SEARCH_ITEMS)} />
+		</pplnd-search>
+
+		<script>
+			import "../scripts/ui";
+		</script>
+	</body>
+</html>
