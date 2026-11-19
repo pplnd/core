@@ -1,5 +1,5 @@
-export const GUIDE_IMAGE_WIDTH = 1200;
-export const GUIDE_IMAGE_HEIGHT = 630;
+export const SOCIAL_IMAGE_WIDTH = 1200;
+export const SOCIAL_IMAGE_HEIGHT = 630;
 
 export interface SocialImage {
 	readonly path: string;
@@ -8,6 +8,20 @@ export interface SocialImage {
 	readonly height: number;
 }
 
+const homeHeading = "pipelined";
+const homeSubtitle = "Typed errors, explicit absence, composable async.";
+
+export const HOME_SOCIAL_CARD = {
+	heading: homeHeading,
+	subtitle: homeSubtitle,
+	image: {
+		path: "/social/home.png",
+		alt: `${homeHeading}. ${homeSubtitle} Illustrated with the pipelined logo.`,
+		width: SOCIAL_IMAGE_WIDTH,
+		height: SOCIAL_IMAGE_HEIGHT,
+	},
+};
+
 export function guideSocialImage(slug: string, title: string): SocialImage | undefined {
 	if (!slug.startsWith("guides/")) {
 		return undefined;
@@ -15,7 +29,7 @@ export function guideSocialImage(slug: string, title: string): SocialImage | und
 	return {
 		path: `/social/${slug}.png`,
 		alt: `${title}. Illustrated with the pipelined logo.`,
-		width: GUIDE_IMAGE_WIDTH,
-		height: GUIDE_IMAGE_HEIGHT,
+		width: SOCIAL_IMAGE_WIDTH,
+		height: SOCIAL_IMAGE_HEIGHT,
 	};
 }

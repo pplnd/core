@@ -243,12 +243,18 @@ function findMissingBuiltArtifacts(root = process.cwd()): string[] {
 		}
 	}
 
-	for (const htmlRel of fs.globSync("guides/**/index.html", { cwd: distRoot })) {
-		const html = fs.readFileSync(path.join(distRoot, htmlRel), "utf8");
+	for (const htmlRel of ["index.html", ...fs.globSync("guides/**/index.html", { cwd: distRoot })]) {
+		const htmlPath = path.join(distRoot, htmlRel);
+		if (!isFile(htmlPath)) {
+			continue;
+		}
+		const html = fs.readFileSync(htmlPath, "utf8");
 		const image = html.match(/<meta property="og:image" content="(?<url>https:\/\/[^"\s]+)"/u)?.groups?.url;
-		const imagePath = `/social/${htmlRel.replaceAll(path.sep, "/").slice(0, -"/index.html".length)}.png`;
+		const imagePath = htmlRel === "index.html"
+			? "/social/home.png"
+			: `/social/${htmlRel.replaceAll(path.sep, "/").slice(0, -"/index.html".length)}.png`;
 		if (!image || !URL.canParse(image) || new URL(image).pathname !== imagePath) {
-			issues.push(`missing absolute guide image URL in docs/dist/${htmlRel}`);
+			issues.push(`missing absolute social image URL in docs/dist/${htmlRel}`);
 			continue;
 		}
 		if (
@@ -259,7 +265,7 @@ function findMissingBuiltArtifacts(root = process.cwd()): string[] {
 		}
 		const imageFile = path.join(distRoot, imagePath.slice(1));
 		if (!isFile(imageFile)) {
-			issues.push(`missing guide image: docs/dist${imagePath}`);
+			issues.push(`missing social image: docs/dist${imagePath}`);
 			continue;
 		}
 		const png = fs.readFileSync(imageFile);
@@ -268,7 +274,7 @@ function findMissingBuiltArtifacts(root = process.cwd()): string[] {
 			|| !html.includes(`<meta property="og:image:width" content="${png.readUInt32BE(16)}"`)
 			|| !html.includes(`<meta property="og:image:height" content="${png.readUInt32BE(20)}"`)
 		) {
-			issues.push(`guide image must be a PNG with dimensions matching the metadata: docs/dist${imagePath}`);
+			issues.push(`social image must be a PNG with dimensions matching the metadata: docs/dist${imagePath}`);
 		}
 	}
 

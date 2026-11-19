@@ -27,6 +27,11 @@ const socialImageUrl = socialImage && new URL(socialImage.path, canonicalUrl).hr
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<script is:inline>
+			try {
+				document.documentElement.dataset.theme = localStorage.getItem("pplnd-theme") === "dark" ? "dark" : "light";
+			} catch {}
+		</script>
 		<title>{pageTitle}</title>
 		<meta name="description" content={metaDescription} />
 		<link rel="canonical" href={canonicalUrl} />

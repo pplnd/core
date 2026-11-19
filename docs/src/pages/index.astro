@@ -1,9 +1,10 @@
 ---
+import { HOME_SOCIAL_CARD } from "../data/social-images";
 import BaseLayout from "../layouts/BaseLayout.astro";
 import { HOME_CARDS } from "../nav";
 ---
 
-<BaseLayout title="pipelined" isHome={true}>
+<BaseLayout title="pipelined" isHome={true} socialImage={HOME_SOCIAL_CARD.image}>
 	<section slot="hero" class="hero">
 		<div class="hero-brand">
 			<a class="wordmark" href="/">pipelined</a>
