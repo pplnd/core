@@ -1,0 +1,50 @@
+.figure {
+	--pplnd-figure-bg: var(--pplnd-figure-plate, #d9e3ec);
+	position: relative;
+	z-index: 1;
+	width: 100%;
+	margin: 1.15em 0 1.6em;
+	padding: 8px 0;
+}
+.figure svg {
+	display: block;
+	width: 100%;
+	background: var(--pplnd-figure-bg);
+	box-shadow: 0 0 0 var(--pplnd-rule-clearance) var(--pplnd-paper);
+	color: #162329;
+	font-family: var(--pplnd-mono);
+}
+.figure text {
+	fill: currentColor;
+}
+.figure :global(.flow-input) {
+	font: 26px var(--pplnd-mono);
+}
+.figure :global(.flow-case) {
+	font: 44px var(--pplnd-mono);
+	letter-spacing: -0.02em;
+}
+.figure :global(.flow-value) {
+	font: 18px var(--pplnd-mono);
+}
+.figure :global(.flow-label) {
+	font: 22px var(--pplnd-mono);
+	letter-spacing: 0;
+}
+.figure :global(.flow-tag) {
+	font: 15px var(--pplnd-mono);
+}
+.figure :global(.flow-node) {
+	fill: var(--pplnd-figure-bg);
+}
+.figure :global(.flow-dash) {
+	stroke-dasharray: 5 5;
+}
+@media (max-width: 767px) {
+	.figure svg {
+		min-height: 165px;
+	}
+	.figure :global(.flow-value) {
+		font-size: 22px;
+	}
+}

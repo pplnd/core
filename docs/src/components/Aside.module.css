@@ -1,0 +1,16 @@
+.callout {
+	--pplnd-inline-code-bg: var(--pplnd-paper);
+	margin: 22px 0;
+	padding: 16px 18px;
+	border-left: var(--pplnd-rule) solid currentColor;
+	background: var(--pplnd-surface);
+}
+.title {
+	font-size: 14px;
+	letter-spacing: -0.01em;
+	color: var(--pplnd-muted);
+	margin-bottom: 6px;
+}
+.body > :last-child {
+	margin-bottom: 0;
+}

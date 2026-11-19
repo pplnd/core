@@ -1,6 +1,7 @@
 ---
 title: Design Notes
 description: Why the library exists, what it borrows, what it leaves out, and what it costs.
+author: Nikita Lozgachev
 ---
 
 I started `pipelined` because I kept writing the same null checks, the same `try/catch` around calls

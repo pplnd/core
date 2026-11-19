@@ -3,22 +3,19 @@ import type { HeroFigureSpec } from "./types";
 export const ERRORS_AND_STATE_FIGURES: Record<string, HeroFigureSpec> = {
 	"basics/pipelines": {
 		plate: "#e6dec8",
-		title: "Linear transformation flow in pipe",
+		title: "How pipe passes values between steps",
 		desc:
-			"A raw string enters pipe and passes left to right through trim, toLowerCase, and replace to produce a clean slug.",
+			"Arrows connect a circle, square, triangle, and diamond. Each arrow represents a step whose output becomes the next step's input.",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
-				<path d="M-8 128 H56 M184 128 H222 M350 128 H388 M516 128 H558" />
-				<path d="M46 118 L56 128 L46 138 M212 118 L222 128 L212 138 M378 118 L388 128 L378 138 M548 118 L558 128 L548 138" />
-				<rect x="56" y="88" width="128" height="80" class="flow-node" />
-				<rect x="222" y="88" width="128" height="80" class="flow-node" />
-				<rect x="388" y="88" width="128" height="80" class="flow-node" />
+				<circle cx="72" cy="128" r="22" class="flow-node" />
+				<path d="M108 128 H188 M178 118 L188 128 L178 138" />
+				<rect x="204" y="108" width="40" height="40" class="flow-node" />
+				<path d="M260 128 H340 M330 118 L340 128 L330 138" />
+				<path d="M376 100 L401 145 H351 Z" class="flow-node" />
+				<path d="M412 128 H492 M482 118 L492 128 L482 138" />
+				<path d="M528 102 L554 128 L528 154 L502 128 Z" class="flow-node" />
 			</g>
-			<text x="16" y="64" class="flow-value">"  New Release  "</text>
-			<text x="120" y="128" text-anchor="middle" dominant-baseline="central" class="flow-value">trim</text>
-			<text x="286" y="128" text-anchor="middle" dominant-baseline="central" class="flow-value">lower</text>
-			<text x="452" y="128" text-anchor="middle" dominant-baseline="central" class="flow-value">replace</text>
-			<text x="580" y="64" text-anchor="end" class="flow-value">"new-release"</text>
 		`,
 	},
 	"basics/composition": {

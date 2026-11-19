@@ -1,0 +1,27 @@
+.grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 14px;
+	margin: 20px 0;
+}
+.card {
+	border: var(--pplnd-rule) solid currentColor;
+	padding: 16px;
+}
+.card h3 {
+	margin: 0 0 8px;
+	font-size: var(--pplnd-nav);
+}
+.card p {
+	font-size: 15px;
+	line-height: 1.4;
+	margin-bottom: 10px;
+}
+.card p:last-child {
+	margin-bottom: 0;
+}
+@media (max-width: 1050px) {
+	.grid {
+		grid-template-columns: 1fr;
+	}
+}

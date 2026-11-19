@@ -1,0 +1,52 @@
+---
+import { MODULE_BUNDLE_SIZES } from "../data/bundle-sizes";
+import { EXPORT_DOMAINS } from "../data/export-domains";
+import styles from "./BundleSizes.module.css";
+
+const featuredImports = ["pipe", "Result", "Task", "Op", "EventBus", "Machine"] as const;
+const sizes = Object.values(MODULE_BUNDLE_SIZES);
+const groups = EXPORT_DOMAINS.map(({ title, exports }) => ({
+	title,
+	entries: sizes.filter(({ module }) => exports.includes(module)).sort((left, right) =>
+		left.module.localeCompare(right.module, "en")
+	),
+}));
+---
+
+<div id="standalone-module-footprint-tree-shaken" class={styles.sizes}>
+	<p>
+		Each size covers one import and its dependencies, minified and gzipped. Imports can share code in a combined bundle.
+	</p>
+	<dl class={styles.examples}>
+		{featuredImports.map((name) => (
+			<div>
+				<dt><code>{name}</code></dt>
+				<dd>{MODULE_BUNDLE_SIZES[name].formatted}</dd>
+			</div>
+		))}
+	</dl>
+	<details class={styles.disclosure}>
+		<summary>View all {sizes.length} import sizes</summary>
+		<div class={styles.disclosureContent}>
+			{groups.map(({ title, entries }) => (
+				<table>
+					<caption>{title}</caption>
+					<thead>
+						<tr>
+							<th scope="col">Import</th>
+							<th scope="col">Size</th>
+						</tr>
+					</thead>
+					<tbody>
+						{entries.map(({ module, formatted }) => (
+							<tr>
+								<th scope="row"><code>{module}</code></th>
+								<td>{formatted}</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
+			))}
+		</div>
+	</details>
+</div>

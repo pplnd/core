@@ -1,0 +1,32 @@
+---
+import type { GuideBundleSize } from "../data/bundle-sizes";
+import styles from "./GuideSpec.module.css";
+
+interface Props {
+	author?: string;
+	bundleSize?: GuideBundleSize;
+}
+
+const { author, bundleSize } = Astro.props;
+const entries = bundleSize?.entries ?? [];
+const multiple = entries.length > 1;
+const importStatement = bundleSize
+	&& `import { ${entries.map((item) => item.module).join(", ")} } from "${bundleSize.importFrom}"`;
+---
+
+<div class={styles.spec} aria-label={author ? undefined : "Module bundle footprint"}>
+	{author && <span>Author: <strong>{author}</strong></span>}
+	{bundleSize && (
+		<>
+			<span class={styles.importStatement}>{importStatement}</span>
+			<span class={multiple ? undefined : styles.singleModule}>
+				{entries.map((item, index) => (
+					<>
+						{index > 0 && " · "}
+						{multiple && `${item.module} `}<strong>{item.formatted}</strong>
+					</>
+				))} min+gzip
+			</span>
+		</>
+	)}
+</div>

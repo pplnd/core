@@ -1,0 +1,30 @@
+.spec {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 6px 20px;
+	margin: -0.35em 0 0.6em;
+	padding: 10px 0;
+	border-block: var(--pplnd-rule) solid currentColor;
+	font: 14px/1.4 var(--pplnd-mono);
+}
+.importStatement {
+	overflow-wrap: anywhere;
+}
+.singleModule {
+	white-space: nowrap;
+}
+.spec strong {
+	color: var(--pplnd-ink);
+	font-weight: 500;
+}
+@media (max-width: 767px) {
+	.spec {
+		gap: 4px 14px;
+		font-size: 13px;
+	}
+	.singleModule {
+		white-space: normal;
+	}
+}

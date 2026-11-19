@@ -2,10 +2,12 @@
 import { getCollection, render } from "astro:content";
 import path from "node:path";
 import GuideFigure from "../components/GuideFigure.astro";
+import GuideSpec from "../components/GuideSpec.astro";
 import { GUIDE_BUNDLE_SIZES } from "../data/bundle-sizes";
 import { guideSocialImage } from "../data/social-images";
 import { GUIDE_FIGURES } from "../figures";
 import BaseLayout from "../layouts/BaseLayout.astro";
+import styles from "../styles/article.module.css";
 
 export async function getStaticPaths() {
 	const entries = await getCollection("docs");
@@ -37,9 +39,7 @@ const rawTitle = entry.data.title ?? deriveFallbackHeading(entry.id, entry.fileP
 const headingTitle = rawTitle.split(" — ")[0] ?? rawTitle;
 const figure = GUIDE_FIGURES[entry.id];
 const bundleSize = Object.hasOwn(GUIDE_BUNDLE_SIZES, entry.id) ? GUIDE_BUNDLE_SIZES[entry.id] : undefined;
-const importStatement = bundleSize
-	? `import { ${bundleSize.entries.map((item) => item.module).join(", ")} } from "${bundleSize.importFrom}"`
-	: undefined;
+const { author } = entry.data;
 ---
 
 <BaseLayout
@@ -59,32 +59,9 @@ const importStatement = bundleSize
 		<div class="hero-r"><h1>{headingTitle}</h1></div>
 	</header>
 
-	<article class="article" style={figure && { "--pplnd-figure-plate": figure.plate }}>
-		{entry.data.description && <p class="lead">{entry.data.description}</p>}
-		{bundleSize && importStatement && (
-			<div
-				class={bundleSize.entries.length > 1 ? "guide-spec guide-spec--multi" : "guide-spec"}
-				aria-label="Module bundle footprint"
-			>
-				<span class="guide-spec-import">{importStatement}</span>
-				<span class="guide-spec-meta">
-					{bundleSize.entries.length === 1 ? (
-						<>
-							<strong class="guide-spec-size">{bundleSize.entries[0]?.formatted}</strong> min+gzip
-						</>
-					) : (
-							<>
-								{bundleSize.entries.map((item, index) => (
-									<>
-										{index > 0 && " · "}
-										{item.module} <strong class="guide-spec-size">{item.formatted}</strong>
-									</>
-								))} min+gzip
-							</>
-						)}
-				</span>
-			</div>
-		)}
+	<article class={styles.article} style={figure && { "--pplnd-figure-plate": figure.plate }}>
+		{entry.data.description && <p class={styles.lead}>{entry.data.description}</p>}
+		{(author || bundleSize) && <GuideSpec author={author} bundleSize={bundleSize} />}
 		{figure && <GuideFigure figure={figure} />}
 		<Content />
 	</article>

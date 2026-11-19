@@ -3,12 +3,24 @@ title: Installation
 description: Add @pplnd/core to your TypeScript project via package managers.
 ---
 
+import BundleSizes from "../../../components/BundleSizes.astro";
 import CodePackageManagers from "../../../components/CodePackageManagers.astro";
 import ExportsTable from "../../../components/ExportsTable.astro";
 
 ## Install
 
 <CodePackageManagers packages="@pplnd/core"/>
+
+## Requirements
+
+- **Node.js** 18.0.0 or later (compatible with Bun, Deno, and modern browser environments)
+- **TypeScript** 5.5 or later with `strict` mode enabled
+
+### Compatibility rationale
+
+- **Node.js Runtime Compatibility**: Built-in runtime feature detection provides zero-dependency fallbacks for newer ECMAScript features (such as `Set.prototype.union` and `Array.prototype.toSorted`), while `Intl.Segmenter` is loaded lazily for `Str.graphemeSize`, allowing `@pplnd/core` to run on Node.js 18+ and all modern JS runtimes.
+- **TypeScript 5.5+**: Required because the ECMAScript 2024 Set methods (`.union()`, `.intersection()`, `.isSubsetOf()`) were introduced into TypeScript's standard library (`lib.es2024`) in version 5.5; the ECMAScript 2023 Array copying methods (`.toSorted()`, `.toReversed()`) entered the standard library (`lib.es2023`) earlier, in version 5.2.
+- **Strict Mode**: Required for type-level guarantees — specifically exhaustiveness checking in `match` pattern branches and narrowing in type guards.
 
 ## Importing from `@pplnd/core`
 
@@ -24,74 +36,8 @@ All modules are grouped into four logical domains:
 
 <ExportsTable />
 
-### Tree-Shaking & Bundle Impact
+<h2 id="tree-shaking-bundle-impact">Bundle size</h2>
 
-All entry points are published with `"sideEffects": false` and structured as static constant objects without class prototypes or closure side-effects. Modern bundlers (Vite, Rollup, webpack, esbuild, Next.js) automatically remove unused modules, bundling only the modules your application actually imports. [Design Notes](/appendix/design-notes/) explains how this granularity keeps the package small.
+<BundleSizes />
 
-{/* BUNDLE_TABLE:START */}
-### Standalone Module Footprint (Tree-Shaken)
-
-These measurements include each listed import and its dependencies, minified and gzipped:
-
-| Import Pattern | Minified + Gzipped |
-| :--- | :--- |
-| `pipe` | **142 B** |
-| `flow` | **158 B** |
-| `Brand` | **27 B** |
-| `Duration` | **150 B** |
-| `RetryPolicy` | **514 B** |
-| `RepeatPolicy` | **384 B** |
-| `TimeoutPolicy` | **50 B** |
-| `Maybe` | **1.59 kB** |
-| `Result` | **1.59 kB** |
-| `Validation` | **1.59 kB** |
-| `RemoteData` | **2.04 kB** |
-| `These` | **2.03 kB** |
-| `Equality` | **281 B** |
-| `Ordering` | **280 B** |
-| `Predicate` | **196 B** |
-| `Refinement` | **1.66 kB** |
-| `Combinable` | **1.82 kB** |
-| `Pair` | **144 B** |
-| `State` | **229 B** |
-| `Reader` | **153 B** |
-| `Aborted` | **62 B** |
-| `Deferred` | **142 B** |
-| `Logged` | **266 B** |
-| `Machine` | **2.53 kB** |
-| `EventBus` | **1.62 kB** |
-| `Batcher` | **3.16 kB** |
-| `Cache` | **2.48 kB** |
-| `CircuitBreaker` | **2.90 kB** |
-| `RateLimiter` | **2.60 kB** |
-| `Resource` | **2.35 kB** |
-| `Pool` | **2.99 kB** |
-| `Graph` | **2.96 kB** |
-| `Task` | **4.95 kB** |
-| `Transaction` | **2.66 kB** |
-| `Op` | **6.55 kB** |
-| `Supervisor` | **2.83 kB** |
-| `Optional` | **1.90 kB** |
-| `Lens` | **233 B** |
-| `Arr` | **6.97 kB** |
-| `Rec` | **3.33 kB** |
-| `Dict` | **2.52 kB** |
-| `Uniq` | **2.08 kB** |
-| `Str` | **2.44 kB** |
-| `Num` | **2.12 kB** |
-| `BigNum` | **1.93 kB** |
-| `Bool` | **1.91 kB** |
-| `Json` | **1.77 kB** |
-
-{/* BUNDLE_TABLE:END */}
-
-## Requirements
-
-- **Node.js** 18.0.0 or later (compatible with Bun, Deno, and modern browser environments)
-- **TypeScript** 5.5 or later with `strict` mode enabled
-
-### Compatibility rationale
-
-- **Node.js Runtime Compatibility**: Built-in runtime feature detection provides zero-dependency fallbacks for newer ECMAScript features (such as `Set.prototype.union` and `Array.prototype.toSorted`), while `Intl.Segmenter` is loaded lazily for `Str.graphemeSize`, allowing `@pplnd/core` to run on Node.js 18+ and all modern JS runtimes.
-- **TypeScript 5.5+**: Required because the ECMAScript 2024 Set methods (`.union()`, `.intersection()`, `.isSubsetOf()`) were introduced into TypeScript's standard library (`lib.es2024`) in version 5.5; the ECMAScript 2023 Array copying methods (`.toSorted()`, `.toReversed()`) entered the standard library (`lib.es2023`) earlier, in version 5.2.
-- **Strict Mode**: Required for type-level guarantees — specifically exhaustiveness checking in `match` pattern branches and narrowing in type guards.
+Bundlers can remove unused exports from `@pplnd/core`. [Design Notes](/appendix/design-notes/) explains how the package layout supports tree shaking.

@@ -1,10 +1,12 @@
+import { ok } from "node:assert/strict";
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { expect, test } from "vitest";
-import { GUIDE_BUNDLE_SIZES } from "../../../../docs/src/data/bundle-sizes.ts";
+import { GUIDE_BUNDLE_SIZES, MODULE_BUNDLE_SIZES } from "../../../../docs/src/data/bundle-sizes.ts";
+import { EXPORT_DOMAINS } from "../../../../docs/src/data/export-domains.ts";
 import { NAV_ENTRIES, type NavEntry } from "../../../../docs/src/nav.ts";
-import { GUIDE_MANIFEST, resolveGuideModules } from "../../../../scripts/docs-manifest.ts";
+import { GUIDE_MANIFEST, resolveGuideModules, STANDALONE_MODULES } from "../../../../scripts/docs-manifest.ts";
 
 const repoRoot = path.resolve(__dirname, "../../../../");
 const coreRoot = path.join(repoRoot, "packages/core");
@@ -113,17 +115,18 @@ test("BundleSize: verifies README.md reflects current measured sizes", () => {
 	}
 });
 
-test("BundleSize: verifies installation.mdx reflects current measured sizes", () => {
-	const content = fs.readFileSync(path.join(repoRoot, "docs/src/content/docs/basics/installation.mdx"), "utf8");
-
-	expect(content).toContain("{/* BUNDLE_TABLE:START */}");
-	expect(content).toContain("{/* BUNDLE_TABLE:END */}");
-
-	for (const name of ["Machine", "Result", "Maybe", "Resource", "Task"]) {
+test("BundleSize: every measured import appears once in the Installation size groups", () => {
+	const expected = STANDALONE_MODULES.map((name) => {
 		const item = sizeMap.get(name);
-		expect(item).toBeDefined();
-		expect(content).toContain(formatBytes(item!.size));
-	}
+		ok(item, `Missing size-limit target for ${name}`);
+		return { module: name, bytes: item.size, formatted: formatBytes(item.size) };
+	});
+	expect(Object.values(MODULE_BUNDLE_SIZES)).toStrictEqual(expected);
+
+	const groupedNames = EXPORT_DOMAINS.flatMap(({ exports }) =>
+		exports.filter((name) => Object.hasOwn(MODULE_BUNDLE_SIZES, name))
+	);
+	expect(groupedNames.sort()).toStrictEqual([...STANDALONE_MODULES].sort());
 });
 
 test("BundleSize: verifies docs/src/data/bundle-sizes.ts reflects current measured sizes", () => {

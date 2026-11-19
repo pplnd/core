@@ -1,54 +1,11 @@
 ---
-import fs from "node:fs";
-import path from "node:path";
-
-function getBarrelExports(relFromRoot: string): string[] {
-	const candidates = [
-		path.resolve(process.cwd(), "..", relFromRoot),
-		path.resolve(process.cwd(), relFromRoot),
-		path.resolve(import.meta.dirname, "../../..", relFromRoot),
-	];
-	const fullPath = candidates.find((p) => fs.existsSync(p));
-	if (!fullPath) {
-		return [];
-	}
-	const content = fs.readFileSync(fullPath, "utf-8");
-	const matches = content.matchAll(/export\s+\*\s+from\s+["']\.\/(?<name>[^"']+)["']/gu);
-	const names: string[] = [];
-	for (const match of matches) {
-		names.push(match.groups!.name!);
-	}
-	return names.sort();
-}
-
-const coreExports = getBarrelExports("packages/core/src/Core/index.ts");
-const dataExports = getBarrelExports("packages/core/src/Data/index.ts");
-const compositionExports = getBarrelExports("packages/core/src/Composition/index.ts");
-const typesExports = getBarrelExports("packages/core/src/Types/index.ts");
-
-const domains = [{
-	title: "Errors, Async & State",
-	description:
-		"Discriminated unions for error handling, optional values, async execution, event streams, state, and optics.",
-	exports: coreExports,
-}, {
-	title: "Data & Collections",
-	description: "Pure curried utilities for arrays, records, dictionaries, strings, numbers, and JSON.",
-	exports: dataExports,
-}, {
-	title: "Pipelines & Composition",
-	description: "Pipeline runners, flow composition, and execution control combinators.",
-	exports: compositionExports,
-}, {
-	title: "Domain Types",
-	description: "Primitives, compile-time branded types, duration units, and retry policies.",
-	exports: typesExports,
-}];
+import { EXPORT_DOMAINS } from "../data/export-domains";
+import styles from "./ExportsTable.module.css";
 ---
 
-<div class="exports-grid">
-	{domains.map((domain) => (
-		<section class="export-card">
+<div class={styles.grid}>
+	{EXPORT_DOMAINS.map((domain) => (
+		<section class={styles.card}>
 			<h3>{domain.title}</h3>
 			<p>{domain.description}</p>
 			<p>

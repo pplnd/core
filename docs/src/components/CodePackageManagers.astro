@@ -1,20 +1,27 @@
 ---
 export interface Props {
 	packages?: string;
+	placement?: "inline" | "sidebar";
 }
 
-const { packages = "@pplnd/core" } = Astro.props;
+const { packages = "@pplnd/core", placement = "inline" } = Astro.props;
+const installLabel = `Install ${packages}`;
+const sidebar = placement === "sidebar";
 const managers = [{ name: "pnpm", cmd: `pnpm add ${packages}` }, { name: "npm", cmd: `npm install ${packages}` }, {
 	name: "yarn",
 	cmd: `yarn add ${packages}`,
-}, { name: "bun", cmd: `bun add ${packages}` }];
+}, { name: "bun", cmd: `bun add ${packages}` }] as const;
 ---
 
-<pplnd-pm-tabs class="install-box pm-install-inline">
+<pplnd-pm-tabs
+	class="install-box"
+	role={sidebar ? "region" : undefined}
+	aria-label={sidebar ? installLabel : undefined}
+>
 	<svg class="install-arrow" viewBox="0 0 32 24" aria-hidden="true" focusable="false">
 		<path d="M16 0 V21.5 M3.5 9.5 L16 22 L28.5 9.5" />
 	</svg>
-	<div class="pm-line" role="tablist" aria-label={`Install ${packages}`}>
+	<div class="pm-line" role="tablist" aria-label={sidebar ? "Package manager" : installLabel}>
 		{managers.map((m, i) => (
 			<button
 				class="pm"
@@ -30,7 +37,7 @@ const managers = [{ name: "pnpm", cmd: `pnpm add ${packages}` }, { name: "npm", 
 		))}
 	</div>
 	<div class="cmd">
-		<code data-pm-code><span class="p">$</span>{managers[0]!.cmd}</code>
+		<code data-pm-code><span class="p">$</span>{managers[0].cmd}</code>
 		<button class="copy" type="button" data-pm-copy aria-label="Copy installation command">Copy</button>
 	</div>
 </pplnd-pm-tabs>

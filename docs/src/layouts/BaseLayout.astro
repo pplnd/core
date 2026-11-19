@@ -1,5 +1,6 @@
 ---
 import "../styles/global.css";
+import CodePackageManagers from "../components/CodePackageManagers.astro";
 import type { SocialImage } from "../data/social-images";
 import { NAV_ENTRIES, SEARCH_ITEMS, TICKER_NAMES } from "../nav";
 
@@ -151,57 +152,7 @@ const socialImageUrl = socialImage && new URL(socialImage.path, canonicalUrl).hr
 							</div>
 						</div>
 
-						<pplnd-pm-tabs class="install-box" role="region" aria-label="Install @pplnd/core">
-							<svg class="install-arrow" viewBox="0 0 32 24" aria-hidden="true" focusable="false">
-								<path d="M16 0 V21.5 M3.5 9.5 L16 22 L28.5 9.5" />
-							</svg>
-							<div class="pm-line" role="tablist" aria-label="Package manager">
-								<button
-									class="pm"
-									role="tab"
-									type="button"
-									aria-selected="true"
-									data-pm="pnpm"
-									data-pm-cmd="pnpm add @pplnd/core"
-								>
-									pnpm
-								</button>
-								<button
-									class="pm"
-									role="tab"
-									type="button"
-									aria-selected="false"
-									data-pm="npm"
-									data-pm-cmd="npm install @pplnd/core"
-								>
-									npm
-								</button>
-								<button
-									class="pm"
-									role="tab"
-									type="button"
-									aria-selected="false"
-									data-pm="yarn"
-									data-pm-cmd="yarn add @pplnd/core"
-								>
-									yarn
-								</button>
-								<button
-									class="pm"
-									role="tab"
-									type="button"
-									aria-selected="false"
-									data-pm="bun"
-									data-pm-cmd="bun add @pplnd/core"
-								>
-									bun
-								</button>
-							</div>
-							<div class="cmd">
-								<code data-pm-code><span class="p">$</span>pnpm add @pplnd/core</code>
-								<button class="copy" type="button" data-pm-copy aria-label="Copy installation command">Copy</button>
-							</div>
-						</pplnd-pm-tabs>
+						<CodePackageManagers placement="sidebar" />
 
 						<div class="links">
 							<a href="https://github.com/pplnd/pipelined" rel="external">GitHub</a>

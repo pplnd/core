@@ -1,4 +1,5 @@
 ---
+import figureStyles from "../components/GuideFigure.module.css";
 import BaseLayout from "../layouts/BaseLayout.astro";
 ---
 
@@ -22,7 +23,7 @@ import BaseLayout from "../layouts/BaseLayout.astro";
 			This path resolved to <code>None</code>. The route is unmapped or has moved.
 		</p>
 
-		<figure class="result-figure" style="--pplnd-figure-plate: #fff">
+		<figure class:list={[figureStyles.figure, "not-found-figure"]} style="--pplnd-figure-plate: #fff">
 			<svg viewBox="0 0 600 256" role="img" aria-labelledby="not-found-title not-found-desc">
 				<title id="not-found-title">Unmatched route circuit diagram branching to recovery</title>
 				<desc id="not-found-desc">
@@ -107,11 +108,11 @@ import BaseLayout from "../layouts/BaseLayout.astro";
 		justify-self: end;
 	}
 	@media (max-width: 767px) {
-		.result-figure, .not-found-actions {
+		.not-found-figure, .not-found-actions {
 			grid-column: 1 / -1;
 			margin-inline-start: 24px;
 		}
-		.result-figure {
+		.not-found-figure {
 			width: auto;
 		}
 		.not-found-actions {

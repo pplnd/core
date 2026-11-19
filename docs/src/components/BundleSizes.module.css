@@ -1,0 +1,72 @@
+.sizes {
+	--pplnd-inline-code-bg: transparent;
+	margin-block-end: 1em;
+}
+.examples {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 12px 20px;
+	margin: 20px 0;
+}
+.examples > div {
+	border-block-start: var(--pplnd-rule) solid var(--pplnd-surface);
+	padding-block-start: 8px;
+}
+.examples dd {
+	margin: 2px 0 0;
+	font-size: var(--pplnd-nav);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+.sizes .examples dt > code,
+.sizes .disclosure th > code {
+	padding: 0;
+}
+.disclosure > summary {
+	border-block: var(--pplnd-rule) solid currentColor;
+	cursor: pointer;
+	padding: 12px 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+	@supports selector(details::details-content) and (transition-behavior: allow-discrete) {
+		.disclosure::details-content {
+			display: grid;
+			grid-template-rows: 0fr;
+			transition: grid-template-rows 320ms ease-in-out, content-visibility 320ms allow-discrete;
+		}
+		.disclosure[open]::details-content {
+			grid-template-rows: 1fr;
+		}
+		.disclosureContent {
+			min-block-size: 0;
+			overflow: clip;
+		}
+	}
+}
+.sizes .disclosure table {
+	display: table;
+	margin: 20px 0 24px;
+}
+.disclosure caption {
+	margin-block-end: 6px;
+	text-align: start;
+	font-weight: 500;
+}
+.disclosure tbody th {
+	color: var(--pplnd-ink);
+	border-block-end: 1px solid var(--pplnd-surface);
+}
+.disclosure tbody tr:last-child th {
+	border-block-end-color: currentColor;
+}
+.disclosure tr > :last-child {
+	padding-inline-end: 0;
+	text-align: end;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+@media (max-width: 480px) {
+	.examples {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+}

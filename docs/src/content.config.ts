@@ -11,6 +11,10 @@ export const collections = {
 				entry.replace(/\.(?:md|mdx)$/iu, "").replace(/(?:^|\/)index$/iu, (match) => (match.startsWith("/") ? "/" : ""))
 					.replace(/\/$/u, "").toLowerCase(),
 		}),
-		schema: z.object({ title: z.string().optional(), description: z.string().optional() }).passthrough(),
+		schema: z.looseObject({
+			title: z.string().optional(),
+			description: z.string().optional(),
+			author: z.string().optional(),
+		}),
 	}),
 };
