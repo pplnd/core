@@ -2,8 +2,8 @@
 import BaseLayout from "../layouts/BaseLayout.astro";
 ---
 
-<BaseLayout title="404 — Route Not Found" description="The requested route resolved to None.">
-	<header slot="hero" class="hero guide-hero">
+<BaseLayout title="404 — Route Not Found" description="The requested route resolved to None." layout="index">
+	<header slot="hero" class="hero">
 		<div class="hero-brand">
 			<a class="wordmark" href="/">pipelined</a>
 			<svg class="title-arrow" aria-hidden="true" focusable="false">
@@ -17,12 +17,12 @@ import BaseLayout from "../layouts/BaseLayout.astro";
 		</div>
 	</header>
 
-	<article class="article">
-		<p class="lead">
+	<div class="right">
+		<p class="statement not-found-lead">
 			This path resolved to <code>None</code>. The route is unmapped or has moved.
 		</p>
 
-		<figure class="result-figure" style="--pplnd-figure-plate: #f6cbb7">
+		<figure class="result-figure" style="--pplnd-figure-plate: #fff">
 			<svg viewBox="0 0 600 256" role="img" aria-labelledby="not-found-title not-found-desc">
 				<title id="not-found-title">Unmatched route circuit diagram branching to recovery</title>
 				<desc id="not-found-desc">
@@ -59,35 +59,69 @@ import BaseLayout from "../layouts/BaseLayout.astro";
 				<text x="300" y="212" text-anchor="middle" dominant-baseline="central" class="flow-value">recover</text>
 				<text x="372" y="196" class="flow-tag">fallback -> search</text>
 			</svg>
-			<figcaption>404 · Unmatched route branches to recovery fallback</figcaption>
 		</figure>
 
-		<button type="button" class="choosing-cta not-found-search" id="not-found-search-btn">
-			<div class="choosing-copy">
-				<div class="choosing-tags" aria-hidden="true">
-					<span>45 modules</span>
-					<span>1,237 API symbols</span>
-					<span>Instant filter</span>
-				</div>
-				<p class="choosing-title" id="not-found-search-title">
-					Search the documentation. <span>Find the module or function you were looking for.</span>
-				</p>
-			</div>
-		</button>
-
-		<div class="not-found-grid">
-			<a class="not-found-card" href="/">
-				<span class="not-found-meta">01 · Overview</span>
-				<span class="not-found-title">All 45 modules</span>
+		<nav class="not-found-actions" aria-label="Find documentation">
+			<button type="button" class="choosing-cta" id="not-found-search-btn" aria-haspopup="dialog">
+				<span class="choosing-title">Search the docs</span>
+			</button>
+			<a class="choosing-cta" href="/">
+				<span class="choosing-title">All modules</span>
 			</a>
-			<a class="not-found-card" href="/basics/choosing/">
-				<span class="not-found-meta">02 · Decision guide</span>
-				<span class="not-found-title">Compare types side by side</span>
+			<a class="choosing-cta" href="/basics/choosing/">
+				<span class="choosing-title">Choose a container</span>
 			</a>
-			<a class="not-found-card" href="/api/">
-				<span class="not-found-meta">03 · API reference</span>
-				<span class="not-found-title">Every signature &amp; export</span>
+			<a class="choosing-cta" href="/api/">
+				<span class="choosing-title">API reference</span>
 			</a>
-		</div>
-	</article>
+		</nav>
+	</div>
 </BaseLayout>
+
+<style>
+	.not-found-lead {
+		max-width: 26em;
+		font-size: var(--pplnd-nav);
+		line-height: 1.04;
+	}
+	.not-found-lead code {
+		padding: 0.08em 0.32em;
+		background: var(--pplnd-surface);
+		font: 500 0.88em var(--pplnd-mono);
+	}
+	.not-found-actions {
+		display: grid;
+		gap: clamp(30px, 5vw, 76px);
+		max-width: 64rem;
+		padding: 0 clamp(6px, 1vw, 14px) clamp(24px, 4vw, 56px);
+	}
+	.not-found-actions .choosing-cta {
+		grid-template-columns: minmax(0, 1fr);
+		justify-self: start;
+		width: 88%;
+		margin: 0;
+		text-align: center;
+	}
+	.not-found-actions .choosing-cta:nth-child(even) {
+		--pplnd-cta-angle: 4deg;
+		justify-self: end;
+	}
+	@media (max-width: 767px) {
+		.result-figure, .not-found-actions {
+			grid-column: 1 / -1;
+			margin-inline-start: 24px;
+		}
+		.result-figure {
+			width: auto;
+		}
+		.not-found-actions {
+			gap: 22px;
+		}
+		.not-found-actions .choosing-cta {
+			padding-inline: clamp(12px, 5vw, 28px);
+		}
+		.not-found-actions .choosing-cta:nth-child(even) {
+			--pplnd-cta-angle: 1.4deg;
+		}
+	}
+</style>

@@ -5,7 +5,6 @@ export const DATA_AND_TYPE_FIGURES: Record<string, HeroFigureSpec> = {
 		plate: "#b4dce2",
 		title: "Structural equality comparison in Equality",
 		desc: "Two readings compare field by field in order and resolve to true or false on the first mismatch.",
-		caption: "Equality · Composable field-by-field structural equality",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M170 72 H242 L310 128 M170 184 H242 L310 128" />
@@ -24,7 +23,6 @@ export const DATA_AND_TYPE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Composable sorting with Ordering",
 		desc:
 			"Three unordered scores (9, 2, 5) weave smoothly through a multi-key comparator into ascending order (2, 5, 9).",
-		caption: "Ordering · Chainable primary and tie-breaker comparators",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M92 60 H148 C248 60 338 196 436 196 H502" />
@@ -43,7 +41,6 @@ export const DATA_AND_TYPE_FIGURES: Record<string, HeroFigureSpec> = {
 		plate: "#dcefb8",
 		title: "Short-circuit boolean combinators in Predicate",
 		desc: "Predicate.and runs the second check only when the first returns true, skipping redundant work on false.",
-		caption: "Predicate · Combine reusable boolean checks with short-circuiting",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M-8 128 H126" />
@@ -63,7 +60,6 @@ export const DATA_AND_TYPE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Sequential type-guard narrowing in Refinement",
 		desc:
 			"Refinement.compose runs an object shape check first and only enters the field guard after TypeScript narrows the input.",
-		caption: "Refinement · Narrow unknown data step by step without casts",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M118 128 H164 M296 128 H342 M474 128 H520" />
@@ -82,7 +78,6 @@ export const DATA_AND_TYPE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Associative reduction with Combinable",
 		desc:
 			"combineAll folds an array of metric summaries left-to-right starting from empty using the rule's combine operation.",
-		caption: "Combinable · Reduce sequences cleanly from an empty identity",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M148 56 H228 L314 128 M148 128 H314 M148 200 H228 L314 128" />
@@ -101,7 +96,6 @@ export const DATA_AND_TYPE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Zero-cost nominal types with Brand",
 		desc:
 			"At compile time Brand separates UserId from AccountId strings while keeping the underlying runtime value identical.",
-		caption: "Brand · Distinct compile-time types with zero runtime wrapper",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M150 128 H224 M376 128 H450" />
@@ -118,7 +112,6 @@ export const DATA_AND_TYPE_FIGURES: Record<string, HeroFigureSpec> = {
 		plate: "#e6dec8",
 		title: "Unit-safe millisecond arithmetic in Duration",
 		desc: "Duration.minutes and Duration.seconds normalize distinct units into a single Duration value in milliseconds.",
-		caption: "Duration · Express time units explicitly, compute safely in ms",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M190 78 H272 L340 128 M190 178 H272 L340 128" />
@@ -136,7 +129,6 @@ export const DATA_AND_TYPE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Composable timeout and exponential retry schedules",
 		desc:
 			"Successive retry attempts run under per-attempt timeouts spaced by growing backoff delays until settled or exhausted.",
-		caption: "Policies · Timeout, exponential retry, and repeat intervals",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M24 148 H560 M550 138 L560 148 L550 158" />
@@ -156,7 +148,6 @@ export const DATA_AND_TYPE_FIGURES: Record<string, HeroFigureSpec> = {
 		plate: "#b4dce2",
 		title: "Boundary non-emptiness guard in NonEmpty",
 		desc: "A runtime check rejects empty collections to None and promotes populated inputs to NonEmpty types safely.",
-		caption: "NonEmpty · Enforce non-empty arrays, strings, sets, and records",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M-8 128 H212 L288 68 H366 M212 128 L288 188 H366" />
@@ -173,7 +164,6 @@ export const DATA_AND_TYPE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Focusing a nested field with Lens",
 		desc:
 			"A Lens zooms into a nested field (such as audio.volume) to read or copy-on-write update without mutating outer objects.",
-		caption: "Lens · Immutable read and structural update on nested fields",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<rect x="46" y="42" width="320" height="172" class="flow-node" />
@@ -189,7 +179,6 @@ export const DATA_AND_TYPE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Optional nested field access and update",
 		desc:
 			"Optional reads or updates a path that may be absent, returning Some(value) on hit or leaving missing structures untouched.",
-		caption: "Optional · Modify nested fields only when present",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<rect x="46" y="42" width="248" height="172" class="flow-node" />
@@ -207,7 +196,6 @@ export const DATA_AND_TYPE_FIGURES: Record<string, HeroFigureSpec> = {
 		plate: "#e6dec8",
 		title: "Dense partitioning of arrays in Arr",
 		desc: "Arr.partition separates mixed items into matched and unmatched readonly arrays in a single pass.",
-		caption: "Arr · Single-pass immutable filtering and partitioning",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<circle cx="46" cy="128" r="14" class="flow-node" />
@@ -226,7 +214,6 @@ export const DATA_AND_TYPE_FIGURES: Record<string, HeroFigureSpec> = {
 		plate: "#bce5f5",
 		title: "Own-key record merge and transformation in Rec",
 		desc: "Rec.merge overlays defaults with overrides in own-key enumeration order without mutating either object.",
-		caption: "Rec · Immutable own-property transforms and merges",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<rect x="34" y="48" width="174" height="68" class="flow-node" />
@@ -244,7 +231,6 @@ export const DATA_AND_TYPE_FIGURES: Record<string, HeroFigureSpec> = {
 		plate: "#b8e6d8",
 		title: "Single-lookup upsert on Map in Dict",
 		desc: "Dict.upsert checks key existence once and hands Some(prev) or None to the updater to produce a new Map.",
-		caption: "Dict · Typed Map operations without prototype-key hazards",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M-8 128 H194 L276 68 H350 M194 128 L276 188 H350" />
@@ -260,7 +246,6 @@ export const DATA_AND_TYPE_FIGURES: Record<string, HeroFigureSpec> = {
 		plate: "#dcefb8",
 		title: "Set difference filtering in Uniq",
 		desc: "Uniq.difference subtracts disabled entries from requested items while returning a clean immutable Set.",
-		caption: "Uniq · Set algebra with zero-dependency runtime fallbacks",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<circle cx="216" cy="128" r="78" class="flow-node" />
@@ -276,7 +261,6 @@ export const DATA_AND_TYPE_FIGURES: Record<string, HeroFigureSpec> = {
 		plate: "#e6dec8",
 		title: "Curried line splitting and blank filtering in Str",
 		desc: "Str.lines breaks raw text into lines, drops blank rows with is.blank, and extracts normalized tokens.",
-		caption: "Str · Unicode-safe string helpers built for pipe",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M118 128 H158 M266 128 H306 M428 128 H472" />
@@ -294,7 +278,6 @@ export const DATA_AND_TYPE_FIGURES: Record<string, HeroFigureSpec> = {
 		plate: "#c5daf6",
 		title: "Safe numeric division in Num",
 		desc: "Num.divide checks for a zero divisor before computing, returning None instead of Infinity or NaN.",
-		caption: "Num · Finite numeric parsing, clamping, and safe division",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M-8 128 H200 L284 68 H366 M200 128 L284 188 H366" />
@@ -312,7 +295,6 @@ export const DATA_AND_TYPE_FIGURES: Record<string, HeroFigureSpec> = {
 		plate: "#f2c6d8",
 		title: "Safe arbitrary-precision parsing in BigNum",
 		desc: "BigNum.from.string guards malformed integer strings and BigNum.divide rejects zero divisors via Maybe.",
-		caption: "BigNum · Exact bigint parsing and safe division without throws",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M-8 128 H206 L284 68 H366 M206 128 L284 188 H366" />
@@ -330,7 +312,6 @@ export const DATA_AND_TYPE_FIGURES: Record<string, HeroFigureSpec> = {
 		plate: "#c7e3b5",
 		title: "Lazy short-circuit evaluation in Bool",
 		desc: "Bool.andLazy evaluates its thunk only when the flag is true, skipping downstream work otherwise.",
-		caption: "Bool · Lazy boolean logic and strict string parsing",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M-8 128 H194 L276 68 H350 M194 128 L276 188 H350" />
@@ -347,7 +328,6 @@ export const DATA_AND_TYPE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Exception-free parsing in Json",
 		desc:
 			"Json.parse turns malformed JSON or stringify cycles into a typed Result error instead of an uncaught exception.",
-		caption: "Json · Typed Result boundaries around JSON.parse and stringify",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M-8 128 H196 L278 68 H350 M196 128 L278 188 H350" />

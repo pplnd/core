@@ -3,6 +3,8 @@ import { getCollection, render } from "astro:content";
 import path from "node:path";
 import GuideFigure from "../components/GuideFigure.astro";
 import { GUIDE_BUNDLE_SIZES } from "../data/bundle-sizes";
+import { guideSocialImage } from "../data/social-images";
+import { GUIDE_FIGURES } from "../figures";
 import BaseLayout from "../layouts/BaseLayout.astro";
 
 export async function getStaticPaths() {
@@ -33,13 +35,19 @@ function deriveFallbackHeading(id: string, filePath?: string): string {
 
 const rawTitle = entry.data.title ?? deriveFallbackHeading(entry.id, entry.filePath);
 const headingTitle = rawTitle.split(" — ")[0] ?? rawTitle;
+const figure = GUIDE_FIGURES[entry.id];
 const bundleSize = Object.hasOwn(GUIDE_BUNDLE_SIZES, entry.id) ? GUIDE_BUNDLE_SIZES[entry.id] : undefined;
 const importStatement = bundleSize
 	? `import { ${bundleSize.entries.map((item) => item.module).join(", ")} } from "${bundleSize.importFrom}"`
 	: undefined;
 ---
 
-<BaseLayout title={rawTitle} description={entry.data.description} currentSlug={entry.id}>
+<BaseLayout
+	title={rawTitle}
+	description={entry.data.description}
+	currentSlug={entry.id}
+	socialImage={guideSocialImage(entry.id, rawTitle)}
+>
 	<header slot="hero" class="hero guide-hero">
 		<div class="hero-brand">
 			<a class="wordmark" href="/">pipelined</a>
@@ -51,7 +59,7 @@ const importStatement = bundleSize
 		<div class="hero-r"><h1>{headingTitle}</h1></div>
 	</header>
 
-	<article class="article">
+	<article class="article" style={figure && { "--pplnd-figure-plate": figure.plate }}>
 		{entry.data.description && <p class="lead">{entry.data.description}</p>}
 		{bundleSize && importStatement && (
 			<div
@@ -77,7 +85,7 @@ const importStatement = bundleSize
 				</span>
 			</div>
 		)}
-		<GuideFigure slug={entry.id} />
+		{figure && <GuideFigure figure={figure} />}
 		<Content />
 	</article>
 </BaseLayout>

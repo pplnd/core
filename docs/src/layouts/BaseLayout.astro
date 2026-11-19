@@ -1,5 +1,6 @@
 ---
 import "../styles/global.css";
+import type { SocialImage } from "../data/social-images";
 import { NAV_ENTRIES, SEARCH_ITEMS, TICKER_NAMES } from "../nav";
 
 export interface Props {
@@ -7,13 +8,18 @@ export interface Props {
 	description?: string;
 	currentSlug?: string;
 	isHome?: boolean;
+	layout?: "index" | "article";
+	socialImage?: SocialImage;
 }
 
-const { title, description, currentSlug, isHome = false } = Astro.props;
+const { title, description, currentSlug, isHome = false, layout = isHome ? "index" : "article", socialImage } =
+	Astro.props;
+const isIndexLayout = layout === "index";
 const pageTitle = isHome ? "pipelined — @pplnd/core" : `${title} — @pplnd/core`;
 const canonicalUrl = new URL(Astro.url.pathname, Astro.site ?? "https://pplnd.dev").href;
 const metaDescription = description
 	?? "Typed errors, explicit absence, composable async. Plain TypeScript, tree-shakeable, zero dependencies.";
+const socialImageUrl = socialImage && new URL(socialImage.path, canonicalUrl).href;
 ---
 
 <!DOCTYPE html>
@@ -31,17 +37,24 @@ const metaDescription = description
 		<meta property="og:locale" content="en" />
 		<meta property="og:description" content={metaDescription} />
 		<meta property="og:site_name" content="pipelined" />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		{socialImage && (
+			<>
+				<meta property="og:image" content={socialImageUrl} />
+				<meta property="og:image:type" content="image/png" />
+				<meta property="og:image:width" content={socialImage.width} />
+				<meta property="og:image:height" content={socialImage.height} />
+				<meta property="og:image:alt" content={socialImage.alt} />
+				<meta name="twitter:card" content="summary_large_image" />
+				<meta name="twitter:image" content={socialImageUrl} />
+				<meta name="twitter:image:alt" content={socialImage.alt} />
+			</>
+		)}
+		<link id="site-favicon" rel="icon" type="image/svg+xml" href="/favicon.svg" />
 		<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
 		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/inter-tight@5.3.0/400.css" />
 		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/inter-tight@5.3.0/500.css" />
 		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/iosevka@5.3.0/400.css" />
 		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/iosevka@5.3.0/500.css" />
-		<script is:inline>
-			try {
-				document.documentElement.dataset.theme = localStorage.getItem("pplnd-theme") === "dark" ? "dark" : "light";
-			} catch {}
-		</script>
 	</head>
 	<body id="top">
 		<div class="ticker" aria-hidden="true">
@@ -62,10 +75,10 @@ const metaDescription = description
 			</div>
 		</header>
 
-		<main class={isHome ? "home-layout" : undefined}>
+		<main class={isIndexLayout ? "home-layout" : undefined}>
 			<slot name="hero" />
 
-			<div class={isHome ? "page" : "page guide-page"}>
+			<div class={isIndexLayout ? "page" : "page guide-page"}>
 				<aside class="left" id="module-menu" aria-label="Documentation menu">
 					<nav aria-label="Documentation">
 						<ul class="tree">
@@ -139,16 +152,44 @@ const metaDescription = description
 								<path d="M16 0 V21.5 M3.5 9.5 L16 22 L28.5 9.5" />
 							</svg>
 							<div class="pm-line" role="tablist" aria-label="Package manager">
-								<button class="pm" role="tab" type="button" aria-selected="true" data-pm-cmd="pnpm add @pplnd/core">
+								<button
+									class="pm"
+									role="tab"
+									type="button"
+									aria-selected="true"
+									data-pm="pnpm"
+									data-pm-cmd="pnpm add @pplnd/core"
+								>
 									pnpm
 								</button>
-								<button class="pm" role="tab" type="button" aria-selected="false" data-pm-cmd="npm install @pplnd/core">
+								<button
+									class="pm"
+									role="tab"
+									type="button"
+									aria-selected="false"
+									data-pm="npm"
+									data-pm-cmd="npm install @pplnd/core"
+								>
 									npm
 								</button>
-								<button class="pm" role="tab" type="button" aria-selected="false" data-pm-cmd="yarn add @pplnd/core">
+								<button
+									class="pm"
+									role="tab"
+									type="button"
+									aria-selected="false"
+									data-pm="yarn"
+									data-pm-cmd="yarn add @pplnd/core"
+								>
 									yarn
 								</button>
-								<button class="pm" role="tab" type="button" aria-selected="false" data-pm-cmd="bun add @pplnd/core">
+								<button
+									class="pm"
+									role="tab"
+									type="button"
+									aria-selected="false"
+									data-pm="bun"
+									data-pm-cmd="bun add @pplnd/core"
+								>
 									bun
 								</button>
 							</div>

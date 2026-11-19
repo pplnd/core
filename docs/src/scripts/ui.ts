@@ -312,18 +312,12 @@ function initShell(): void {
 
 	const notFoundPath = document.querySelector<SVGTextElement>("#not-found-path");
 	const notFoundSearchBtn = document.querySelector<HTMLButtonElement>("#not-found-search-btn");
-	const notFoundSearchTitle = document.querySelector<HTMLElement>("#not-found-search-title");
 	if (notFoundPath || notFoundSearchBtn) {
 		const rawPath = location.pathname;
 		if (notFoundPath) {
 			notFoundPath.textContent = rawPath.length > 34 ? `${rawPath.slice(0, 31)}...` : rawPath;
 		}
 		const slug = (rawPath.split("/").filter(Boolean).pop() || "").replace(/[-_]+/gu, " ").trim();
-		if (slug && notFoundSearchTitle) {
-			const secondary = document.createElement("span");
-			secondary.textContent = " Open search pre-filled with this route segment.";
-			notFoundSearchTitle.replaceChildren(document.createTextNode(`Search for "${slug}".`), secondary);
-		}
 		notFoundSearchBtn?.addEventListener("click", () => searchEl?.open(slug));
 	}
 

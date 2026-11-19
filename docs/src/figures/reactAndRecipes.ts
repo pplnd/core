@@ -6,7 +6,6 @@ export const REACT_AND_RECIPE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Pure core engine feeding React render bindings",
 		desc:
 			"Business logic stays outside React in @pplnd/core while @pplnd/react hooks project snapshots and clean up on unmount.",
-		caption: "@pplnd/react · Ownership stays in core, hooks bind to components",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<rect x="34" y="56" width="210" height="144" class="flow-node" />
@@ -27,7 +26,6 @@ export const REACT_AND_RECIPE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Dependency-keyed RemoteData loading in useLoad",
 		desc:
 			"Changing dependencies aborts the previous signal, switches immediately to Loading, and settles into Success or Failure.",
-		caption: "useLoad · Cancel stale fetches when React dependencies change",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M124 68 H236 M250 58 L270 78 M250 78 L270 58 M260 88 V142" />
@@ -51,7 +49,6 @@ export const REACT_AND_RECIPE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Imperative Op binding in useOp",
 		desc:
 			"useOp binds a component to a managed Op instance, surfacing [state, run, abort] without recreating overlap rules.",
-		caption: "useOp · Subscribe to Op state, trigger runs, abort on unmount",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<rect x="44" y="76" width="160" height="104" class="flow-node" />
@@ -69,7 +66,6 @@ export const REACT_AND_RECIPE_FIGURES: Record<string, HeroFigureSpec> = {
 		plate: "#dcefb8",
 		title: "Interval polling lifecycle in useOpPoll",
 		desc: "useOpPoll schedules interval runs through an Op manager, pausing cleanly when hidden or inactive.",
-		caption: "useOpPoll · Cadenced Op polling bound to visibility and mount",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M30 132 H554 M544 122 L554 132 L544 142" />
@@ -89,7 +85,6 @@ export const REACT_AND_RECIPE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Component-scoped Machine hook in useMachine",
 		desc:
 			"useMachine creates a Machine actor for the component lifetime, returns [state, send], and stops the actor on unmount.",
-		caption: "useMachine · Component-owned actor with cleanup on unmount",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M182 102 H414 M402 91 L414 102 L402 113" />
@@ -108,7 +103,6 @@ export const REACT_AND_RECIPE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Selector projections over shared Machine.Actor in useActor",
 		desc:
 			"Multiple components subscribe with narrow selectors to one shared Machine.Actor, re-rendering only when their slice changes.",
-		caption: "useActor · Bind shared actors cleanly with selector slices",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M180 128 H258 L328 72 H380 M258 128 L328 184 H380" />
@@ -125,7 +119,6 @@ export const REACT_AND_RECIPE_FIGURES: Record<string, HeroFigureSpec> = {
 		plate: "#b8e6d8",
 		title: "Automatic subscription cleanup in useEventBus",
 		desc: "useEventBus wires a sibling listener to a shared EventBus channel and unsubscribes automatically on unmount.",
-		caption: "useEventBus · Mount-scoped subscription with zero leaks",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M174 128 H292 M292 68 V188 M292 68 H392 M292 188 H392" />
@@ -144,7 +137,6 @@ export const REACT_AND_RECIPE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Mount-to-unmount resource scoping in useResource",
 		desc:
 			"useResource opens an async resource on mount, tracks acquiring/ready/failed state, and guarantees release on unmount.",
-		caption: "useResource · Pair component mount and unmount with Resource",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M72 56 V196 H528 V56" />
@@ -161,7 +153,6 @@ export const REACT_AND_RECIPE_FIGURES: Record<string, HeroFigureSpec> = {
 		plate: "#c5daf6",
 		title: "End-to-end HTTP form request pipeline",
 		desc: "Form data flows from Validation into an Op managed under RetryPolicy and surfaces in RemoteData.",
-		caption: "Recipe · Validation -> Op -> RetryPolicy -> RemoteData",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M98 172 V212 H502 V172" class="flow-dash" />
@@ -183,7 +174,6 @@ export const REACT_AND_RECIPE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Pure validation separated from UI error visibility",
 		desc:
 			"Pure Validation.keyed evaluates all fields unconditionally while a visibility trigger decides when errors show.",
-		caption: "Recipe · Separate pure field checks from blur/submit visibility",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M168 78 H274 L344 128 M168 178 H274 L344 128 M344 128 H406" />
@@ -200,7 +190,6 @@ export const REACT_AND_RECIPE_FIGURES: Record<string, HeroFigureSpec> = {
 		plate: "#bce5f5",
 		title: "Graph reads feeding Transaction writes inside Resource cleanup",
 		desc: "Resource holds DB locks around a concurrent Graph read phase and a compensating Transaction write phase.",
-		caption: "Recipe · Resource bracket -> Graph reads -> Transaction writes",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<rect x="28" y="34" width="544" height="188" class="flow-node" />
@@ -221,7 +210,6 @@ export const REACT_AND_RECIPE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "EventBus routing upload events into Machine and Op",
 		desc:
 			"EventBus delivers uploadFinished to a Machine actor, which transitions state and dispatches the validation Op.",
-		caption: "Recipe · EventBus -> Machine transitions -> managed Op",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M168 128 H212 M352 128 H396 M202 118 L212 128 L202 138 M386 118 L396 128 L386 138" />

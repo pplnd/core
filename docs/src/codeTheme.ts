@@ -58,7 +58,6 @@ export const pplndCodeTheme: ShikiTheme = {
 			"constant.language",
 			"constant.character",
 			"variable.language.this",
-			"variable.other.constant",
 			"support.constant",
 		],
 		settings: { foreground: "var(--pplnd-code-constant)" },
@@ -74,9 +73,9 @@ export const pplndCodeTheme: ShikiTheme = {
 		settings: { foreground: "var(--pplnd-code-fg)" },
 	}, {
 		scope: ["markup.inserted", "punctuation.definition.inserted"],
-		settings: { foreground: "var(--pplnd-code-function)" },
+		settings: { foreground: "var(--pplnd-code-string)" },
 	}, {
 		scope: ["markup.deleted", "punctuation.definition.deleted"],
-		settings: { foreground: "var(--pplnd-code-string)" },
+		settings: { foreground: "var(--pplnd-code-keyword)" },
 	}],
 };

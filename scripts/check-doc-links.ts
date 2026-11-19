@@ -185,6 +185,7 @@ function findMissingBuiltArtifacts(root = process.cwd()): string[] {
 	const requiredDistFiles = [
 		"index.html",
 		"404.html",
+		"favicon.svg",
 		"sitemap-index.xml",
 		"sitemap-0.xml",
 		"search-index.json",
@@ -239,6 +240,35 @@ function findMissingBuiltArtifacts(root = process.cwd()): string[] {
 			if (!html.includes('property="og:title"')) {
 				issues.push(`missing property="og:title" in docs/dist/${htmlRel}`);
 			}
+		}
+	}
+
+	for (const htmlRel of fs.globSync("guides/**/index.html", { cwd: distRoot })) {
+		const html = fs.readFileSync(path.join(distRoot, htmlRel), "utf8");
+		const image = html.match(/<meta property="og:image" content="(?<url>https:\/\/[^"\s]+)"/u)?.groups?.url;
+		const imagePath = `/social/${htmlRel.replaceAll(path.sep, "/").slice(0, -"/index.html".length)}.png`;
+		if (!image || !URL.canParse(image) || new URL(image).pathname !== imagePath) {
+			issues.push(`missing absolute guide image URL in docs/dist/${htmlRel}`);
+			continue;
+		}
+		if (
+			!html.includes('<meta name="twitter:card" content="summary_large_image"')
+			|| !html.includes(`<meta name="twitter:image" content="${image}"`)
+		) {
+			issues.push(`missing large-image card metadata in docs/dist/${htmlRel}`);
+		}
+		const imageFile = path.join(distRoot, imagePath.slice(1));
+		if (!isFile(imageFile)) {
+			issues.push(`missing guide image: docs/dist${imagePath}`);
+			continue;
+		}
+		const png = fs.readFileSync(imageFile);
+		if (
+			png.length < 24 || png.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a"
+			|| !html.includes(`<meta property="og:image:width" content="${png.readUInt32BE(16)}"`)
+			|| !html.includes(`<meta property="og:image:height" content="${png.readUInt32BE(20)}"`)
+		) {
+			issues.push(`guide image must be a PNG with dimensions matching the metadata: docs/dist${imagePath}`);
 		}
 	}
 

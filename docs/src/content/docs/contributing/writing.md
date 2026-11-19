@@ -108,8 +108,7 @@ background. Replace "declarative lifecycle bracket" with "pairs setup with clean
 - Do not use LaTeX delimiters.
 - Author hero explainer figures in `viewBox="0 0 600 256"` with a pastel plate token
   (`--figure-plate`), `currentColor` geometric paths (`stroke-width="2"`), `.flow-input` /
-  `.flow-case` / `.flow-value` text classes, an accessible `<title>` and `<desc>`, and a one-line
-  `<figcaption>`.
+  `.flow-case` / `.flow-value` text classes, and an accessible `<title>` and `<desc>`.
 
 ## Complete example
 

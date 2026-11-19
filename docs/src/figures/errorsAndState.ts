@@ -6,7 +6,6 @@ export const ERRORS_AND_STATE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Linear transformation flow in pipe",
 		desc:
 			"A raw string enters pipe and passes left to right through trim, toLowerCase, and replace to produce a clean slug.",
-		caption: "pipe · Top-to-bottom linear data flow",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M-8 128 H56 M184 128 H222 M350 128 H388 M516 128 H558" />
@@ -27,7 +26,6 @@ export const ERRORS_AND_STATE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Conditional branching and struct shaping in pipelines",
 		desc:
 			"An input record enters when(isVip) or skips along a bypass rail, then feeds struct to derive multiple fields at once.",
-		caption: "Composition · Guard steps with when and build records with struct",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M92 128 H134 M134 128 L170 82 H286 L322 128" />
@@ -49,7 +47,6 @@ export const ERRORS_AND_STATE_FIGURES: Record<string, HeroFigureSpec> = {
 		plate: "#c5daf6",
 		title: "Parsing JSON with Result.tryCatch",
 		desc: "Valid JSON becomes an Ok with the parsed value. A syntax error becomes an Err with INVALID_JSON.",
-		caption: "Result.tryCatch · Parsing server configuration",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M-8 129 H189 L278 64 H341 M189 129 L278 192 H341" />
@@ -68,7 +65,6 @@ export const ERRORS_AND_STATE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Presence and absence branching in Maybe",
 		desc:
 			"A nullable environment value enters Maybe.from.nullable and branches into Some when present or None when missing.",
-		caption: "Maybe.from.nullable · Explicit presence without null or undefined",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M-8 129 H204 L288 64 H348 M204 129 L288 192 H348" />
@@ -87,7 +83,6 @@ export const ERRORS_AND_STATE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Error accumulation across fields in Validation.struct",
 		desc:
 			"Three field checks run independently and join at Validation.struct to collect all failures instead of stopping at the first.",
-		caption: "Validation.struct · Inspect every field and collect all errors",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M168 58 H254 L318 128 M168 128 H318 M168 198 H254 L318 128" />
@@ -109,7 +104,6 @@ export const ERRORS_AND_STATE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Four-state lifecycle in RemoteData",
 		desc:
 			"RemoteData moves from NotAsked through Loading and resolves into either Success with data or Failure with an error.",
-		caption: "RemoteData · Four states, no impossible combinations",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M132 128 H192 M320 128 L374 72 H406 M320 128 L374 184 H406" />
@@ -127,7 +121,6 @@ export const ERRORS_AND_STATE_FIGURES: Record<string, HeroFigureSpec> = {
 		plate: "#f7dfa8",
 		title: "Three variants of These: First, Second, Both",
 		desc: "An operation can return a primary value only, a diagnostic warning only, or both together.",
-		caption: "These · Primary value, diagnostic warning, or both",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M-8 128 H194 M194 128 L272 54 H336 M194 128 H336 M194 128 L272 202 H336" />
@@ -148,7 +141,6 @@ export const ERRORS_AND_STATE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Independent mapping and merge on Pair",
 		desc:
 			"Pair holds two values: mapFirst updates the first position, mapSecond updates the second, and merge joins them.",
-		caption: "Pair · Transform positions independently, then merge",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M24 128 H132 M132 128 L178 68 H392 L438 128 H496 M132 128 L178 188 H392 L438 128" />
@@ -169,7 +161,6 @@ export const ERRORS_AND_STATE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Explicit transitions in Machine",
 		desc:
 			"An actor transitions between explicit states on named events, triggering exit and entry effects only when changing state.",
-		caption: "Machine · Explicit states and typed transitions",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M180 106 H414 M402 95 L414 106 L402 117" />
@@ -187,7 +178,6 @@ export const ERRORS_AND_STATE_FIGURES: Record<string, HeroFigureSpec> = {
 		plate: "#d9ccf3",
 		title: "Threading updated state through State",
 		desc: "Each step reads the current state and passes the next immutable state plus an intermediate value forward.",
-		caption: "State · Thread updated counters without mutation",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M24 84 H544 M534 74 L544 84 L534 94" />
@@ -208,7 +198,6 @@ export const ERRORS_AND_STATE_FIGURES: Record<string, HeroFigureSpec> = {
 		plate: "#b8e6d8",
 		title: "Shared environment distribution in Reader",
 		desc: "A shared configuration object supplied once at run feeds every Reader step without explicit argument passing.",
-		caption: "Reader · Supply environment once at the outer edge",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M40 58 H490" />
@@ -230,7 +219,6 @@ export const ERRORS_AND_STATE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Accumulating trace entries in Logged",
 		desc:
 			"Chained steps transform the value on the top track while appending structured log entries along the bottom rail.",
-		caption: "Logged · Transform values while appending trace entries",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M24 82 H554 M544 72 L554 82 L544 92" />

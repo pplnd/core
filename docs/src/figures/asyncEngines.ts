@@ -5,7 +5,6 @@ export const ASYNC_ENGINE_FIGURES: Record<string, HeroFigureSpec> = {
 		plate: "#dcefb8",
 		title: "Parallel fork-join execution in Task",
 		desc: "Task forks concurrent branches from a starting trigger and joins their settled results downstream.",
-		caption: "Task · Lazy, cancellable async pipelines",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M-8 128 H140 V66 H430 V128 H548 M140 128 V190 H430 V128" />
@@ -23,7 +22,6 @@ export const ASYNC_ENGINE_FIGURES: Record<string, HeroFigureSpec> = {
 		plate: "#f6cbb7",
 		title: "Overlap control in Op",
 		desc: "In restartable mode, starting run 2 immediately settles run 1 as replaced and executes run 2 to completion.",
-		caption: "Op · Managed async runs and overlap strategies",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M126 78 H276 M292 68 L312 88 M292 88 L312 68 M302 98 V156" />
@@ -42,7 +40,6 @@ export const ASYNC_ENGINE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Single-assignment synchronization latch in Deferred",
 		desc:
 			"Multiple awaiting callers suspend on a Deferred latch until one caller writes a result, waking every waiter together.",
-		caption: "Deferred · Write-once latch shared across awaiters",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M24 128 H248" />
@@ -60,7 +57,6 @@ export const ASYNC_ENGINE_FIGURES: Record<string, HeroFigureSpec> = {
 		plate: "#f2c6d8",
 		title: "Separating cancellation from domain errors with Aborted",
 		desc: "Domain errors enter Result.mapError for operator messages while Aborted passes straight through unchanged.",
-		caption: "Aborted · Cancellation bypasses application error mapping",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M-8 128 H182 L254 68 H540 M182 128 L254 188 H540" />
@@ -79,7 +75,6 @@ export const ASYNC_ENGINE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Sequential FIFO fan-out in EventBus",
 		desc:
 			"An emitted message distributes down a bus bar to active listeners while re-entrant emissions wait in the FIFO queue.",
-		caption: "EventBus · Typed fan-out with queued re-entrant emits",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M138 128 H292 M292 52 V204 M292 52 H494 M292 128 H494 M292 204 H494" />
@@ -98,7 +93,6 @@ export const ASYNC_ENGINE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Keyed request coalescing and deduplication in Batcher",
 		desc:
 			"Three separate requests for A, B, and A collapse into one bulk lookup for unique keys [A, B] and fan back out.",
-		caption: "Batcher · Merge and deduplicate concurrent keyed lookups",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M84 56 H148 L228 128 H326 M84 128 H228 M84 200 H148 L228 128 M316 118 L326 128 L316 138" />
@@ -114,7 +108,6 @@ export const ASYNC_ENGINE_FIGURES: Record<string, HeroFigureSpec> = {
 		plate: "#c7e3b5",
 		title: "Stale-while-revalidate and stampede deduplication in Cache",
 		desc: "First lookup misses through the loader into storage while repeated lookups read directly from the cache gate.",
-		caption: "Cache · Load once, serve fresh or refresh in background",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M40 86 H244 M232 75 L244 86 L232 97" />
@@ -130,7 +123,6 @@ export const ASYNC_ENGINE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Three states of CircuitBreaker",
 		desc:
 			"CircuitBreaker starts Closed, opens after threshold failures, waits out cooldown to enter HalfOpen, and closes if a probe succeeds.",
-		caption: "CircuitBreaker · Trip open on failures, probe after cooldown",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M156 128 H234 M224 118 L234 128 L224 138" />
@@ -150,7 +142,6 @@ export const ASYNC_ENGINE_FIGURES: Record<string, HeroFigureSpec> = {
 		plate: "#e6dec8",
 		title: "Token-bucket request throttling in RateLimiter",
 		desc: "Concurrent burst callers pass through an admission gate paced by available permits over a rolling window.",
-		caption: "RateLimiter · Admit up to limit, queue surplus in order",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M66 72 H174 M66 128 H174 M66 184 H174" />
@@ -174,7 +165,6 @@ export const ASYNC_ENGINE_FIGURES: Record<string, HeroFigureSpec> = {
 		plate: "#f2c6d8",
 		title: "Nested acquisition and reverse LIFO release in Resource",
 		desc: "Resource A opens first, then Resource B opens inside it; on scope exit or failure, B releases before A.",
-		caption: "Resource · Pair setup with guaranteed LIFO cleanup",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M64 46 V206 H536 V46 M148 92 V164 H452 V92" />
@@ -193,7 +183,6 @@ export const ASYNC_ENGINE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Bounded lease pool with wait queue in Pool",
 		desc:
 			"Callers acquire reusable slots up to maxSize while surplus callers wait in FIFO order and released items wake the next waiter.",
-		caption: "Pool · Bounded capacity with queued waiters",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M44 76 H174 M44 126 H174 M44 192 H174" />
@@ -220,7 +209,6 @@ export const ASYNC_ENGINE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Managed worker restart lifecycle in Supervisor",
 		desc:
 			"A supervised worker runs its task loop, enters backoff when it crashes, and restarts cleanly under shutdown bounds.",
-		caption: "Supervisor · Restart crashed background workers on schedule",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M180 96 H414 M402 85 L414 96 L402 107" />
@@ -239,7 +227,6 @@ export const ASYNC_ENGINE_FIGURES: Record<string, HeroFigureSpec> = {
 		title: "Forward execution and reverse compensation in Transaction",
 		desc:
 			"When step 3 fails, Transaction runs registered undo handlers for steps 2 and 1 in reverse order and returns step 3's error.",
-		caption: "Transaction · Forward steps, reverse undo on failure",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M30 82 H464 M478 72 L498 92 M478 92 L498 72" />
@@ -258,7 +245,6 @@ export const ASYNC_ENGINE_FIGURES: Record<string, HeroFigureSpec> = {
 		plate: "#bce5f5",
 		title: "Concurrent diamond dependency execution in Graph",
 		desc: "Root node outputs feed independent branches in parallel, joining only after every declared parent finishes.",
-		caption: "Graph · Schedule dependencies concurrently in topological order",
 		svg: `
 			<g fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M126 128 L256 66 H344 L452 128 H544 M126 128 L256 190 H344 L452 128" />

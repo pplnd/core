@@ -22,6 +22,7 @@ const managers = [{ name: "pnpm", cmd: `pnpm add ${packages}` }, { name: "npm", 
 				type="button"
 				aria-selected={i === 0 ? "true" : "false"}
 				tabindex={i === 0 ? 0 : -1}
+				data-pm={m.name}
 				data-pm-cmd={m.cmd}
 			>
 				{m.name}
